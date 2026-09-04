@@ -40,6 +40,7 @@ import {
   normalizeTrackLanguage,
 } from './services/learning-language-policy.js';
 import { selectAgentRoute } from './router/agent-router.js';
+import { tryPitchLexiconCoachReply } from './db/seeds/pitch-seed.js';
 
 
 export class GatewayServer {
@@ -625,27 +626,37 @@ export class GatewayServer {
             });
 
             if (decision.route === 'responses-lite') {
-              const liteSessionRes = await this.responsesAdapter.createSession({
-                sessionId: envelope.sessionId,
-                userId,
-              });
-              if (isOk(liteSessionRes)) {
-                let liteOut = '';
-                for await (const ev of liteSessionRes.value.send({
-                  message: userPrompt,
-                  contextSnapshot: snapshot,
-                })) {
-                  if (abortController.signal.aborted) break;
-                  if (ev.type === 'TEXT_DELTA' && 'delta' in ev && ev.delta) {
-                    liteOut += ev.delta;
-                  } else if (ev.type === 'COMPLETED' && 'finalOutput' in ev && ev.finalOutput) {
-                    liteOut = String(ev.finalOutput);
-                  } else if (ev.type === 'ERROR' && 'error' in ev) {
-                    return err(ev.error);
-                  }
+              // 日语声调/读音：优先走本地课程词表，再回落 stub
+              if (track === 'ja') {
+                const lexiconReply = tryPitchLexiconCoachReply(userPrompt);
+                if (lexiconReply) {
+                  reply = lexiconReply;
                 }
-                if (liteOut) {
-                  reply = liteOut;
+              }
+
+              if (!reply) {
+                const liteSessionRes = await this.responsesAdapter.createSession({
+                  sessionId: envelope.sessionId,
+                  userId,
+                });
+                if (isOk(liteSessionRes)) {
+                  let liteOut = '';
+                  for await (const ev of liteSessionRes.value.send({
+                    message: userPrompt,
+                    contextSnapshot: snapshot,
+                  })) {
+                    if (abortController.signal.aborted) break;
+                    if (ev.type === 'TEXT_DELTA' && 'delta' in ev && ev.delta) {
+                      liteOut += ev.delta;
+                    } else if (ev.type === 'COMPLETED' && 'finalOutput' in ev && ev.finalOutput) {
+                      liteOut = String(ev.finalOutput);
+                    } else if (ev.type === 'ERROR' && 'error' in ev) {
+                      return err(ev.error);
+                    }
+                  }
+                  if (liteOut) {
+                    reply = liteOut;
+                  }
                 }
               }
             }
