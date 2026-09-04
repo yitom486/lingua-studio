@@ -43,6 +43,8 @@ import {
   NumberTicker,
   ShimmerButton,
   fireSuccessConfetti,
+  BentoGrid,
+  BentoCard,
 } from './components/magicui/index.js';
 import { sound } from './utils/audio.js';
 import {
@@ -703,7 +705,7 @@ export function App() {
             {/* 连续打卡天数指示徽章 */}
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 text-amber-900 dark:text-amber-200 text-xs font-semibold">
               <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
-              <span>连续打卡 12 天</span>
+              <span>连续打卡 <NumberTicker value={12} className="inline-block font-mono font-bold" /> 天</span>
             </div>
 
             <div className="h-5 w-px bg-stone-200 dark:bg-stone-800 hidden sm:block" />
@@ -847,7 +849,7 @@ export function App() {
                       快捷键: 1-4 选选项 / Enter 提交
                     </span>
                     <span className="font-semibold text-amber-700 dark:text-amber-400 font-mono">
-                      当前得分: {sessionScore}
+                      当前得分: <NumberTicker value={sessionScore} className="inline-block" />
                     </span>
                   </div>
                 </div>
@@ -1300,6 +1302,48 @@ export function App() {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6 max-w-4xl"
           >
+            {/* Magic UI BentoGrid 核心概览指标 */}
+            <BentoGrid className="auto-rows-[9.5rem] md:grid-cols-3">
+              <BentoCard
+                name="综合语言掌握度"
+                Icon={Award}
+                description="自适应做题与 FSRS 记忆曲线动态加权"
+              >
+                <div className="flex items-baseline gap-1 pt-1">
+                  <span className="text-3xl font-bold font-mono text-amber-600 dark:text-amber-400">
+                    <NumberTicker value={82} />%
+                  </span>
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">（进阶稳步上升）</span>
+                </div>
+              </BentoCard>
+
+              <BentoCard
+                name="FSRS 记忆卡片库"
+                Icon={Layers}
+                description="4 级抗遗忘间隔重复智能调度"
+              >
+                <div className="flex items-baseline gap-1 pt-1">
+                  <span className="text-3xl font-bold font-mono text-amber-600 dark:text-amber-400">
+                    <NumberTicker value={filteredCards.length} />
+                  </span>
+                  <span className="text-xs text-stone-500 dark:text-stone-400">张活跃卡片 · 稳固率 94%</span>
+                </div>
+              </BentoCard>
+
+              <BentoCard
+                name="待攻克疑难痛点"
+                Icon={AlertTriangle}
+                description="母语负迁移与助词高频混淆点"
+              >
+                <div className="flex items-baseline gap-1 pt-1">
+                  <span className="text-3xl font-bold font-mono text-rose-600 dark:text-rose-400">
+                    <NumberTicker value={mistakes.filter((m) => !m.isResolved).length} />
+                  </span>
+                  <span className="text-xs text-stone-500 dark:text-stone-400">项弱点待清零</span>
+                </div>
+              </BentoCard>
+            </BentoGrid>
+
             {/* 连续学习与 28 天热力图组件 */}
             <StudyStreakHeatmap />
 
