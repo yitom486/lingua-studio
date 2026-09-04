@@ -298,37 +298,41 @@ export function AdaptiveQuizWorkbench({
                   const showWrong = quizSubmitted && isSelected && !isCurrentAnswerCorrect;
 
                   return (
-                    <motion.button
+                    <motion.div
                       key={opt.key}
                       whileHover={!quizSubmitted ? { scale: 1.01 } : {}}
                       whileTap={!quizSubmitted ? { scale: 0.99 } : {}}
-                      disabled={quizSubmitted}
-                      onClick={() => {
-                        sound.playClick();
-                        setSelectedChoice(opt.key);
-                      }}
-                      className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between cursor-pointer ${
-                        showCorrect
-                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-950 dark:text-emerald-200'
-                          : showWrong
-                          ? 'bg-rose-500/15 border-rose-500 text-rose-950 dark:text-rose-200'
-                          : isSelected
-                          ? 'bg-amber-500/15 border-amber-500 text-amber-950 dark:text-amber-100 ring-2 ring-amber-500/30'
-                          : 'bg-stone-100/70 dark:bg-stone-900/50 border-stone-200/80 dark:border-stone-800 text-stone-800 dark:text-stone-200 hover:border-amber-500/40'
-                      }`}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-stone-200/80 dark:bg-stone-800">
-                          {opt.key} ({optIdx + 1})
-                        </span>
-                        {showCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                        {showWrong && <XCircle className="w-4 h-4 text-rose-600" />}
-                      </div>
-                      <div className="text-base font-semibold pt-1">{opt.text}</div>
-                      {opt.note && (
-                        <div className="text-xs text-stone-400 mt-1">{opt.note}</div>
-                      )}
-                    </motion.button>
+                      <Button
+                        variant="outline"
+                        disabled={quizSubmitted}
+                        onClick={() => {
+                          sound.playClick();
+                          setSelectedChoice(opt.key);
+                        }}
+                        className={`w-full h-auto p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between items-stretch whitespace-normal ${
+                          showCorrect
+                            ? 'bg-emerald-500/15 border-emerald-500 text-emerald-950 dark:text-emerald-200 hover:bg-emerald-500/15'
+                            : showWrong
+                            ? 'bg-rose-500/15 border-rose-500 text-rose-950 dark:text-rose-200 hover:bg-rose-500/15'
+                            : isSelected
+                            ? 'bg-amber-500/15 border-amber-500 text-amber-950 dark:text-amber-100 ring-2 ring-amber-500/30 hover:bg-amber-500/15'
+                            : 'bg-stone-100/70 dark:bg-stone-900/50 border-stone-200/80 dark:border-stone-800 text-stone-800 dark:text-stone-200 hover:border-amber-500/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <Badge variant="secondary" className="rounded font-mono text-xs">
+                            {opt.key} ({optIdx + 1})
+                          </Badge>
+                          {showCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                          {showWrong && <XCircle className="w-4 h-4 text-rose-600" />}
+                        </div>
+                        <div className="text-base font-semibold pt-1">{opt.text}</div>
+                        {opt.note && (
+                          <div className="text-xs text-stone-400 mt-1">{opt.note}</div>
+                        )}
+                      </Button>
+                    </motion.div>
                   );
                 })}
               </div>

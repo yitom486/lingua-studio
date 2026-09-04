@@ -166,12 +166,14 @@ export function StudyStreakHeatmap() {
               <span className="text-stone-500">当日未进行学习记录</span>
             )}
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setSelectedDay(null)}
-            className="text-[11px] text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 self-end sm:self-auto"
+            className="h-auto p-0 text-[11px] text-stone-400 hover:text-stone-600 self-end sm:self-auto"
           >
             关闭详情
-          </button>
+          </Button>
         </motion.div>
       )}
     </div>

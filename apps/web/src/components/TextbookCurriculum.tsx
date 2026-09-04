@@ -215,24 +215,26 @@ export function TextbookCurriculum({
             {currentBook.lessons.map((lesson) => {
               const isSelected = lesson.id === selectedLessonId;
               return (
-                <button
+                <Button
                   key={lesson.id}
+                  variant="ghost"
                   onClick={() => {
                     sound.playClick();
                     setSelectedLessonId(lesson.id);
                     setActiveWordCard(null);
                   }}
-                  className={`w-full text-left p-3.5 rounded-xl transition-all border ${
+                  className={`w-full h-auto text-left p-3.5 rounded-xl border justify-start ${
                     isSelected
-                      ? 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/40 shadow-sm'
+                      ? 'bg-amber-500/10 dark:bg-amber-500/20 border-amber-500/40 shadow-sm hover:bg-amber-500/15'
                       : 'bg-[#faf9f6] dark:bg-[#1a1816] border-amber-900/10 dark:border-amber-500/10 hover:border-amber-500/30'
                   }`}
                 >
+                  <div className="w-full">
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300 font-semibold">
+                      <Badge variant="amber" className="rounded text-[11px] font-mono">
                         Lesson {lesson.lessonNumber}
-                      </span>
+                      </Badge>
                       <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100 mt-1">
                         {lesson.title}
                       </h4>
@@ -250,7 +252,8 @@ export function TextbookCurriculum({
                     <span>文法: {lesson.grammarPoints.length}</span>
                     <span>会话: {lesson.dialogues.length}</span>
                   </div>
-                </button>
+                  </div>
+                </Button>
               );
             })}
           </div>
@@ -362,9 +365,9 @@ export function TextbookCurriculum({
                         </div>
 
                         <div className="flex items-center gap-1">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-500 font-mono">
+                          <Badge variant="secondary" className="rounded text-[10px] font-mono">
                             {vocab.pitchAccent} {vocab.pitchType}
-                          </span>
+                          </Badge>
                         </div>
                       </div>
 
@@ -374,14 +377,12 @@ export function TextbookCurriculum({
                       </div>
 
                       <div className="flex justify-end pt-1">
-                        <button
+                        <Button
+                          variant={isAdded ? 'secondary' : 'amber'}
+                          size="sm"
                           onClick={() => handleAddCard(vocab)}
                           disabled={isAdded}
-                          className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg transition-all ${
-                            isAdded
-                              ? 'text-stone-400 dark:text-stone-500 bg-stone-200/50 dark:bg-stone-800 cursor-not-allowed'
-                              : 'text-amber-800 dark:text-amber-300 hover:bg-amber-500/20'
-                          }`}
+                          className="gap-1 h-7"
                         >
                           {isAdded ? (
                             <>
@@ -394,7 +395,7 @@ export function TextbookCurriculum({
                               <span>加为 FSRS 闪卡</span>
                             </>
                           )}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   );
@@ -415,9 +416,9 @@ export function TextbookCurriculum({
                     <h4 className="text-base font-bold text-stone-900 dark:text-stone-100 font-serif">
                       {gp.title}
                     </h4>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 font-semibold font-mono">
+                    <Badge variant="amber" className="text-[11px] font-mono">
                       {gp.structure}
-                    </span>
+                    </Badge>
                   </div>
 
                   <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed">

@@ -18,7 +18,7 @@ import {
 import { useTtsStore } from '../stores/useTtsStore.js';
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover.js';
 import { Slider } from './ui/slider.js';
-import { Button } from './ui/button.js';
+import { Button, buttonVariants } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 
 interface VoiceSettingsPopoverProps {
@@ -93,10 +93,9 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
   return (
     <Popover>
       <PopoverTrigger
-        render={
-          <Button variant="outline" size="sm" className="gap-1.5" title="语音音色与发音设置" />
-        }
         onClick={() => sound.playClick()}
+        className={buttonVariants({ variant: 'outline', size: 'sm', className: 'gap-1.5' })}
+        title="语音音色与发音设置"
       >
         <Volume2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
         <span>{gender === 'FEMALE' ? '👩 女声' : '👨 男声'}</span>
