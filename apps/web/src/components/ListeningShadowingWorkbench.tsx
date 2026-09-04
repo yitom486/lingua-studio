@@ -114,6 +114,7 @@ const DICTATION_CHALLENGES: DictationItem[] = [
 
 import { useTts } from '../hooks/useTts.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
+import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import type { SupportedLanguage, TtsGender } from '../utils/audio.js';
 
 export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchProps> = ({
@@ -137,7 +138,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
   const currentLanguage: SupportedLanguage = activeLessonMeta.language;
   const [sentenceIndex, setSentenceIndex] = useState<number>(0);
 
-  // 统一的 TTS 调度与状态
+  // 统一的 TTS 调度与状态 (Zustand)
   const { isSpeaking, gender, rate, speak, stop, setGender, setRate } = useTts();
   const [isLooping, setIsLooping] = useState<boolean>(false);
   const isLoopingRef = useRef<boolean>(isLooping);
@@ -145,8 +146,11 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
     isLoopingRef.current = isLooping;
   }, [isLooping]);
 
-  const [showFurigana, setShowFurigana] = useState<boolean>(true);
-  const [maskText, setMaskText] = useState<boolean>(false); // 盲听遮罩
+  // 全局持久化偏好 (注音显示与盲听遮罩)
+  const showFurigana = usePreferencesStore((s) => s.furiganaEnabled);
+  const setShowFurigana = usePreferencesStore((s) => s.setFuriganaEnabled);
+  const maskText = usePreferencesStore((s) => s.maskTextEnabled);
+  const setMaskText = usePreferencesStore((s) => s.setMaskTextEnabled);
   const [shadowStep, setShadowStep] = useState<'IDLE' | 'LISTENING' | 'SHADOWING'>('IDLE');
 
   // 挖词听写状态

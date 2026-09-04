@@ -65,43 +65,22 @@ import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { VoiceSettingsPopover } from './components/VoiceSettingsPopover.js';
 import { UnifiedTtsPlayer } from './components/UnifiedTtsPlayer.js';
 import { useGateway } from './hooks/useGateway.js';
+import { usePreferencesStore } from './stores/usePreferencesStore.js';
+import { useStudySessionStore } from './stores/useStudySessionStore.js';
 
 
 export function App() {
   // 网关实时双向通讯与数据库持久化钩子
   const gateway = useGateway();
 
-  // 主题状态：默认浅色（温暖日式纸面质感），持久化于 localStorage
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('study_studio_theme');
-      if (saved === 'dark' || saved === 'light') return saved;
-      return 'light';
-    }
-    return 'light';
-  });
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    localStorage.setItem('study_studio_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    sound.playClick();
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-    toast.success(theme === 'light' ? '已切换至深焙炭石夜间模式' : '已切换至温润纸面亮色模式');
-  };
-
-  // 导航选项卡
-  const [activeTab, setActiveTab] = useState<'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'SHADOWING' | 'PITCH' | 'MISTAKES' | 'RADAR'>('QUIZ');
-
-  // 全局指令面板 (Cmd+K)
-  const [isCommandOpen, setIsCommandOpen] = useState(false);
+  // Zustand 持久化与全局会话状态
+  const theme = usePreferencesStore((s) => s.theme);
+  const toggleTheme = usePreferencesStore((s) => s.toggleTheme);
+  const activeTab = useStudySessionStore((s) => s.activeTab);
+  const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
+  const isCommandOpen = useStudySessionStore((s) => s.isCommandOpen);
+  const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
+  const toggleCommandOpen = useStudySessionStore((s) => s.toggleCommandOpen);
 
   // AI 导师抽屉状态
   const [isTutorOpen, setIsTutorOpen] = useState(false);
@@ -205,7 +184,8 @@ export function App() {
   const [cards, setCards] = useState<StudyCardItem[]>(INITIAL_CARDS);
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
-  const [cardFilter, setCardFilter] = useState<'ALL' | 'VOCAB' | 'GRAMMAR' | 'CONFUSION'>('ALL');
+  const cardFilter = useStudySessionStore((s) => s.cardFilter);
+  const setCardFilter = useStudySessionStore((s) => s.setCardFilter);
 
   const filteredCards = cards.filter((c) => cardFilter === 'ALL' || c.type === cardFilter);
   const activeCard: StudyCardItem | undefined = filteredCards[currentCardIndex] || filteredCards[0];
@@ -477,7 +457,7 @@ export function App() {
       // Cmd+K 或 Ctrl+K 唤出指令面板
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
-        setIsCommandOpen((prev) => !prev);
+        toggleCommandOpen();
         return;
       }
 

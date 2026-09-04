@@ -19,44 +19,46 @@ import {
   type SupportedLanguage,
 } from '../utils/audio.js';
 
+import { useTtsStore } from '../stores/useTtsStore.js';
+
 interface VoiceSettingsPopoverProps {
   currentLanguage?: SupportedLanguage;
 }
 
 export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPopoverProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [gender, setGender] = useState<TtsGender>(speechStudio.getGender());
-  const [rate, setRate] = useState<number>(speechStudio.getRate());
-  const [pluginConfig, setPluginConfig] = useState(speechStudio.getCustomPluginConfig());
   const [showPluginConfig, setShowPluginConfig] = useState(false);
-  const [activeVoiceName, setActiveVoiceName] = useState<string>('');
+
+  // Zustand Store 响应式持久化状态
+  const gender = useTtsStore((s) => s.gender);
+  const rate = useTtsStore((s) => s.rate);
+  const customPluginUrl = useTtsStore((s) => s.customPluginUrl);
+  const isCustomPluginEnabled = useTtsStore((s) => s.isCustomPluginEnabled);
+  const setGender = useTtsStore((s) => s.setGender);
+  const setRate = useTtsStore((s) => s.setRate);
+  const setCustomPluginConfig = useTtsStore((s) => s.setCustomPluginConfig);
+  const speak = useTtsStore((s) => s.speak);
+
+  // 本地外挂编辑缓冲
+  const [editUrl, setEditUrl] = useState(customPluginUrl);
+  const [editEnabled, setEditEnabled] = useState(isCustomPluginEnabled);
 
   useEffect(() => {
-    const update = () => {
-      setGender(speechStudio.getGender());
-      setRate(speechStudio.getRate());
-      setPluginConfig(speechStudio.getCustomPluginConfig());
-      const voice = speechStudio.getBestVoice(currentLanguage, speechStudio.getGender());
-      setActiveVoiceName(voice ? voice.name : '系统默认发音');
-    };
+    setEditUrl(customPluginUrl);
+    setEditEnabled(isCustomPluginEnabled);
+  }, [customPluginUrl, isCustomPluginEnabled]);
 
-    update();
-    const unsub = speechStudio.subscribe(update);
-    return unsub;
-  }, [currentLanguage]);
+  const activeVoice = speechStudio.getBestVoice(currentLanguage, gender);
+  const activeVoiceName = activeVoice ? activeVoice.name : '系统默认自然发音';
 
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
-    speechStudio.setGender(newGender);
     setGender(newGender);
-    const voice = speechStudio.getBestVoice(currentLanguage, newGender);
-    setActiveVoiceName(voice ? voice.name : '系统默认发音');
     toast.success(newGender === 'FEMALE' ? '已切换至：👩 女声导师音色' : '已切换至：👨 男声助教音色');
   };
 
   const handleRateChange = (newRate: number) => {
     sound.playClick();
-    speechStudio.setRate(newRate);
     setRate(newRate);
   };
 
@@ -80,7 +82,7 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
           : 'こんにちは！私は日本語アシスタントの圭太です。一緒に頑張りましょう。';
     }
 
-    speechStudio.speak(previewText, {
+    speak(previewText, {
       lang: currentLanguage,
       gender,
       rate,
@@ -89,9 +91,9 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
 
   const handleSavePlugin = () => {
     sound.playCorrect();
-    speechStudio.setCustomPluginConfig(pluginConfig.url, pluginConfig.enabled);
+    setCustomPluginConfig(editUrl, editEnabled);
     toast.success(
-      pluginConfig.enabled
+      editEnabled
         ? '已启用本地 TTS 神经语音小外挂'
         : '已关闭小外挂，回退至原生高清音色'
     );
@@ -235,19 +237,15 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
                       </span>
                       <input
                         type="checkbox"
-                        checked={pluginConfig.enabled}
-                        onChange={(e) =>
-                          setPluginConfig({ ...pluginConfig, enabled: e.target.checked })
-                        }
+                        checked={editEnabled}
+                        onChange={(e) => setEditEnabled(e.target.checked)}
                         className="w-3.5 h-3.5 rounded text-amber-600"
                       />
                     </div>
                     <input
                       type="text"
-                      value={pluginConfig.url}
-                      onChange={(e) =>
-                        setPluginConfig({ ...pluginConfig, url: e.target.value })
-                      }
+                      value={editUrl}
+                      onChange={(e) => setEditUrl(e.target.value)}
                       placeholder="http://127.0.0.1:8880/v1/audio/speech"
                       className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
                     />

@@ -301,9 +301,9 @@ class SpeechStudioEngine {
       lang?: SupportedLanguage;
       gender?: TtsGender;
       rate?: number;
-      onStart?: () => void;
-      onEnd?: () => void;
-      onError?: (err?: unknown) => void;
+      onStart?: (() => void) | undefined;
+      onEnd?: (() => void) | undefined;
+      onError?: ((err?: unknown) => void) | undefined;
     }
   ) {
     // 先停止当前正在播放的声音

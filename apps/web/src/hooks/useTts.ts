@@ -1,74 +1,29 @@
-import { useState, useEffect, useCallback } from 'react';
-import { speechStudio, type TtsGender, type SupportedLanguage } from '../utils/audio.js';
+import { useTtsStore, type SpeakOptions } from '../stores/useTtsStore.js';
+import type { TtsGender, SupportedLanguage } from '../utils/audio.js';
 
 export interface UseTtsReturn {
   isSpeaking: boolean;
   currentText: string;
   gender: TtsGender;
   rate: number;
-  speak: (
-    text: string,
-    options?: {
-      lang?: SupportedLanguage;
-      gender?: TtsGender;
-      rate?: number;
-      onStart?: () => void;
-      onEnd?: () => void;
-      onError?: (err?: unknown) => void;
-    }
-  ) => Promise<void>;
+  speak: (text: string, options?: SpeakOptions) => Promise<void>;
   stop: () => void;
   setGender: (gender: TtsGender) => void;
   setRate: (rate: number) => void;
 }
 
 /**
- * 统一的 TTS 响应式状态与调度 Hook
+ * 统一的 TTS Hook (直接代理底层 Zustand useTtsStore)
  */
 export function useTts(): UseTtsReturn {
-  const [isSpeaking, setIsSpeaking] = useState<boolean>(speechStudio.getIsSpeaking());
-  const [currentText, setCurrentText] = useState<string>(speechStudio.getCurrentText());
-  const [gender, setGenderState] = useState<TtsGender>(speechStudio.getGender());
-  const [rate, setRateState] = useState<number>(speechStudio.getRate());
-
-  useEffect(() => {
-    const unsubscribe = speechStudio.subscribe(() => {
-      setIsSpeaking(speechStudio.getIsSpeaking());
-      setCurrentText(speechStudio.getCurrentText());
-      setGenderState(speechStudio.getGender());
-      setRateState(speechStudio.getRate());
-    });
-    return unsubscribe;
-  }, []);
-
-  const speak = useCallback(
-    async (
-      text: string,
-      options?: {
-        lang?: SupportedLanguage;
-        gender?: TtsGender;
-        rate?: number;
-        onStart?: () => void;
-        onEnd?: () => void;
-        onError?: (err?: unknown) => void;
-      }
-    ) => {
-      await speechStudio.speak(text, options);
-    },
-    []
-  );
-
-  const stop = useCallback(() => {
-    speechStudio.stop();
-  }, []);
-
-  const setGender = useCallback((g: TtsGender) => {
-    speechStudio.setGender(g);
-  }, []);
-
-  const setRate = useCallback((r: number) => {
-    speechStudio.setRate(r);
-  }, []);
+  const isSpeaking = useTtsStore((s) => s.isSpeaking);
+  const currentText = useTtsStore((s) => s.currentText);
+  const gender = useTtsStore((s) => s.gender);
+  const rate = useTtsStore((s) => s.rate);
+  const speak = useTtsStore((s) => s.speak);
+  const stop = useTtsStore((s) => s.stop);
+  const setGender = useTtsStore((s) => s.setGender);
+  const setRate = useTtsStore((s) => s.setRate);
 
   return {
     isSpeaking,
