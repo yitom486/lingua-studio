@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import {
   Zap,
   Layers,
@@ -9,6 +8,8 @@ import {
   AlertTriangle,
   TrendingUp,
 } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Badge } from './ui/badge.js';
 import { sound } from '../utils/audio.js';
 import { useStudySessionStore, type NavigationTab } from '../stores/useStudySessionStore.js';
 
@@ -47,49 +48,36 @@ export function NavigationTabs({
   ];
 
   return (
-    <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-[#1f1d1b] rounded-2xl border border-stone-200/80 dark:border-stone-800 w-fit backdrop-blur-xs overflow-x-auto max-w-full">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const isActive = activeTab === tab.id;
+    <Tabs
+      value={activeTab}
+      onValueChange={(val) => {
+        sound.playClick();
+        if (val) setActiveTab(val as NavigationTab);
+      }}
+      className="w-full overflow-x-auto"
+    >
+      <TabsList className="w-fit backdrop-blur-xs max-w-full">
+        <TabsIndicator />
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
 
-        return (
-          <button
-            key={tab.id}
-            onClick={() => {
-              sound.playClick();
-              setActiveTab(tab.id);
-            }}
-            className={`relative px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors duration-200 flex items-center gap-2 cursor-pointer shrink-0 ${
-              isActive
-                ? 'text-amber-950 dark:text-amber-300 font-semibold'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            {isActive && (
-              <motion.div
-                layoutId="active-pill"
-                className="absolute inset-0 rounded-xl bg-white dark:bg-[#282522] shadow-xs"
-                transition={{ type: 'spring', stiffness: 450, damping: 35 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-1.5">
+          return (
+            <TabsTrigger key={tab.id} value={tab.id}>
               <Icon className="w-4 h-4" />
-              {tab.label}
+              <span>{tab.label}</span>
               {tab.count && (
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                    isActive
-                      ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300'
-                      : 'bg-stone-200 dark:bg-stone-800 text-stone-500'
-                  }`}
+                <Badge
+                  variant={isActive ? 'amber' : 'secondary'}
+                  className="px-1.5 py-0 text-[10px] font-bold rounded-full pointer-events-none"
                 >
                   {tab.count}
-                </span>
+                </Badge>
               )}
-            </span>
-          </button>
-        );
-      })}
-    </div>
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
+    </Tabs>
   );
 }

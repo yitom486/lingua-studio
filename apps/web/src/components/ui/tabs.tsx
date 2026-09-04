@@ -11,13 +11,28 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      'inline-flex h-10 items-center justify-center rounded-2xl bg-stone-200/60 dark:bg-stone-900/80 p-1 text-stone-500 relative',
+      'inline-flex items-center justify-center rounded-2xl bg-stone-200/60 dark:bg-[#1f1d1b] p-1 text-stone-500 relative border border-stone-200/80 dark:border-stone-800',
       className
     )}
     {...props}
   />
 ));
 TabsList.displayName = 'TabsList';
+
+const TabsIndicator = React.forwardRef<
+  React.ComponentRef<typeof TabsPrimitive.Indicator>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Indicator>
+>(({ className, ...props }, ref) => (
+  <TabsPrimitive.Indicator
+    ref={ref}
+    className={cn(
+      'absolute rounded-xl bg-white dark:bg-[#282522] shadow-xs transition-all duration-200 z-0 pointer-events-none',
+      className
+    )}
+    {...props}
+  />
+));
+TabsIndicator.displayName = 'TabsIndicator';
 
 const TabsTrigger = React.forwardRef<
   React.ComponentRef<typeof TabsPrimitive.Tab>,
@@ -26,7 +41,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Tab
     ref={ref}
     className={cn(
-      'inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[selected]:bg-[#faf9f6] dark:data-[selected]:bg-[#211f1d] data-[selected]:text-stone-900 dark:data-[selected]:text-stone-100 data-[selected]:shadow-xs cursor-pointer',
+      'inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3.5 py-2 text-xs sm:text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200 data-[selected]:text-amber-950 dark:data-[selected]:text-amber-300 data-[selected]:font-semibold cursor-pointer relative z-10 gap-2 shrink-0 select-none',
       className
     )}
     {...props}
@@ -49,4 +64,4 @@ const TabsContent = React.forwardRef<
 ));
 TabsContent.displayName = 'TabsContent';
 
-export { Tabs, TabsList, TabsTrigger, TabsContent };
+export { Tabs, TabsList, TabsTrigger, TabsContent, TabsIndicator };

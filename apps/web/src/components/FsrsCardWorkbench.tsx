@@ -7,11 +7,13 @@ import { fireSuccessConfetti } from './magicui/index.js';
 import { sound } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useCardsQuery, useUpdateCardMutation } from '../queries/useLearnerQueries.js';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Badge } from './ui/badge.js';
+import { Button } from './ui/button.js';
 import type { StudyCardItem } from '../data/learning-data.js';
 
 interface FsrsCardWorkbenchProps {
-  cards: StudyCardItem[];
-  setCards: React.Dispatch<React.SetStateAction<StudyCardItem[]>>;
   onReviewCardToGateway: (payload: {
     cardId: string;
     rating: CardReviewRating;
@@ -20,11 +22,9 @@ interface FsrsCardWorkbenchProps {
   }) => void;
 }
 
-export function FsrsCardWorkbench({
-  cards,
-  setCards,
-  onReviewCardToGateway,
-}: FsrsCardWorkbenchProps) {
+export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchProps) {
+  const { data: cards = [] } = useCardsQuery();
+  const updateCard = useUpdateCardMutation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
 
@@ -34,7 +34,6 @@ export function FsrsCardWorkbench({
   const filteredCards = cards.filter((c) => cardFilter === 'ALL' || c.type === cardFilter);
   const activeCard: StudyCardItem | undefined = filteredCards[currentCardIndex] || filteredCards[0];
 
-  // FSRS 卡片自评打分
   const handleCardReview = (rating: CardReviewRating) => {
     sound.playClick();
     if (!activeCard) return;
@@ -49,15 +48,12 @@ export function FsrsCardWorkbench({
     };
     const nextFsrs = scheduleNextReview(fsrsCurrent, rating);
 
-    setCards((prev) =>
-      prev.map((c) =>
-        c.id === activeCard.id
-          ? { ...c, stability: nextFsrs.stability, reps: nextFsrs.reps }
-          : c
-      )
-    );
+    updateCard.mutate({
+      id: activeCard.id,
+      stability: nextFsrs.stability,
+      reps: nextFsrs.reps,
+    });
 
-    // 上报网关同步持久化
     onReviewCardToGateway({
       cardId: activeCard.id,
       rating,
@@ -89,33 +85,38 @@ export function FsrsCardWorkbench({
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col gap-5 max-w-2xl"
     >
-      <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
+      <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 gap-3">
         <span>
-          当前卡片: {currentCardIndex + 1} / {filteredCards.length}
+          当前卡片: {filteredCards.length ? currentCardIndex + 1 : 0} / {filteredCards.length}
         </span>
-        <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-900 p-1 rounded-xl">
-          {(['ALL', 'VOCAB', 'GRAMMAR', 'CONFUSION'] as const).map((cat) => (
-            <button
-              key={cat}
-              onClick={() => {
-                sound.playClick();
-                setCardFilter(cat);
-                setCurrentCardIndex(0);
-                setCardFlipped(false);
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                cardFilter === cat
-                  ? 'bg-[#faf9f6] dark:bg-amber-600 text-stone-900 dark:text-white shadow-sm font-semibold'
-                  : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
-              }`}
-            >
-              {cat === 'ALL' ? '全部' : cat === 'VOCAB' ? '生词' : cat === 'GRAMMAR' ? '文法' : '混淆'}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          value={cardFilter}
+          onValueChange={(val) => {
+            if (!val) return;
+            sound.playClick();
+            setCardFilter(val as typeof cardFilter);
+            setCurrentCardIndex(0);
+            setCardFlipped(false);
+          }}
+        >
+          <TabsList className="bg-stone-200/60 dark:bg-stone-900">
+            <TabsIndicator />
+            {(
+              [
+                ['ALL', '全部'],
+                ['VOCAB', '生词'],
+                ['GRAMMAR', '文法'],
+                ['CONFUSION', '混淆'],
+              ] as const
+            ).map(([value, label]) => (
+              <TabsTrigger key={value} value={value} className="px-2.5 py-1 text-xs">
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
-      {/* 3D 翻转卡片 */}
       {activeCard && (
         <div
           onClick={() => {
@@ -129,13 +130,12 @@ export function FsrsCardWorkbench({
             transition={{ duration: 0.45, ease: 'easeOut' }}
             className="relative w-full h-full min-h-[340px] rounded-3xl p-8 bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm transform-style-3d flex flex-col justify-between"
           >
-            {/* 正面 */}
             {!cardFlipped ? (
               <div className="flex flex-col justify-between h-full space-y-6">
                 <div className="flex items-center justify-between">
-                  <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                  <Badge variant="amber">
                     {activeCard.tag} · {activeCard.pos}
-                  </span>
+                  </Badge>
                   <span className="text-xs text-stone-400 font-mono">
                     FSRS 稳定性: {activeCard.stability}d · 复习 {activeCard.reps} 次
                   </span>
@@ -159,11 +159,14 @@ export function FsrsCardWorkbench({
                   </div>
                 </div>
                 <div className="text-center text-xs text-stone-400">
-                  点击卡片或按 <kbd className="font-mono bg-stone-200 dark:bg-stone-800 px-1.5 py-0.5 rounded">Space</kbd> 翻转查看释义
+                  点击卡片或按{' '}
+                  <kbd className="font-mono bg-stone-200 dark:bg-stone-800 px-1.5 py-0.5 rounded">
+                    Space
+                  </kbd>{' '}
+                  翻转查看释义
                 </div>
               </div>
             ) : (
-              /* 背面 */
               <div className="flex flex-col justify-between h-full space-y-4 [transform:rotateY(180deg)]">
                 <div className="space-y-3">
                   <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
@@ -188,50 +191,37 @@ export function FsrsCardWorkbench({
                     </p>
                   </div>
                   {activeCard.note && (
-                    <p className="text-xs text-amber-800 dark:text-amber-300">
-                      💡 {activeCard.note}
-                    </p>
+                    <p className="text-xs text-amber-800 dark:text-amber-300">💡 {activeCard.note}</p>
                   )}
                 </div>
 
-                {/* FSRS 4 档打分按钮 */}
-                <div className="grid grid-cols-4 gap-2 pt-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCardReview('AGAIN');
-                    }}
-                    className="p-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                <div
+                  className="grid grid-cols-4 gap-2 pt-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Button
+                    variant="secondary"
+                    className="h-auto py-2.5 hover:bg-rose-500 hover:text-white"
+                    onClick={() => handleCardReview('AGAIN')}
                   >
                     重来 (1)
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCardReview('HARD');
-                    }}
-                    className="p-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-amber-500 hover:text-stone-950 transition-all cursor-pointer"
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="h-auto py-2.5 hover:bg-amber-500 hover:text-stone-950"
+                    onClick={() => handleCardReview('HARD')}
                   >
                     困难 (2)
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCardReview('GOOD');
-                    }}
-                    className="p-2.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-600 shadow-sm transition-all cursor-pointer"
-                  >
+                  </Button>
+                  <Button className="h-auto py-2.5" onClick={() => handleCardReview('GOOD')}>
                     良好 (3)
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCardReview('EASY');
-                    }}
-                    className="p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm transition-all cursor-pointer"
+                  </Button>
+                  <Button
+                    className="h-auto py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={() => handleCardReview('EASY')}
                   >
                     简单 (4)
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}

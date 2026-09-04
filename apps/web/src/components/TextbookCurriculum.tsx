@@ -19,9 +19,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  TEXTBOOK_BOOKS,
-  type TextbookBook,
-  type TextbookLesson,
   type FuriganaWord,
   type TextbookVocabulary,
 } from '../data/textbook-data.js';
@@ -29,6 +26,20 @@ import { sound } from '../utils/audio.js';
 import { ShimmerButton } from './magicui/index.js';
 import { InteractivePdfReader } from './InteractivePdfReader.js';
 import { TextbookImporterModal } from './TextbookImporterModal.js';
+import {
+  useTextbooksQuery,
+  useImportTextbookMutation,
+} from '../queries/useLearnerQueries.js';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Button } from './ui/button.js';
+import { Badge } from './ui/badge.js';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select.js';
 
 interface TextbookCurriculumProps {
   onStartLessonQuiz: (lessonId: string, lessonTitle: string) => void;
@@ -43,24 +54,41 @@ export function TextbookCurriculum({
   onAddCardsBatch,
   onAskAiTutor,
 }: TextbookCurriculumProps) {
-  const [booksList, setBooksList] = useState<TextbookBook[]>(TEXTBOOK_BOOKS);
-  const [selectedBookId, setSelectedBookId] = useState<string>(TEXTBOOK_BOOKS[0]!.id);
-  const [selectedLessonId, setSelectedLessonId] = useState<string>(TEXTBOOK_BOOKS[0]!.lessons[0]!.id);
+  const { data: booksList = [] } = useTextbooksQuery();
+  const importTextbook = useImportTextbookMutation();
+  const [selectedBookId, setSelectedBookId] = useState<string>('');
+  const [selectedLessonId, setSelectedLessonId] = useState<string>('');
   const [lessonSubTab, setLessonSubTab] = useState<'READER' | 'VOCAB' | 'GRAMMAR'>('READER');
   const [activeWordCard, setActiveWordCard] = useState<FuriganaWord | null>(null);
   const [addedCardsMap, setAddedCardsMap] = useState<Record<string, boolean>>({});
-  const [isImporterOpen, setIsImporterOpen] = useState<boolean>(false);
+  const [isImporterOpen, setIsImporterOpen] = useState(false);
   const [languageFilter, setLanguageFilter] = useState<'ALL' | 'JA' | 'EN' | 'KO'>('ALL');
+
+  React.useEffect(() => {
+    if (booksList.length === 0) return;
+    const stillValid = booksList.some((b) => b.id === selectedBookId);
+    if (!stillValid) {
+      setSelectedBookId(booksList[0]!.id);
+      setSelectedLessonId(booksList[0]!.lessons[0]?.id ?? '');
+    }
+  }, [booksList, selectedBookId]);
 
   const filteredBooks = booksList.filter((b) => {
     if (languageFilter === 'ALL') return true;
     return (b.language || 'JA') === languageFilter;
   });
 
-  const currentBook = booksList.find((b) => b.id === selectedBookId) ?? filteredBooks[0] ?? booksList[0]!;
-  const currentLesson = currentBook.lessons.find((l) => l.id === selectedLessonId) ?? currentBook.lessons[0]!;
+  const currentBook =
+    filteredBooks.find((b) => b.id === selectedBookId) ??
+    filteredBooks[0] ??
+    booksList[0];
+  const currentLesson = currentBook?.lessons.find((l) => l.id === selectedLessonId) ?? currentBook?.lessons[0];
 
-
+  if (!currentBook || !currentLesson) {
+    return (
+      <div className="p-8 text-center text-sm text-stone-500">教材结构加载中…</div>
+    );
+  }
 
   const handleWordClick = (word: FuriganaWord) => {
     sound.playClick();
@@ -92,9 +120,7 @@ export function TextbookCurriculum({
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                {currentBook.level}
-              </span>
+              <Badge variant="amber">{currentBook.level}</Badge>
               <span className="text-xs text-stone-500 dark:text-stone-400">
                 {currentBook.publisher} · 共 {currentBook.totalLessons} 课
               </span>
@@ -106,71 +132,65 @@ export function TextbookCurriculum({
 
           {/* 语种筛选与教材快速切换 Tab 与导入入口 */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* 语种过滤器 */}
-            <div className="flex items-center gap-1 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-              {[
-                { id: 'ALL', label: '全部' },
-                { id: 'JA', label: '🇯🇵 日语' },
-                { id: 'EN', label: '🇬🇧 英语' },
-                { id: 'KO', label: '🇰🇷 韩语' },
-              ].map((lang) => (
-                <button
-                  key={lang.id}
-                  onClick={() => {
-                    sound.playClick();
-                    const nextFilter = lang.id as 'ALL' | 'JA' | 'EN' | 'KO';
-                    setLanguageFilter(nextFilter);
-                    const match = booksList.find(
-                      (b) => nextFilter === 'ALL' || (b.language || 'JA') === nextFilter
-                    );
-                    if (match) {
-                      setSelectedBookId(match.id);
-                      setSelectedLessonId(match.lessons[0]!.id);
-                    }
-                  }}
-                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
-                    languageFilter === lang.id
-                      ? 'bg-amber-500 text-stone-950 shadow-2xs font-bold'
-                      : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
-                  }`}
-                >
-                  {lang.label}
-                </button>
-              ))}
-            </div>
+            <Select
+              value={languageFilter}
+              onValueChange={(val) => {
+                if (!val) return;
+                sound.playClick();
+                const nextFilter = val as 'ALL' | 'JA' | 'EN' | 'KO';
+                setLanguageFilter(nextFilter);
+                const match = booksList.find(
+                  (b) => nextFilter === 'ALL' || (b.language || 'JA') === nextFilter
+                );
+                if (match) {
+                  setSelectedBookId(match.id);
+                  setSelectedLessonId(match.lessons[0]?.id ?? '');
+                }
+              }}
+            >
+              <SelectTrigger className="w-[7.5rem]">
+                <SelectValue placeholder="语种" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">全部语种</SelectItem>
+                <SelectItem value="JA">🇯🇵 日语</SelectItem>
+                <SelectItem value="EN">🇬🇧 英语</SelectItem>
+                <SelectItem value="KO">🇰🇷 韩语</SelectItem>
+              </SelectContent>
+            </Select>
 
-            {/* 匹配的书籍列表 */}
-            <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-              {filteredBooks.map((book) => (
-                <button
-                  key={book.id}
-                  onClick={() => {
-                    sound.playClick();
-                    setSelectedBookId(book.id);
-                    setSelectedLessonId(book.lessons[0]!.id);
-                  }}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                    book.id === selectedBookId
-                      ? 'bg-[#faf9f6] dark:bg-amber-600 text-stone-900 dark:text-white shadow-sm font-semibold'
-                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                  }`}
-                >
-                  {book.language === 'EN' ? '🇬🇧 ' : book.language === 'KO' ? '🇰🇷 ' : '🇯🇵 '}
-                  {book.shortTitle}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              value={selectedBookId}
+              onValueChange={(val) => {
+                if (!val) return;
+                sound.playClick();
+                setSelectedBookId(val);
+                const book = filteredBooks.find((b) => b.id === val);
+                setSelectedLessonId(book?.lessons[0]?.id ?? '');
+              }}
+            >
+              <TabsList className="bg-stone-200/60 dark:bg-stone-900">
+                <TabsIndicator />
+                {filteredBooks.map((book) => (
+                  <TabsTrigger key={book.id} value={book.id} className="px-3 py-1.5 text-xs">
+                    {book.language === 'EN' ? '🇬🇧 ' : book.language === 'KO' ? '🇰🇷 ' : '🇯🇵 '}
+                    {book.shortTitle}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
 
-            <button
+            <Button
+              variant="amber"
+              size="sm"
               onClick={() => {
                 sound.playClick();
                 setIsImporterOpen(true);
               }}
-              className="px-3 py-2 text-xs font-semibold rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 transition-colors flex items-center gap-1.5 border border-amber-500/20"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>导入新教材</span>
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -271,45 +291,36 @@ export function TextbookCurriculum({
 
             {/* 子选项卡：交互精读与原版排版 | 核心词汇 | 核心语法 */}
             <div className="flex items-center gap-2 mt-4 pt-4 border-t border-amber-900/10 dark:border-amber-500/10">
-              <button
-                onClick={() => {
+              <Tabs
+                value={lessonSubTab}
+                onValueChange={(val) => {
+                  if (!val) return;
                   sound.playClick();
-                  setLessonSubTab('READER');
+                  setLessonSubTab(val as typeof lessonSubTab);
                 }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  lessonSubTab === 'READER'
-                    ? 'bg-amber-500 text-stone-950 shadow-sm'
-                    : 'text-stone-600 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-800'
-                }`}
               >
-                📖 交互精读与排版 ({currentLesson.dialogues.length})
-              </button>
-              <button
-                onClick={() => {
-                  sound.playClick();
-                  setLessonSubTab('VOCAB');
-                }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  lessonSubTab === 'VOCAB'
-                    ? 'bg-amber-500 text-stone-950 shadow-sm'
-                    : 'text-stone-600 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-800'
-                }`}
-              >
-                📚 重点词汇库 ({currentLesson.vocabularies.length})
-              </button>
-              <button
-                onClick={() => {
-                  sound.playClick();
-                  setLessonSubTab('GRAMMAR');
-                }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  lessonSubTab === 'GRAMMAR'
-                    ? 'bg-amber-500 text-stone-950 shadow-sm'
-                    : 'text-stone-600 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-800'
-                }`}
-              >
-                💡 核心文法剖析 ({currentLesson.grammarPoints.length})
-              </button>
+                <TabsList className="bg-transparent p-0 border-0">
+                  <TabsIndicator className="bg-amber-500 shadow-sm" />
+                  <TabsTrigger
+                    value="READER"
+                    className="px-3 py-1.5 text-xs data-[selected]:text-stone-950"
+                  >
+                    📖 交互精读与排版 ({currentLesson.dialogues.length})
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="VOCAB"
+                    className="px-3 py-1.5 text-xs data-[selected]:text-stone-950"
+                  >
+                    📚 重点词汇库 ({currentLesson.vocabularies.length})
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="GRAMMAR"
+                    className="px-3 py-1.5 text-xs data-[selected]:text-stone-950"
+                  >
+                    💡 核心文法剖析 ({currentLesson.grammarPoints.length})
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
           </div>
           {/* 子内容 1: 交互式阅读器 (双模式：原版双栏排版 + 划词查词 + 闪卡 + AI 导师) */}
@@ -442,10 +453,10 @@ export function TextbookCurriculum({
       <TextbookImporterModal
         isOpen={isImporterOpen}
         onClose={() => setIsImporterOpen(false)}
-        onImportBook={(newBook, _cardsCount) => {
-          setBooksList((prev) => [newBook, ...prev]);
+        onImportBook={(newBook) => {
+          importTextbook.mutate(newBook);
           setSelectedBookId(newBook.id);
-          setSelectedLessonId(newBook.lessons[0]!.id);
+          setSelectedLessonId(newBook.lessons[0]?.id ?? '');
         }}
         onAddCardsBatch={(cards) => {
           if (onAddCardsBatch) {

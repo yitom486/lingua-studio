@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { NumberTicker } from './magicui/index.js';
 import { VoiceSettingsPopover } from './VoiceSettingsPopover.js';
+import { Button } from './ui/button.js';
+import { Badge } from './ui/badge.js';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
@@ -42,9 +44,9 @@ export function AppHeader({ gateway }: AppHeaderProps) {
               <span className="font-bold text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif">
                 Study Studio
               </span>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
+              <Badge variant="amber" className="text-[11px] font-semibold border-amber-500/30">
                 多语种自适应架构 · 日英双通
-              </span>
+              </Badge>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语自学与靶向攻坚工作台</p>
           </div>
@@ -65,37 +67,40 @@ export function AppHeader({ gateway }: AppHeaderProps) {
             </span>
           </div>
 
-          {/* TTS 音色切换浮动面板 (一男一女与小外挂配置) */}
+          {/* TTS 音色切换浮动面板 */}
           <VoiceSettingsPopover currentLanguage="JA" />
 
           {/* 快捷指令按钮 (Cmd+K) */}
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.96 }}
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setIsCommandOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-100/70 dark:bg-stone-900/60 hover:border-amber-500/40 text-stone-600 dark:text-stone-300 text-xs font-medium transition-all"
+            className="gap-2"
           >
             <Command className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             <span className="hidden sm:inline">快捷指令</span>
             <kbd className="text-[10px] font-mono px-1 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-500">
               ⌘K
             </kbd>
-          </motion.button>
+          </Button>
 
           {/* 连续打卡天数指示徽章 */}
-          <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 text-amber-900 dark:text-amber-200 text-xs font-semibold">
+          <Badge
+            variant="amber"
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-amber-500/25"
+          >
             <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
             <span>连续打卡 <NumberTicker value={12} className="inline-block font-mono font-bold" /> 天</span>
-          </div>
+          </Badge>
 
           <div className="h-5 w-px bg-stone-200 dark:bg-stone-800 hidden sm:block" />
 
           {/* 明暗模式切换 */}
-          <motion.button
-            whileTap={{ scale: 0.92 }}
+          <Button
+            variant="outline"
+            size="sm"
             onClick={toggleTheme}
             aria-label="切换明暗主题"
-            className="p-2.5 rounded-xl border border-stone-200/80 dark:border-stone-800 bg-white dark:bg-[#211f1d] hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 shadow-2xs transition-all cursor-pointer"
           >
             {theme === 'light' ? (
               <div className="flex items-center gap-1.5 text-xs font-medium">
@@ -108,7 +113,7 @@ export function AppHeader({ gateway }: AppHeaderProps) {
                 <span className="hidden md:inline">暖亮</span>
               </div>
             )}
-          </motion.button>
+          </Button>
         </div>
       </div>
     </header>

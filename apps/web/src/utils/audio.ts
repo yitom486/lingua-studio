@@ -123,28 +123,12 @@ class SpeechStudioEngine {
   private voices: SpeechSynthesisVoice[] = [];
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      const savedGender = localStorage.getItem('study_studio_tts_gender') as TtsGender | null;
-      if (savedGender === 'FEMALE' || savedGender === 'MALE') {
-        this.gender = savedGender;
-      }
-      const savedRate = localStorage.getItem('study_studio_tts_rate');
-      if (savedRate) {
-        this.rate = parseFloat(savedRate) || 0.9;
-      }
-      const savedPlugin = localStorage.getItem('study_studio_custom_tts_url');
-      if (savedPlugin) {
-        this.customPluginUrl = savedPlugin;
-      }
-      const savedPluginEnabled = localStorage.getItem('study_studio_custom_tts_enabled');
-      this.isCustomPluginEnabled = savedPluginEnabled === 'true';
-
-      if ('speechSynthesis' in window) {
+    // 持久化统一由 useTtsStore (Zustand persist) 负责，引擎仅持运行时状态
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      this.loadVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
         this.loadVoices();
-        window.speechSynthesis.onvoiceschanged = () => {
-          this.loadVoices();
-        };
-      }
+      };
     }
   }
 
@@ -171,9 +155,6 @@ class SpeechStudioEngine {
 
   public setGender(gender: TtsGender) {
     this.gender = gender;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('study_studio_tts_gender', gender);
-    }
     this.notify();
   }
 
@@ -183,9 +164,6 @@ class SpeechStudioEngine {
 
   public setRate(rate: number) {
     this.rate = Math.max(0.6, Math.min(rate, 1.5));
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('study_studio_tts_rate', this.rate.toString());
-    }
     this.notify();
   }
 
@@ -199,10 +177,6 @@ class SpeechStudioEngine {
   public setCustomPluginConfig(url: string, enabled: boolean) {
     this.customPluginUrl = url.trim();
     this.isCustomPluginEnabled = enabled;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('study_studio_custom_tts_url', this.customPluginUrl);
-      localStorage.setItem('study_studio_custom_tts_enabled', enabled ? 'true' : 'false');
-    }
     this.notify();
   }
 

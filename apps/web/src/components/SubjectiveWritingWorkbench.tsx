@@ -16,6 +16,8 @@ import { toast } from 'sonner';
 import { sound } from '../utils/audio.js';
 import { ShimmerButton, fireSuccessConfetti } from './magicui/index.js';
 import type { QuizGradingResult } from '@study-studio/protocol';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Badge } from './ui/badge.js';
 
 interface SubjectiveExercise {
   id: string;
@@ -149,9 +151,7 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-stone-200 dark:border-stone-800">
         <div>
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
-              AI 深度主观题批改
-            </span>
+            <Badge variant="amber">AI 深度主观题批改</Badge>
             <span className="text-xs text-stone-500 dark:text-stone-400">
               多维语法句法分析 · 母语负迁移深度诊断
             </span>
@@ -162,21 +162,22 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
         </div>
 
         {/* 练习快速切换 */}
-        <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-          {INITIAL_SUBJECTIVE_EXERCISES.map((ex, idx) => (
-            <button
-              key={ex.id}
-              onClick={() => handleSwitchExercise(idx)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                idx === exerciseIndex
-                  ? 'bg-amber-500 text-stone-950 shadow-sm'
-                  : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-              }`}
-            >
-              题目 {idx + 1}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          value={String(exerciseIndex)}
+          onValueChange={(val) => {
+            if (val == null) return;
+            handleSwitchExercise(Number(val));
+          }}
+        >
+          <TabsList className="bg-stone-200/60 dark:bg-stone-900">
+            <TabsIndicator />
+            {INITIAL_SUBJECTIVE_EXERCISES.map((ex, idx) => (
+              <TabsTrigger key={ex.id} value={String(idx)} className="px-3 py-1.5 text-xs">
+                题目 {idx + 1}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* 题面核心内容 */}
@@ -281,9 +282,9 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
           {gradingResult.errorDiagnosis && (
             <div className="p-4 rounded-xl bg-rose-500/10 dark:bg-rose-950/20 border border-rose-500/20 space-y-1.5">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold px-2 py-0.5 rounded bg-rose-500 text-white font-mono">
+                <Badge variant="destructive" className="rounded font-mono text-xs">
                   {gradingResult.errorDiagnosis.category} 偏误
-                </span>
+                </Badge>
                 <span className="text-xs font-bold text-rose-900 dark:text-rose-200">
                   🇨🇳 母语负迁移深度归因
                 </span>

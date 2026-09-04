@@ -15,14 +15,18 @@ import {
 } from './magicui/index.js';
 import { sound } from '../utils/audio.js';
 import { SubjectiveWritingWorkbench } from './SubjectiveWritingWorkbench.js';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Badge } from './ui/badge.js';
+import { Button } from './ui/button.js';
 import type { QuizQuestionItem } from '../data/learning-data.js';
 import type { AiTutorContext } from './AiTutorDrawer.js';
+import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import {
+  useQuestionsQuery,
+  usePrependQuestionMutation,
+} from '../queries/useLearnerQueries.js';
 
 interface AdaptiveQuizWorkbenchProps {
-  questions: QuizQuestionItem[];
-  setQuestions: React.Dispatch<React.SetStateAction<QuizQuestionItem[]>>;
-  questionIndex: number;
-  setQuestionIndex: React.Dispatch<React.SetStateAction<number>>;
   onOpenTutor: (ctx: AiTutorContext) => void;
   onGradeSubjective: (data: {
     questionId: string;
@@ -47,16 +51,17 @@ interface AdaptiveQuizWorkbenchProps {
 }
 
 export function AdaptiveQuizWorkbench({
-  questions,
-  setQuestions,
-  questionIndex,
-  setQuestionIndex,
   onOpenTutor,
   onGradeSubjective,
   onSubmitQuizToGateway,
   isGatewayConnected,
   onGenerateAdaptiveQuizApi,
 }: AdaptiveQuizWorkbenchProps) {
+  const { data: questions = [] } = useQuestionsQuery();
+  const prependQuestion = usePrependQuestionMutation();
+  const questionIndex = useStudySessionStore((s) => s.questionIndex);
+  const setQuestionIndex = useStudySessionStore((s) => s.setQuestionIndex);
+
   const [quizSubMode, setQuizSubMode] = useState<'OBJECTIVE' | 'SUBJECTIVE'>('OBJECTIVE');
   const [isGeneratingAdaptive, setIsGeneratingAdaptive] = useState(false);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
@@ -66,7 +71,12 @@ export function AdaptiveQuizWorkbench({
   const [isCurrentAnswerCorrect, setIsCurrentAnswerCorrect] = useState(false);
   const [sessionScore, setSessionScore] = useState(0);
 
-  const currentQ: QuizQuestionItem = questions[questionIndex] ?? questions[0]!;
+  const currentQ: QuizQuestionItem | undefined = questions[questionIndex] ?? questions[0];
+  if (!currentQ) {
+    return (
+      <div className="p-8 text-center text-sm text-stone-500">题库加载中或暂无题目…</div>
+    );
+  }
 
   // AI 针对画像弱项一键出题 (动态组卷)
   const handleGenerateAdaptiveQuiz = async () => {
@@ -91,7 +101,7 @@ export function AdaptiveQuizWorkbench({
             explanation: newQRaw.explanation,
             testedSkill: newQRaw.testedSkillId,
           };
-          setQuestions((prev) => [newQ, ...prev]);
+          prependQuestion.mutate(newQ);
           setQuestionIndex(0);
           setSelectedChoice(null);
           setFillBlankInput('');
@@ -122,7 +132,7 @@ export function AdaptiveQuizWorkbench({
           explanation: '「勉強する」为具体动态动作，动作发生场所固定使用「で」。',
           testedSkill: 'jp.particle.ni_vs_de',
         };
-        setQuestions((prev) => [fallbackQ, ...prev]);
+        prependQuestion.mutate(fallbackQ);
         setQuestionIndex(0);
         setSelectedChoice(null);
         setQuizSubmitted(false);
@@ -191,7 +201,7 @@ export function AdaptiveQuizWorkbench({
     setQuizSubmitted(false);
 
     if (questionIndex < questions.length - 1) {
-      setQuestionIndex((prev) => prev + 1);
+      setQuestionIndex(questionIndex + 1);
     } else {
       toast.success(`恭喜完成本轮专项练习！总得分 ${sessionScore + (isCurrentAnswerCorrect ? 1 : 0)} / ${questions.length}`);
       setQuestionIndex(0);
@@ -209,34 +219,25 @@ export function AdaptiveQuizWorkbench({
       {/* 做题顶部子模式切换与 AI 靶向弱项组卷按钮 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#faf9f6] dark:bg-[#1a1816] p-3 rounded-2xl border border-amber-900/10 dark:border-amber-500/15 shadow-xs">
         {/* 子模式切换 */}
-        <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-          <button
-            onClick={() => {
+        <Tabs
+          value={quizSubMode}
+          onValueChange={(val) => {
+            if (val) {
               sound.playClick();
-              setQuizSubMode('OBJECTIVE');
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              quizSubMode === 'OBJECTIVE'
-                ? 'bg-amber-500 text-stone-950 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            ⚡ 客观快速秒测 ({questions.length}题)
-          </button>
-          <button
-            onClick={() => {
-              sound.playClick();
-              setQuizSubMode('SUBJECTIVE');
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              quizSubMode === 'SUBJECTIVE'
-                ? 'bg-amber-500 text-stone-950 shadow-sm'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            ✍️ AI 深度主观造句/翻译批改
-          </button>
-        </div>
+              setQuizSubMode(val as 'OBJECTIVE' | 'SUBJECTIVE');
+            }
+          }}
+        >
+          <TabsList className="bg-stone-200/60 dark:bg-stone-900">
+            <TabsIndicator />
+            <TabsTrigger value="OBJECTIVE">
+              ⚡ 客观快速秒测 ({questions.length}题)
+            </TabsTrigger>
+            <TabsTrigger value="SUBJECTIVE">
+              ✍️ AI 深度主观造句/翻译批改
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {/* 针对画像弱项一键出题 */}
         <ShimmerButton
@@ -273,9 +274,9 @@ export function AdaptiveQuizWorkbench({
           <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                <Badge variant="amber">
                   {currentQ.type === 'CHOICE' ? '单项选择题' : currentQ.type === 'FILL_BLANK' ? '填空变形题' : '连词成句题'}
-                </span>
+                </Badge>
                 <span className="text-xs text-stone-400 font-mono">
                   考查点: {currentQ.testedSkill}
                 </span>
@@ -359,18 +360,19 @@ export function AdaptiveQuizWorkbench({
                     </span>
                   ) : (
                     reorderSelectedChunks.map((chunk, idx) => (
-                      <button
+                      <Button
                         key={idx}
+                        size="sm"
                         disabled={quizSubmitted}
                         onClick={() => {
                           sound.playClick();
                           setReorderSelectedChunks((prev) => prev.filter((_, i) => i !== idx));
                         }}
-                        className="px-3 py-1.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-semibold shadow-sm flex items-center gap-1 cursor-pointer"
+                        className="h-8 px-3"
                       >
                         <span>{chunk}</span>
                         <span className="text-[10px] opacity-75">✕</span>
-                      </button>
+                      </Button>
                     ))
                   )}
                 </div>
@@ -379,21 +381,19 @@ export function AdaptiveQuizWorkbench({
                   {currentQ.chunks.map((chunk, cIdx) => {
                     const isUsed = reorderSelectedChunks.includes(chunk);
                     return (
-                      <button
+                      <Button
                         key={cIdx}
+                        variant="outline"
+                        size="sm"
                         disabled={isUsed || quizSubmitted}
                         onClick={() => {
                           sound.playClick();
                           setReorderSelectedChunks((prev) => [...prev, chunk]);
                         }}
-                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                          isUsed
-                            ? 'opacity-30 border-stone-200 dark:border-stone-800 cursor-not-allowed'
-                            : 'bg-stone-100 dark:bg-stone-900 border-stone-300 dark:border-stone-700 hover:border-amber-500 text-stone-800 dark:text-stone-200 cursor-pointer'
-                        }`}
+                        className={isUsed ? 'opacity-30' : ''}
                       >
                         {chunk}
-                      </button>
+                      </Button>
                     );
                   })}
                 </div>
@@ -415,13 +415,10 @@ export function AdaptiveQuizWorkbench({
                   立即提交判定 (0ms 本地秒判)
                 </ShimmerButton>
               ) : (
-                <button
-                  onClick={handleNextQuestion}
-                  className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs shadow-sm transition-all flex items-center gap-2 cursor-pointer"
-                >
+                <Button onClick={handleNextQuestion} className="px-6 h-10">
                   <span>下一题练习</span>
                   <ArrowRight className="w-4 h-4" />
-                </button>
+                </Button>
               )}
             </div>
 
@@ -449,7 +446,8 @@ export function AdaptiveQuizWorkbench({
                   </div>
 
                   {/* AI 导师深度追问入口按钮 */}
-                  <button
+                  <Button
+                    size="sm"
                     onClick={() =>
                       onOpenTutor({
                         questionText: currentQ.content,
@@ -464,11 +462,11 @@ export function AdaptiveQuizWorkbench({
                         explanation: currentQ.explanation,
                       })
                     }
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 text-stone-950 hover:bg-amber-600 shadow-sm transition-all shrink-0 cursor-pointer"
+                    className="shrink-0"
                   >
                     <Bot className="w-3.5 h-3.5" />
                     <span>AI 导师深度剖析与追问</span>
-                  </button>
+                  </Button>
                 </div>
 
                 <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed font-serif">

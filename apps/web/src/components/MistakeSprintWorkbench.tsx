@@ -5,38 +5,33 @@ import {
   CheckCircle2,
   XCircle,
   Flame,
-  RotateCcw,
   Bot,
-  Sparkles,
   Award,
-  Filter,
-  ArrowRight,
-  Zap,
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
 import { toast } from 'sonner';
-import type { MistakeNotebookItem } from '../data/learning-data.js';
 import type { AiTutorContext } from './AiTutorDrawer.js';
+import { useMistakesQuery, useUpdateMistakeMutation } from '../queries/useLearnerQueries.js';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Badge } from './ui/badge.js';
+import { Button } from './ui/button.js';
+import { ShimmerButton } from './magicui/index.js';
 
 interface MistakeSprintWorkbenchProps {
-  mistakes: MistakeNotebookItem[];
-  onUpdateMistake: (mistakeId: string, isCorrect: boolean) => void;
   onOpenTutor: (context: AiTutorContext) => void;
 }
 
 export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
-  mistakes,
-  onUpdateMistake,
   onOpenTutor,
 }) => {
-  // 过滤状态
+  const { data: mistakes = [] } = useMistakesQuery();
+  const updateMistake = useUpdateMistakeMutation();
+
   const [filterState, setFilterState] = useState<'ALL' | 'UNRESOLVED' | 'RESOLVED'>('UNRESOLVED');
   const [selectedTag, setSelectedTag] = useState<string>('ALL');
-
-  // 冲刺模式状态 (Sprint Mode)
-  const [isSprintActive, setIsSprintActive] = useState<boolean>(false);
-  const [sprintIndex, setSprintIndex] = useState<number>(0);
-  const [sprintAnswer, setSprintAnswer] = useState<string>('');
+  const [isSprintActive, setIsSprintActive] = useState(false);
+  const [sprintIndex, setSprintIndex] = useState(0);
+  const [sprintAnswer, setSprintAnswer] = useState('');
   const [sprintFeedback, setSprintFeedback] = useState<{
     submitted: boolean;
     isCorrect: boolean;
@@ -87,7 +82,7 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
       trimmed.toLowerCase() === activeSprintItem.correctAnswer.toLowerCase();
 
     setSprintFeedback({ submitted: true, isCorrect });
-    onUpdateMistake(activeSprintItem.id, isCorrect);
+    updateMistake.mutate({ mistakeId: activeSprintItem.id, isCorrect });
 
     if (isCorrect) {
       sound.playSuccess();
@@ -127,9 +122,9 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
               <h2 className="text-lg font-bold font-serif text-stone-900 dark:text-stone-100">
                 错题本智能归因与专项攻克
               </h2>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 font-medium border border-amber-500/20">
+              <Badge variant="amber" className="text-[11px] border-amber-500/20">
                 两连对出库标准
-              </span>
+              </Badge>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400">
               待攻克: {unresolvedMistakes.length} 题 · 已攻克: {resolvedMistakes.length} 题
@@ -139,15 +134,10 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
 
         {/* 快速发起冲刺大按钮 */}
         {!isSprintActive && unresolvedMistakes.length > 0 && (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={handleStartSprint}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold text-xs shadow-sm hover:brightness-105 transition-all cursor-pointer"
-          >
+          <ShimmerButton onClick={handleStartSprint} className="px-5 py-2.5 text-xs font-bold">
             <Flame className="w-4 h-4" />
             <span>⚡ 发起错题定向冲刺 ({unresolvedMistakes.length})</span>
-          </motion.button>
+          </ShimmerButton>
         )}
       </div>
 
@@ -166,23 +156,16 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
             {/* 冲刺顶栏导航 */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-stone-950">
-                  🔥 错题冲刺中
-                </span>
+                <Badge>🔥 错题冲刺中</Badge>
                 <span className="text-xs text-stone-500 font-mono">
                   第 {sprintIndex + 1} / {unresolvedMistakes.length} 题
                 </span>
-                <span className="text-xs px-2 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
-                  考点: {activeSprintItem.categoryTag}
-                </span>
+                <Badge variant="secondary">考点: {activeSprintItem.categoryTag}</Badge>
               </div>
 
-              <button
-                onClick={handleExitSprint}
-                className="text-xs text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors"
-              >
+              <Button variant="ghost" size="sm" onClick={handleExitSprint}>
                 退出冲刺模式 ✕
-              </button>
+              </Button>
             </div>
 
             {/* 题目内容展示 */}
@@ -214,19 +197,17 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
                 />
 
                 {!sprintFeedback?.submitted ? (
-                  <button
-                    onClick={handleSubmitSprintAnswer}
-                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs hover:bg-amber-600 transition-all shadow-xs cursor-pointer shrink-0"
-                  >
+                  <Button onClick={handleSubmitSprintAnswer} className="w-full sm:w-auto h-11 px-6 shrink-0">
                     验证答案 ➔
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
+                    variant="secondary"
                     onClick={handleNextSprintItem}
-                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-stone-900 dark:bg-amber-600 text-white font-bold text-xs hover:brightness-110 transition-all shadow-xs cursor-pointer shrink-0"
+                    className="w-full sm:w-auto h-11 px-6 shrink-0 bg-stone-900 dark:bg-amber-600 text-white hover:brightness-110"
                   >
                     {sprintIndex < unresolvedMistakes.length - 1 ? '下一题 ➔' : '完成冲刺 ➔'}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
@@ -257,7 +238,9 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
                     )}
                   </div>
 
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() =>
                       onOpenTutor({
                         questionText: activeSprintItem.sentence,
@@ -267,11 +250,11 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
                         explanation: activeSprintItem.reviewNote,
                       })
                     }
-                    className="flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline"
+                    className="text-amber-700 dark:text-amber-400"
                   >
                     <Bot className="w-4 h-4" />
                     <span>向 AI 导师追问</span>
-                  </button>
+                  </Button>
                 </div>
 
                 <p className="text-stone-700 dark:text-stone-300 font-sans leading-relaxed">
@@ -290,54 +273,47 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
         <div className="flex flex-col gap-4">
           {/* 筛选控制器 */}
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-            {/* 状态过滤 */}
-            <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-900 p-1 rounded-xl">
-              {(['ALL', 'UNRESOLVED', 'RESOLVED'] as const).map((st) => (
-                <button
-                  key={st}
-                  onClick={() => {
-                    sound.playClick();
-                    setFilterState(st);
-                  }}
-                  className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                    filterState === st
-                      ? 'bg-white dark:bg-amber-600 text-stone-900 dark:text-white shadow-xs font-bold'
-                      : 'text-stone-500'
-                  }`}
-                >
-                  {st === 'ALL'
-                    ? `全部 (${mistakes.length})`
-                    : st === 'UNRESOLVED'
-                    ? `待攻克 (${unresolvedMistakes.length})`
-                    : `已攻克 (${resolvedMistakes.length})`}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              value={filterState}
+              onValueChange={(val) => {
+                if (!val) return;
+                sound.playClick();
+                setFilterState(val as typeof filterState);
+              }}
+            >
+              <TabsList className="bg-stone-200/60 dark:bg-stone-900">
+                <TabsIndicator />
+                <TabsTrigger value="ALL" className="px-3 py-1 text-xs">
+                  全部 ({mistakes.length})
+                </TabsTrigger>
+                <TabsTrigger value="UNRESOLVED" className="px-3 py-1 text-xs">
+                  待攻克 ({unresolvedMistakes.length})
+                </TabsTrigger>
+                <TabsTrigger value="RESOLVED" className="px-3 py-1 text-xs">
+                  已攻克 ({resolvedMistakes.length})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
-            {/* 考点标签过滤 */}
             <div className="flex items-center gap-1 overflow-x-auto max-w-full">
-              <button
+              <Button
+                variant={selectedTag === 'ALL' ? 'amber' : 'ghost'}
+                size="sm"
                 onClick={() => setSelectedTag('ALL')}
-                className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                  selectedTag === 'ALL'
-                    ? 'bg-amber-500/20 text-amber-900 dark:text-amber-300 font-bold'
-                    : 'text-stone-400'
-                }`}
+                className="h-7"
               >
                 所有考点
-              </button>
+              </Button>
               {uniqueTags.map((tag) => (
-                <button
+                <Button
                   key={tag}
+                  variant={selectedTag === tag ? 'amber' : 'ghost'}
+                  size="sm"
                   onClick={() => setSelectedTag(tag)}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition-all shrink-0 ${
-                    selectedTag === tag
-                      ? 'bg-amber-500/20 text-amber-900 dark:text-amber-300 font-bold'
-                      : 'text-stone-400'
-                  }`}
+                  className="h-7 shrink-0"
                 >
                   {tag}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -362,22 +338,22 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 text-xs font-semibold rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                        {m.categoryTag}
-                      </span>
+                      <Badge variant="amber">{m.categoryTag}</Badge>
                       {m.isResolved ? (
-                        <span className="text-xs px-2.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold flex items-center gap-1">
+                        <Badge variant="emerald" className="gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           已攻克
-                        </span>
+                        </Badge>
                       ) : (
-                        <span className="text-xs px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono font-bold">
+                        <Badge variant="amber" className="font-mono">
                           连续订正进度: {m.consecutiveCorrect}/2
-                        </span>
+                        </Badge>
                       )}
                     </div>
 
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() =>
                         onOpenTutor({
                           questionText: m.sentence,
@@ -387,11 +363,11 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
                           explanation: m.reviewNote,
                         })
                       }
-                      className="text-xs text-amber-700 dark:text-amber-400 font-semibold hover:underline flex items-center gap-1"
+                      className="text-amber-700 dark:text-amber-400"
                     >
                       <Bot className="w-3.5 h-3.5" />
                       <span>AI 错因深度诊断</span>
-                    </button>
+                    </Button>
                   </div>
 
                   <div className="text-sm font-medium text-stone-900 dark:text-stone-100 font-serif">

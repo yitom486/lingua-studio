@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   Upload,
   Download,
@@ -7,17 +6,23 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
-  X,
   BookOpen,
   Layers,
   ArrowRight,
-  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
 import { sound } from '../utils/audio.js';
-import { ShimmerButton } from './magicui/index.js';
 import type { TextbookBook, FuriganaWord } from '../data/textbook-data.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog.js';
+import { Button } from './ui/button.js';
+import { Badge } from './ui/badge.js';
 
 
 interface TextbookImporterModalProps {
@@ -132,7 +137,9 @@ export function TextbookImporterModal({
   const [parsedAST, setParsedAST] = useState<TextbookAST | null>(null);
   const [autoGenerateCards, setAutoGenerateCards] = useState<boolean>(true);
 
-  if (!isOpen) return null;
+  // Dialog 以 open 控制可见性，无需提前 return
+  // if (!isOpen) return null;
+
 
   const handleLoadSample = () => {
     sound.playClick();
@@ -309,148 +316,116 @@ export function TextbookImporterModal({
   };
 
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          className="relative w-full max-w-2xl bg-[#faf9f6] dark:bg-[#1c1a17] rounded-3xl shadow-2xl border border-amber-900/15 dark:border-amber-500/20 overflow-hidden flex flex-col max-h-[90vh]"
-        >
-          {/* 模态框顶部 */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-amber-900/10 dark:border-amber-500/15 bg-amber-500/5">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-amber-500/15 text-amber-800 dark:text-amber-400">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                  结构化教材导入与解析管道
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 font-mono">
-                    Textbook AST v1.0
-                  </span>
-                </h3>
-                <p className="text-xs text-stone-500 dark:text-stone-400">
-                  支持严格类型安全的课次知识树，杜绝纯切片检索造成的教学结构破坏
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0"
+        showCloseButton
+      >
+        <DialogHeader className="px-6 py-4 border-b border-amber-900/10 dark:border-amber-500/15 bg-amber-500/5 text-left">
+          <div className="flex items-center gap-2.5 pr-8">
+            <div className="p-2 rounded-xl bg-amber-500/15 text-amber-800 dark:text-amber-400">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <DialogTitle className="flex items-center gap-2 text-base">
+                结构化教材导入与解析管道
+                <Badge variant="amber" className="text-[10px] font-mono">
+                  Textbook AST v1.0
+                </Badge>
+              </DialogTitle>
+              <DialogDescription>
+                支持严格类型安全的课次知识树，杜绝纯切片检索造成的教学结构破坏
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+
+        <div className="p-6 overflow-y-auto space-y-4 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-amber-500/5 border border-amber-900/10 dark:border-amber-500/10">
+            <div className="flex items-center gap-2">
+              <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors">
+                <Upload className="w-3.5 h-3.5" />
+                上传教材 JSON 文件
+                <input
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </label>
+              <Button variant="secondary" size="sm" onClick={handleLoadSample}>
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                载入官方样例《新编日语》
+              </Button>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleDownloadTemplate}>
+              <Download className="w-3.5 h-3.5" />
+              下载 AST 规范模版
+            </Button>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 text-amber-500" />
+                教材 AST JSON 数据
+              </label>
+              {parsedAST && (
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  验证通过: 《{parsedAST.shortTitle}》 共 {parsedAST.lessons.length} 课
+                </span>
+              )}
+            </div>
+            <textarea
+              value={inputText}
+              onChange={handleTextChange}
+              placeholder="请在此粘贴符合规范的 Textbook AST JSON，或点击上方载入官方样例..."
+              rows={10}
+              className="w-full p-3 font-mono text-xs rounded-2xl bg-white dark:bg-[#151412] border border-stone-200 dark:border-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40 text-stone-800 dark:text-stone-200 leading-relaxed resize-none shadow-inner"
+            />
+          </div>
+
+          {parseError && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start gap-2 text-rose-700 dark:text-rose-400 text-xs">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span className="leading-relaxed">{parseError}</span>
+            </div>
+          )}
+
+          {parsedAST && (
+            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-900/10 dark:border-amber-500/20 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <div className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  自动为全课生词生成 FSRS 记忆卡片
+                </div>
+                <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                  将提取{' '}
+                  {parsedAST.lessons.reduce((acc, l) => acc + l.vocabularies.length, 0)}{' '}
+                  个生词直接注入今日复习池
                 </p>
               </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 hover:bg-stone-200/50 dark:hover:bg-stone-800/50 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* 模态框主体内容 */}
-          <div className="p-6 overflow-y-auto space-y-4 flex-1">
-            {/* 快速动作栏 */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-amber-500/5 border border-amber-900/10 dark:border-amber-500/10">
-              <div className="flex items-center gap-2">
-                <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors">
-                  <Upload className="w-3.5 h-3.5" />
-                  上传教材 JSON 文件
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-                </label>
-                <button
-                  onClick={handleLoadSample}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-200 dark:bg-stone-800 hover:bg-stone-300 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 text-xs font-semibold transition-colors"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  载入官方样例《新编日语》
-                </button>
-              </div>
-              <button
-                onClick={handleDownloadTemplate}
-                className="inline-flex items-center gap-1 text-xs text-stone-500 dark:text-stone-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
-              >
-                <Download className="w-3.5 h-3.5" />
-                下载 AST 规范模版
-              </button>
-            </div>
-
-            {/* 输入框 */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-stone-700 dark:text-stone-300 flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-amber-500" />
-                  教材 AST JSON 数据
-                </label>
-                {parsedAST && (
-                  <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    验证通过: 《{parsedAST.shortTitle}》 共 {parsedAST.lessons.length} 课
-                  </span>
-                )}
-              </div>
-              <textarea
-                value={inputText}
-                onChange={handleTextChange}
-                placeholder="请在此粘贴符合规范的 Textbook AST JSON，或点击上方载入官方样例..."
-                rows={10}
-                className="w-full p-3 font-mono text-xs rounded-2xl bg-white dark:bg-[#151412] border border-stone-200 dark:border-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-500/40 text-stone-800 dark:text-stone-200 leading-relaxed resize-none shadow-inner"
+              <input
+                type="checkbox"
+                checked={autoGenerateCards}
+                onChange={(e) => setAutoGenerateCards(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-stone-300"
               />
             </div>
+          )}
+        </div>
 
-            {/* 解析错误提示 */}
-            {parseError && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-start gap-2 text-rose-700 dark:text-rose-400 text-xs">
-                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span className="leading-relaxed">{parseError}</span>
-              </div>
-            )}
-
-            {/* 提取生词卡选项 */}
-            {parsedAST && (
-              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-900/10 dark:border-amber-500/20 flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                    自动为全课生词生成 FSRS 记忆卡片
-                  </div>
-                  <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                    将提取 {parsedAST.lessons.reduce((acc, l) => acc + l.vocabularies.length, 0)} 个生词直接注入今日复习池
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={autoGenerateCards}
-                  onChange={(e) => setAutoGenerateCards(e.target.checked)}
-                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-stone-300"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* 模态框底部按钮 */}
-          <div className="flex items-center justify-between px-6 py-4 border-t border-amber-900/10 dark:border-amber-500/15 bg-amber-500/5">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold rounded-xl text-stone-600 dark:text-stone-400 hover:bg-stone-200/50 dark:hover:bg-stone-800/50 transition-colors"
-            >
-              取消
-            </button>
-            <button
-              disabled={!parsedAST}
-              onClick={handleConfirmImport}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm ${
-                parsedAST
-                  ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-500/20'
-                  : 'bg-stone-300 dark:bg-stone-800 text-stone-500 cursor-not-allowed'
-              }`}
-            >
-              确认导入并激活
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    </AnimatePresence>
+        <div className="flex items-center justify-between px-6 py-4 border-t border-amber-900/10 dark:border-amber-500/15 bg-amber-500/5">
+          <Button variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button disabled={!parsedAST} onClick={handleConfirmImport}>
+            确认导入并激活
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

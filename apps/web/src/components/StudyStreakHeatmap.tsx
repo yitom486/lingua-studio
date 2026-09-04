@@ -10,6 +10,8 @@ import {
   Target,
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
+import { Button } from './ui/button.js';
+import { Progress } from './ui/progress.js';
 
 interface HeatmapDay {
   date: string;
@@ -98,12 +100,7 @@ export function StudyStreakHeatmap() {
               {todayCompleted} / {todayTarget} ({targetPercent}%)
             </span>
           </div>
-          <div className="w-full bg-stone-200 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-gradient-to-r from-amber-500 to-amber-600 h-full rounded-full transition-all duration-300"
-              style={{ width: `${targetPercent}%` }}
-            />
-          </div>
+          <Progress value={targetPercent} indicatorClassName="bg-gradient-to-r from-amber-500 to-amber-600" />
         </div>
       </div>
 
@@ -129,18 +126,20 @@ export function StudyStreakHeatmap() {
           {days.map((day) => {
             const isSelected = selectedDay?.dayNumber === day.dayNumber;
             return (
-              <button
+              <Button
                 key={day.dayNumber}
+                size="icon"
+                variant="ghost"
                 onClick={() => {
                   sound.playClick();
                   setSelectedDay(day);
                 }}
-                className={`h-8 sm:h-9 rounded-lg border text-xs font-mono transition-all flex items-center justify-center ${getIntensityColor(
+                className={`h-8 sm:h-9 w-full rounded-lg border text-xs font-mono ${getIntensityColor(
                   day.intensity
                 )} ${isSelected ? 'ring-2 ring-amber-600 scale-105' : 'hover:scale-105'}`}
               >
                 {day.dayNumber}
-              </button>
+              </Button>
             );
           })}
         </div>

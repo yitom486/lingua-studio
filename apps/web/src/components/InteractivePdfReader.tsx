@@ -22,6 +22,9 @@ import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../data/textbook-data.js';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Button } from './ui/button.js';
+import { Badge } from './ui/badge.js';
 
 
 interface InteractivePdfReaderProps {
@@ -134,46 +137,37 @@ export function InteractivePdfReader({
       {/* 顶部阅读器控制条 */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm">
         {/* 模式切换 */}
-        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-stone-200/70 dark:bg-stone-800/80">
-          <button
-            onClick={() => {
-              sound.playClick();
-              setViewMode('PDF_PAGE');
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-              viewMode === 'PDF_PAGE'
-                ? 'bg-amber-600 text-white shadow-xs'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            原版教材排版精读
-          </button>
-          <button
-            onClick={() => {
-              sound.playClick();
-              setViewMode('STRUCTURED');
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-              viewMode === 'STRUCTURED'
-                ? 'bg-amber-600 text-white shadow-xs'
-                : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5" />
-            结构分解导读
-          </button>
-        </div>
+        <Tabs
+          value={viewMode}
+          onValueChange={(val) => {
+            if (!val) return;
+            sound.playClick();
+            setViewMode(val as 'STRUCTURED' | 'PDF_PAGE');
+          }}
+        >
+          <TabsList className="bg-stone-200/70 dark:bg-stone-800/80">
+            <TabsIndicator />
+            <TabsTrigger value="PDF_PAGE" className="px-3 py-1.5 text-xs gap-1.5">
+              <BookOpen className="w-3.5 h-3.5" />
+              原版教材排版精读
+            </TabsTrigger>
+            <TabsTrigger value="STRUCTURED" className="px-3 py-1.5 text-xs gap-1.5">
+              <Layers className="w-3.5 h-3.5" />
+              结构分解导读
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
 
         {/* 快捷工具 */}
         <div className="flex items-center gap-2">
-          {/* 中文翻译显隐切换 */}
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               sound.playClick();
               setShowChineseTranslation(!showChineseTranslation);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 text-xs font-medium text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+            className="gap-1.5"
           >
             {showChineseTranslation ? (
               <>
@@ -186,42 +180,46 @@ export function InteractivePdfReader({
                 <span>中文对照: 隐藏</span>
               </>
             )}
-          </button>
+          </Button>
 
-          {/* 缩放控制器 (PDF 模式下) */}
           {viewMode === 'PDF_PAGE' && (
-            <div className="flex items-center gap-1 border border-stone-200 dark:border-stone-800 rounded-xl px-2 py-1">
-              <button
+            <div className="flex items-center gap-1 border border-stone-200 dark:border-stone-800 rounded-xl px-1 py-0.5">
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setZoomLevel((z) => Math.max(z - 10, 80))}
-                className="p-1 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                className="h-7 w-7 text-stone-500"
                 title="缩小"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
-              </button>
+              </Button>
               <span className="text-[11px] font-mono font-semibold px-1 text-stone-600 dark:text-stone-300">
                 {zoomLevel}%
               </span>
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setZoomLevel((z) => Math.min(z + 10, 130))}
-                className="p-1 text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                className="h-7 w-7 text-stone-500"
                 title="放大"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
-              </button>
+              </Button>
             </div>
           )}
 
-          {/* 一键开启自测 */}
-          <button
+          <Button
+            variant="amber"
+            size="sm"
             onClick={() => {
               sound.playClick();
               onStartLessonQuiz(lesson.id, lesson.title);
             }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 text-xs font-bold transition-colors"
+            className="gap-1.5"
           >
             <Sparkles className="w-3.5 h-3.5" />
             练习本课测验
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -238,9 +236,9 @@ export function InteractivePdfReader({
             {/* 顶栏教材标识 */}
             <div className="flex items-center justify-between border-b-2 border-stone-800 dark:border-stone-300 pb-3">
               <div className="flex items-center gap-3">
-                <span className="px-2.5 py-0.5 rounded-md bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 font-bold text-xs">
+                <Badge className="rounded-md bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 border-transparent hover:bg-stone-900">
                   {book.shortTitle}
-                </span>
+                </Badge>
                 <span className="font-bold text-sm tracking-wider text-stone-800 dark:text-stone-200">
                   {lesson.title}
                 </span>
@@ -338,15 +336,15 @@ export function InteractivePdfReader({
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-stone-600 dark:text-stone-400">{v.chinese}</span>
-                        <button
-                          onClick={() =>
-                            handleAddSelectedToCards()
-                          }
-                          className="p-1 text-stone-400 hover:text-amber-600"
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleAddSelectedToCards()}
+                          className="h-7 w-7 text-stone-400 hover:text-amber-600"
                           title="加入闪卡"
                         >
                           <BookmarkPlus className="w-3.5 h-3.5" />
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   ))}
@@ -437,20 +435,23 @@ export function InteractivePdfReader({
 
               {/* 操作按钮流 */}
               <div className="flex items-center gap-1.5 pt-1">
-                <button
+                <Button
                   onClick={handleAddSelectedToCards}
-                  className="flex-1 py-1.5 px-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-[11px] font-bold text-white flex items-center justify-center gap-1 transition-colors"
+                  size="sm"
+                  className="flex-1 h-8 gap-1 bg-amber-600 hover:bg-amber-700 text-[11px] text-white"
                 >
                   <BookmarkPlus className="w-3.5 h-3.5" />
                   转为闪卡
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={handleAskTutorForSelection}
-                  className="flex-1 py-1.5 px-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-[11px] font-bold text-amber-300 flex items-center justify-center gap-1 transition-colors"
+                  size="sm"
+                  variant="secondary"
+                  className="flex-1 h-8 gap-1 bg-stone-800 hover:bg-stone-700 text-[11px] text-amber-300"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   AI 导师深度点拨
-                </button>
+                </Button>
               </div>
             </motion.div>
           )}
@@ -460,23 +461,25 @@ export function InteractivePdfReader({
       {/* 底部页码控制 (PDF 模式) */}
       {viewMode === 'PDF_PAGE' && (
         <div className="flex items-center justify-center gap-4 py-2">
-          <button
+          <Button
+            variant="outline"
+            size="icon"
             onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
             disabled={currentPage <= 1}
-            className="p-2 rounded-xl border border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400 disabled:opacity-30 hover:bg-stone-100 dark:hover:bg-stone-800"
           >
             <ChevronLeft className="w-4 h-4" />
-          </button>
+          </Button>
           <span className="text-xs font-mono font-semibold text-stone-600 dark:text-stone-400">
             第 {currentPage} 页 / 共 {totalPages} 页
           </span>
-          <button
+          <Button
+            variant="outline"
+            size="icon"
             onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
             disabled={currentPage >= totalPages}
-            className="p-2 rounded-xl border border-stone-200 dark:border-stone-800 text-stone-600 dark:text-stone-400 disabled:opacity-30 hover:bg-stone-100 dark:hover:bg-stone-800"
           >
             <ChevronRight className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -1,20 +1,18 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Play,
   Pause,
   Volume2,
   VolumeX,
-  RotateCcw,
   Repeat,
   ChevronLeft,
   ChevronRight,
-  Mic,
-  Sparkles,
-  Gauge,
 } from 'lucide-react';
 import { useTts } from '../hooks/useTts.js';
 import { sound, type SupportedLanguage, type TtsGender } from '../utils/audio.js';
+import { Button } from './ui/button.js';
+import { Badge } from './ui/badge.js';
 
 export interface UnifiedTtsPlayerProps {
   /** 需要朗读的文本 */
@@ -45,7 +43,7 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
   text,
   lang = 'JA',
   variant = 'button',
-  shadowStep,
+  shadowStep: _shadowStep,
   isLooping = false,
   onToggleLoop,
   onPrev,
@@ -85,10 +83,12 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
   // ---------------------------------------------------------------------------
   if (variant === 'inline') {
     return (
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="icon"
         onClick={handleTogglePlay}
-        className={`inline-flex items-center justify-center p-1 rounded-md text-amber-700 dark:text-amber-400 hover:bg-amber-500/15 transition-all cursor-pointer ${className}`}
+        className={`h-7 w-7 p-1 text-amber-700 dark:text-amber-400 hover:bg-amber-500/15 ${className}`}
         title={isCurrentPlaying ? '停止发音' : `标准发音 (${lang} · ${gender === 'FEMALE' ? '女声' : '男声'})`}
       >
         {isCurrentPlaying ? (
@@ -96,7 +96,7 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
         ) : (
           <Volume2 className="w-3.5 h-3.5 hover:scale-110 transition-transform" />
         )}
-      </button>
+      </Button>
     );
   }
 
@@ -105,15 +105,15 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
   // ---------------------------------------------------------------------------
   if (variant === 'button') {
     return (
-      <motion.button
+      <Button
         type="button"
-        whileHover={{ scale: 1.03 }}
-        whileTap={{ scale: 0.97 }}
+        variant={isCurrentPlaying ? 'default' : 'secondary'}
+        size="sm"
         onClick={handleTogglePlay}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer shadow-xs ${
+        className={`gap-1.5 shadow-xs ${
           isCurrentPlaying
-            ? 'bg-amber-500 text-stone-950 border-amber-600 shadow-amber-500/20 shadow-md'
-            : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 hover:border-amber-500/50 hover:bg-amber-500/10'
+            ? 'bg-amber-500 text-stone-950 border-amber-600 shadow-amber-500/20 shadow-md hover:bg-amber-500'
+            : 'border border-stone-200 dark:border-stone-700 hover:border-amber-500/50 hover:bg-amber-500/10'
         } ${className}`}
         title={`朗读 (${lang} · ${gender === 'FEMALE' ? '自然女声' : '自然男声'} · ${rate}x)`}
       >
@@ -121,7 +121,6 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
           <>
             <VolumeX className="w-4 h-4 animate-pulse" />
             <span>{label || '暂停'}</span>
-            {/* 微型声波柱条 */}
             <span className="flex items-center gap-0.5 ml-1">
               <span className="w-1 h-3 bg-stone-950 rounded-full animate-bounce [animation-delay:0ms]" />
               <span className="w-1 h-4 bg-stone-950 rounded-full animate-bounce [animation-delay:150ms]" />
@@ -137,7 +136,7 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
             </span>
           </>
         )}
-      </motion.button>
+      </Button>
     );
   }
 
@@ -170,41 +169,37 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
         {/* 左侧：循环播放与语速档位 */}
         <div className="flex items-center gap-2">
           {onToggleLoop && (
-            <button
+            <Button
               type="button"
+              variant={isLooping ? 'amber' : 'outline'}
+              size="sm"
               onClick={() => {
                 sound.playClick();
                 onToggleLoop();
               }}
-              className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
-                isLooping
-                  ? 'border-amber-500 bg-amber-500/20 text-amber-900 dark:text-amber-200 font-bold shadow-xs'
-                  : 'border-stone-200 dark:border-stone-800 text-stone-500 hover:text-stone-800 dark:hover:text-stone-300'
-              }`}
+              className="gap-1.5"
             >
               <Repeat className="w-3.5 h-3.5" />
               <span>{isLooping ? '循环跟读: 开' : '单次播放'}</span>
-            </button>
+            </Button>
           )}
 
           {/* 语速档位切换 (0.75x, 1x, 1.25x) */}
           <div className="flex items-center bg-stone-200/60 dark:bg-stone-900 p-0.5 rounded-xl border border-stone-300/40 dark:border-stone-800 text-xs">
             {[0.75, 1.0, 1.25].map((spd) => (
-              <button
+              <Button
                 key={spd}
                 type="button"
+                variant={Math.abs(rate - spd) < 0.05 ? 'default' : 'ghost'}
+                size="sm"
                 onClick={() => {
                   sound.playClick();
                   setRate(spd);
                 }}
-                className={`px-2 py-1 rounded-lg font-mono font-medium transition-all ${
-                  Math.abs(rate - spd) < 0.05
-                    ? 'bg-amber-600 text-white shadow-xs font-bold'
-                    : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
-                }`}
+                className="h-7 px-2 font-mono"
               >
                 {spd}x
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -212,29 +207,30 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
         {/* 中间：上一句、主播放大按钮、下一句 */}
         <div className="flex items-center gap-3">
           {onPrev && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="icon"
               disabled={!hasPrev}
               onClick={() => {
                 sound.playClick();
                 stop();
                 onPrev();
               }}
-              className="p-2.5 rounded-2xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-2xl"
               title="上一句"
             >
               <ChevronLeft className="w-4 h-4" />
-            </button>
+            </Button>
           )}
 
-          <motion.button
+          <Button
             type="button"
-            whileHover={{ scale: 1.08 }}
-            whileTap={{ scale: 0.92 }}
+            size="icon"
             onClick={handleTogglePlay}
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md transition-all cursor-pointer ${
+            className={`w-14 h-14 rounded-2xl shadow-md ${
               isCurrentPlaying
-                ? 'bg-amber-600 text-white shadow-amber-600/30'
+                ? 'bg-amber-600 text-white shadow-amber-600/30 hover:bg-amber-600'
                 : 'bg-amber-500 text-stone-950 hover:bg-amber-400 shadow-amber-500/25'
             }`}
             title={isCurrentPlaying ? '暂停' : '开始发音'}
@@ -244,43 +240,47 @@ export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
             ) : (
               <Play className="w-6 h-6 fill-current ml-0.5" />
             )}
-          </motion.button>
+          </Button>
 
           {onNext && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="icon"
               disabled={!hasNext}
               onClick={() => {
                 sound.playClick();
                 stop();
                 onNext();
               }}
-              className="p-2.5 rounded-2xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className="rounded-2xl"
               title="下一句"
             >
               <ChevronRight className="w-4 h-4" />
-            </button>
+            </Button>
           )}
         </div>
 
         {/* 右侧：性别快速切换与语种指示 */}
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => {
               sound.playClick();
               const nextGender: TtsGender = gender === 'FEMALE' ? 'MALE' : 'FEMALE';
               setGender(nextGender);
             }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-stone-200/60 dark:bg-stone-900 border border-stone-300/40 dark:border-stone-800 text-xs font-semibold text-stone-700 dark:text-stone-300 hover:bg-amber-500/15 transition-all cursor-pointer"
+            className="gap-1 border border-stone-300/40 dark:border-stone-800"
             title="点击切换男女声"
           >
             <span>{gender === 'FEMALE' ? '👩 女声' : '👨 男声'}</span>
-          </button>
+          </Button>
 
-          <span className="px-2 py-1 rounded-lg bg-stone-100 dark:bg-stone-800/80 border border-stone-200/50 dark:border-stone-700/50 text-[11px] font-mono text-stone-500 dark:text-stone-400">
+          <Badge variant="secondary" className="rounded-lg font-mono text-[11px]">
             {lang === 'EN' ? '🇬🇧 英语' : lang === 'KO' ? '🇰🇷 韩语' : '🇯🇵 日语'}
-          </span>
+          </Badge>
         </div>
       </div>
     </div>

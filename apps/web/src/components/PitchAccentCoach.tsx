@@ -15,6 +15,10 @@ import {
 import { toast } from 'sonner';
 import { sound } from '../utils/audio.js';
 import { ShimmerButton } from './magicui/index.js';
+import { Progress } from './ui/progress.js';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Button } from './ui/button.js';
+import { Badge } from './ui/badge.js';
 
 interface PitchWord {
   id: string;
@@ -269,9 +273,7 @@ export function PitchAccentCoach() {
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 text-xs font-semibold rounded bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                AI 声学与音调纠正 (Pitch Accent)
-              </span>
+              <Badge variant="amber">AI 声学与音调纠正 (Pitch Accent)</Badge>
               <span className="text-xs text-stone-500 dark:text-stone-400">
                 日语特有高低重音可视化评测
               </span>
@@ -282,25 +284,24 @@ export function PitchAccentCoach() {
           </div>
 
           {/* 词条切换 */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-            {BENCHMARK_PITCH_WORDS.map((item, idx) => (
-              <button
-                key={item.id}
-                onClick={() => {
-                  sound.playClick();
-                  setSelectedWordIndex(idx);
-                  setEvalResult(null);
-                }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  idx === selectedWordIndex
-                    ? 'bg-amber-500 text-stone-950 shadow-sm'
-                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                }`}
-              >
-                {item.kanji} ({item.kana})
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={String(selectedWordIndex)}
+            onValueChange={(val) => {
+              if (val == null) return;
+              sound.playClick();
+              setSelectedWordIndex(Number(val));
+              setEvalResult(null);
+            }}
+          >
+            <TabsList className="bg-stone-200/60 dark:bg-stone-900 flex-wrap h-auto">
+              <TabsIndicator />
+              {BENCHMARK_PITCH_WORDS.map((item, idx) => (
+                <TabsTrigger key={item.id} value={String(idx)} className="px-3 py-1.5 text-xs">
+                  {item.kanji} ({item.kana})
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         </div>
       </div>
 
@@ -326,16 +327,17 @@ export function PitchAccentCoach() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="px-3 py-1 text-xs font-bold rounded-full bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-500/30">
+                <Badge variant="amber" className="px-3 py-1">
                   {currentWord.pitchType}
-                </span>
-                <button
+                </Badge>
+                <Button
+                  size="sm"
                   onClick={() => playStandardPitch(currentWord.pitchPattern, currentWord.moraList)}
-                  className="p-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 shadow-sm transition-all flex items-center gap-1.5 text-xs font-semibold"
+                  className="gap-1.5"
                 >
                   <Volume2 className="w-4 h-4" />
                   <span>示范原音</span>
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -396,18 +398,20 @@ export function PitchAccentCoach() {
                   <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
                     🔥 经典对比辨析 (Minimal Pair)：
                   </span>
-                  <button
+                  <Button
+                    variant="link"
+                    size="sm"
                     onClick={() =>
                       playStandardPitch(
                         currentWord.contrastPair!.pitchPattern,
                         currentWord.contrastPair!.kana.split('')
                       )
                     }
-                    className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold hover:underline flex items-center gap-1"
+                    className="h-auto p-0 text-[11px] gap-1"
                   >
                     <Volume2 className="w-3 h-3" />
                     试听对比词声调
-                  </button>
+                  </Button>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <div>
@@ -418,9 +422,9 @@ export function PitchAccentCoach() {
                       {currentWord.contrastPair.meaning}
                     </span>
                   </div>
-                  <span className="text-xs px-2 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-300 font-mono">
+                  <Badge variant="secondary" className="rounded font-mono text-xs">
                     {currentWord.contrastPair.pitchType}
-                  </span>
+                  </Badge>
                 </div>
               </div>
             )}
@@ -459,12 +463,7 @@ export function PitchAccentCoach() {
             <div className="space-y-2">
               {isRecording ? (
                 <div className="space-y-2">
-                  <div className="w-full bg-stone-200 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
-                    <div
-                      className="bg-amber-500 h-full transition-all duration-100"
-                      style={{ width: `${recordingProgress}%` }}
-                    />
-                  </div>
+                  <Progress value={recordingProgress} />
                   <p className="text-xs text-center text-amber-700 dark:text-amber-400 font-semibold animate-pulse">
                     正在录音分析中... 请清晰朗读：{currentWord.kana}
                   </p>

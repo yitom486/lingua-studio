@@ -7,6 +7,10 @@ import { StudyStreakHeatmap } from './StudyStreakHeatmap.js';
 import { sound } from '../utils/audio.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import type { SkillMetric } from '@study-studio/learner-core';
+import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import { Button } from './ui/button.js';
+import { Progress } from './ui/progress.js';
+import { Badge } from './ui/badge.js';
 
 interface LearnerRadarDashboardProps {
   metrics: SkillMetric[];
@@ -80,21 +84,34 @@ export function LearnerRadarDashboard({
             <Award className="w-4 h-4 text-amber-600 dark:text-amber-400" />
             多维技能画像 (Learner Skill Profile)
           </h3>
-          <div className="flex items-center gap-1 text-xs">
-            {['ALL', 'GRAMMAR', 'VOCAB', 'LISTENING', 'NUANCE'].map((dim) => (
-              <button
-                key={dim}
-                onClick={() => setMetricDimension(dim)}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                  metricDimension === dim
-                    ? 'bg-amber-500 text-stone-950 font-bold'
-                    : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
-                }`}
-              >
-                {dim === 'ALL' ? '全部' : dim === 'GRAMMAR' ? '文法' : dim === 'VOCAB' ? '词汇' : dim === 'LISTENING' ? '听力' : '语感'}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={metricDimension}
+            onValueChange={(val) => {
+              if (!val) return;
+              setMetricDimension(val);
+            }}
+          >
+            <TabsList className="bg-transparent p-0 border-0 gap-1">
+              <TabsIndicator className="bg-amber-500 shadow-sm" />
+              {['ALL', 'GRAMMAR', 'VOCAB', 'LISTENING', 'NUANCE'].map((dim) => (
+                <TabsTrigger
+                  key={dim}
+                  value={dim}
+                  className="px-2.5 py-1 text-xs data-[selected]:text-stone-950 data-[selected]:font-bold"
+                >
+                  {dim === 'ALL'
+                    ? '全部'
+                    : dim === 'GRAMMAR'
+                    ? '文法'
+                    : dim === 'VOCAB'
+                    ? '词汇'
+                    : dim === 'LISTENING'
+                    ? '听力'
+                    : '语感'}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -113,46 +130,36 @@ export function LearnerRadarDashboard({
                     <span className="font-bold text-stone-800 dark:text-stone-200">
                       {metric.name}
                     </span>
-                    <span
-                      className={`px-2 py-0.5 rounded font-mono font-bold ${
-                        isStrong
-                          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                          : isWeak
-                          ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                          : 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
-                      }`}
+                    <Badge
+                      variant={isStrong ? 'emerald' : isWeak ? 'destructive' : 'amber'}
+                      className="rounded font-mono"
                     >
                       {Math.round(metric.proficiency * 100)}%
-                    </span>
+                    </Badge>
                   </div>
 
-                  {/* 进度条 */}
-                  <div className="w-full bg-stone-200 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-500 ${
-                        isStrong
-                          ? 'bg-emerald-500'
-                          : isWeak
-                          ? 'bg-rose-500'
-                          : 'bg-amber-500'
-                      }`}
-                      style={{ width: `${metric.proficiency * 100}%` }}
-                    />
-                  </div>
+                  <Progress
+                    value={metric.proficiency * 100}
+                    indicatorClassName={
+                      isStrong ? 'bg-emerald-500' : isWeak ? 'bg-rose-500' : 'bg-amber-500'
+                    }
+                  />
 
                   <div className="flex justify-between items-center text-[11px] text-stone-400 pt-1">
                     <span>总练习 {metric.totalAttempts} 次 · 连续错误 {metric.consecutiveErrors} 次</span>
                     {isWeak && (
-                      <button
+                      <Button
+                        variant="link"
+                        size="sm"
                         onClick={() => {
                           sound.playClick();
                           setActiveTab('QUIZ');
                           toast.info(`已为您调取针对【${metric.name}】的加练题目！`);
                         }}
-                        className="text-amber-700 dark:text-amber-400 font-bold hover:underline cursor-pointer"
+                        className="h-auto p-0 text-[11px] font-bold"
                       >
                         靶向加练 →
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
