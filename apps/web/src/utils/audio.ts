@@ -70,6 +70,11 @@ class SoundEngine {
     } catch {}
   }
 
+  // 别名方法
+  public playCorrect() {
+    this.playSuccess();
+  }
+
   // 3. 做错时的安抚低音 (不刺耳、非报警声，而是温和的木质提醒)
   public playMistake() {
     const ctx = this.getContext();

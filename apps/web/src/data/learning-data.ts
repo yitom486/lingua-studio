@@ -101,6 +101,40 @@ export const INITIAL_QUESTIONS: QuizQuestionItem[] = [
       '句型「Aは Bに ...を [使役动词]」表示“A让/使B做某事”。此处老师指导学生读日文文章，符合使役态「読ませました」。',
     testedSkill: 'jp.grammar.causative_active',
   },
+  {
+    id: 'q_05',
+    type: 'CHOICE',
+    category: '标日初上 · 第1课',
+    prompt: '选择最恰当的助词填入括号，完成判断句：',
+    content: '李さん（　）中国人です。',
+    options: [
+      { key: 'A', text: 'は', note: '提示主题，读作 wa' },
+      { key: 'B', text: 'が', note: '主格助词' },
+      { key: 'C', text: 'を', note: '宾格助词' },
+      { key: 'D', text: 'に', note: '时间或落脚点' },
+    ],
+    correctAnswer: 'A',
+    explanation:
+      '「李さんは中国人です」是标准日语句型「N1 は N2 です」，助词「は」提示主题，读音为「wa」。',
+    testedSkill: 'PARTICLE_WA_DESU',
+  },
+  {
+    id: 'q_06',
+    type: 'CHOICE',
+    category: '标日初上 · 第2课',
+    prompt: '根据回答（あちら），选择正确的疑问指示词：',
+    content: '（　）は誰の傘ですか。──あちらの傘です。',
+    options: [
+      { key: 'A', text: 'これ', note: '近称代词' },
+      { key: 'B', text: 'あれ', note: '远称代词' },
+      { key: 'C', text: 'この', note: '连体词（后必须接名词）' },
+      { key: 'D', text: 'その', note: '中称连体词' },
+    ],
+    correctAnswer: 'B',
+    explanation:
+      '在询问远距离事物时用指示代词「あれ」；「この」是连体词，后必须紧跟名词，不能单独后接助词「は」。',
+    testedSkill: 'DEMONSTRATIVE_PRONOUNS',
+  },
 ];
 
 export const INITIAL_CARDS: StudyCardItem[] = [

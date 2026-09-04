@@ -23,6 +23,12 @@ import {
   Filter,
   CheckCheck,
   Undo2,
+  Mic,
+  Command,
+  Flame,
+  Zap,
+  Bot,
+  HelpCircle,
 } from 'lucide-react';
 import {
   initFsrsState,
@@ -46,6 +52,11 @@ import {
   type StudyCardItem,
   type MistakeNotebookItem,
 } from './data/learning-data.js';
+import { CommandPalette, type CommandAction } from './components/CommandPalette.js';
+import { TextbookCurriculum } from './components/TextbookCurriculum.js';
+import { PitchAccentCoach } from './components/PitchAccentCoach.js';
+import { StudyStreakHeatmap } from './components/StudyStreakHeatmap.js';
+import { AiTutorDrawer, type AiTutorContext } from './components/AiTutorDrawer.js';
 
 export function App() {
   // 主题状态：默认浅色（温暖日式纸面质感），持久化于 localStorage
@@ -74,7 +85,15 @@ export function App() {
     toast.success(theme === 'light' ? '已切换至深焙炭石夜间模式' : '已切换至温润纸面亮色模式');
   };
 
-  const [activeTab, setActiveTab] = useState<'QUIZ' | 'CARDS' | 'MISTAKES' | 'RADAR'>('QUIZ');
+  // 导航选项卡
+  const [activeTab, setActiveTab] = useState<'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'PITCH' | 'MISTAKES' | 'RADAR'>('QUIZ');
+
+  // 全局指令面板 (Cmd+K)
+  const [isCommandOpen, setIsCommandOpen] = useState(false);
+
+  // AI 导师抽屉状态
+  const [isTutorOpen, setIsTutorOpen] = useState(false);
+  const [tutorContext, setTutorContext] = useState<AiTutorContext | null>(null);
 
   // --- 1. 做题系统状态 ---
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -103,6 +122,49 @@ export function App() {
   // --- 4. 技能画像状态 ---
   const [metrics, setMetrics] = useState<SkillMetric[]>(SKILL_METRICS_JP);
   const [metricDimension, setMetricDimension] = useState<string>('ALL');
+
+  // 打开 AI 导师抽屉
+  const handleOpenTutor = (ctx: AiTutorContext) => {
+    sound.playClick();
+    setTutorContext(ctx);
+    setIsTutorOpen(true);
+  };
+
+  // 教材课程联动：启动课后专属自测
+  const handleStartLessonQuiz = (lessonId: string, lessonTitle: string) => {
+    setActiveTab('QUIZ');
+    if (lessonId === 'biaori-l1') {
+      setQuestionIndex(4); // q_05 (第1课)
+    } else if (lessonId === 'biaori-l2') {
+      setQuestionIndex(5); // q_06 (第2课)
+    } else {
+      setQuestionIndex(0);
+    }
+    setSelectedChoice(null);
+    setFillBlankInput('');
+    setReorderSelectedChunks([]);
+    setQuizSubmitted(false);
+    toast.success(`已为您载入《${lessonTitle}》专属测评题！`);
+  };
+
+  // 教材课程联动：加入今日生词卡
+  const handleAddCardFromTextbook = (vocab: { front: string; back: string; category: string; prompt: string }) => {
+    const newCard: StudyCardItem = {
+      id: `card_tb_${Date.now()}`,
+      type: 'VOCAB',
+      frontWord: vocab.front,
+      reading: '',
+      tag: '教材生词',
+      pos: '生词',
+      backMeaning: vocab.back,
+      exampleJp: vocab.prompt,
+      exampleHighlight: vocab.front,
+      exampleZh: '',
+      stability: 1.0,
+      reps: 0,
+    };
+    setCards((prev) => [newCard, ...prev]);
+  };
 
   // 提交做题答题
   const handleQuizSubmit = () => {
@@ -212,16 +274,157 @@ export function App() {
     );
   };
 
+  // 全局快捷键绑定 (Cmd+K 全局指令, 1-4 选选项/评分, 空格翻卡)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // 忽略输入框内部按键
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      // Cmd+K 或 Ctrl+K 唤出指令面板
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandOpen((prev) => !prev);
+        return;
+      }
+
+      // 卡片模式快捷键
+      if (activeTab === 'CARDS') {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          sound.playClick();
+          setCardFlipped((prev) => !prev);
+        } else if (cardFlipped) {
+          if (e.key === '1') handleCardReview('AGAIN');
+          if (e.key === '2') handleCardReview('HARD');
+          if (e.key === '3') handleCardReview('GOOD');
+          if (e.key === '4') handleCardReview('EASY');
+        }
+      }
+
+      // 做题模式快捷键
+      if (activeTab === 'QUIZ' && currentQ.type === 'CHOICE' && !quizSubmitted) {
+        if (e.key === '1' && currentQ.options?.[0]) setSelectedChoice(currentQ.options[0].key);
+        if (e.key === '2' && currentQ.options?.[1]) setSelectedChoice(currentQ.options[1].key);
+        if (e.key === '3' && currentQ.options?.[2]) setSelectedChoice(currentQ.options[2].key);
+        if (e.key === '4' && currentQ.options?.[3]) setSelectedChoice(currentQ.options[3].key);
+        if (e.key === 'Enter' && selectedChoice) handleQuizSubmit();
+      } else if (activeTab === 'QUIZ' && quizSubmitted && e.key === 'Enter') {
+        handleNextQuestion();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [activeTab, cardFlipped, quizSubmitted, selectedChoice, currentQ]);
+
+  // 指令面板动作配置
+  const commandActions: CommandAction[] = [
+    {
+      id: 'nav-quiz',
+      category: '导航',
+      title: '前往自适应做题练习',
+      subtitle: '多题型智能测评与客观秒判 (0ms)',
+      icon: <Zap className="w-4 h-4" />,
+      shortcut: 'Tab 1',
+      onSelect: () => setActiveTab('QUIZ'),
+    },
+    {
+      id: 'nav-cards',
+      category: '导航',
+      title: '前往 FSRS 卡片记忆工坊',
+      subtitle: '支持 3D 翻转与 4 级间隔重复调度',
+      icon: <Layers className="w-4 h-4" />,
+      shortcut: 'Tab 2',
+      onSelect: () => setActiveTab('CARDS'),
+    },
+    {
+      id: 'nav-textbook',
+      category: '导航',
+      title: '前往结构化教材精读 (标日 / 大家的日语)',
+      subtitle: '课文注音精读、核心词汇库与一键课后测验',
+      icon: <BookOpen className="w-4 h-4" />,
+      shortcut: 'Tab 3',
+      onSelect: () => setActiveTab('TEXTBOOK'),
+    },
+    {
+      id: 'nav-pitch',
+      category: '导航',
+      title: '前往 AI 日语声调与口语纠音',
+      subtitle: '高低起伏走势线与实时声波跟读打分',
+      icon: <Mic className="w-4 h-4" />,
+      shortcut: 'Tab 4',
+      onSelect: () => setActiveTab('PITCH'),
+    },
+    {
+      id: 'nav-mistakes',
+      category: '导航',
+      title: '前往错题攻坚本',
+      subtitle: `当前有 ${mistakes.filter((m) => !m.isResolved).length} 道待攻克疑难痛点`,
+      icon: <AlertTriangle className="w-4 h-4" />,
+      shortcut: 'Tab 5',
+      onSelect: () => setActiveTab('MISTAKES'),
+    },
+    {
+      id: 'nav-radar',
+      category: '导航',
+      title: '前往学情能力画像与打卡热力图',
+      subtitle: '语法、词汇、听力多维雷达与弱项靶向加练',
+      icon: <TrendingUp className="w-4 h-4" />,
+      shortcut: 'Tab 6',
+      onSelect: () => setActiveTab('RADAR'),
+    },
+    {
+      id: 'drill-biaori-1',
+      category: '教材直达',
+      title: '《标准日本语 初级上》第 1 课 李さんは中国人です',
+      subtitle: '肯定判断句与自我介绍专攻',
+      icon: <BookOpen className="w-4 h-4" />,
+      onSelect: () => handleStartLessonQuiz('biaori-l1', '标日第 1 课'),
+    },
+    {
+      id: 'drill-biaori-2',
+      category: '教材直达',
+      title: '《标准日本语 初级上》第 2 课 これは何ですか',
+      subtitle: '这/那/那事物指示代词专攻',
+      icon: <BookOpen className="w-4 h-4" />,
+      onSelect: () => handleStartLessonQuiz('biaori-l2', '标日第 2 课'),
+    },
+    {
+      id: 'drill-particles',
+      category: '专项攻坚',
+      title: '格助词高频混淆专练 (で vs に vs を)',
+      subtitle: '攻破外语学习最大母语负迁移陷阱',
+      icon: <Flame className="w-4 h-4" />,
+      onSelect: () => {
+        setActiveTab('QUIZ');
+        setQuestionIndex(0);
+        toast.info('已为您切换至【格助词辨析】专项练习！');
+      },
+    },
+    {
+      id: 'sys-theme',
+      category: '系统设置',
+      title: theme === 'light' ? '切换为深焙炭石夜间模式' : '切换为温润纸面日间模式',
+      subtitle: '纯自然护眼温润配色',
+      icon: theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />,
+      shortcut: 'Theme',
+      onSelect: toggleTheme,
+    },
+  ];
+
   const tabs: {
-    id: 'QUIZ' | 'CARDS' | 'MISTAKES' | 'RADAR';
+    id: 'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'PITCH' | 'MISTAKES' | 'RADAR';
     label: string;
-    icon: typeof BookOpen;
+    icon: React.ComponentType<{ className?: string }>;
     count?: string;
   }[] = [
-    { id: 'QUIZ', label: '练习做题', icon: BookOpen, count: `${questionIndex + 1}/${INITIAL_QUESTIONS.length}` },
-    { id: 'CARDS', label: '卡片记忆 (FSRS)', icon: Layers, count: `${filteredCards.length}` },
-    { id: 'MISTAKES', label: '错题本', icon: AlertTriangle, count: `${mistakes.filter((m) => !m.isResolved).length}` },
-    { id: 'RADAR', label: '学情画像', icon: Award },
+    { id: 'QUIZ', label: '自适应做题', icon: Zap, count: `${questionIndex + 1}/${INITIAL_QUESTIONS.length}` },
+    { id: 'CARDS', label: 'FSRS 闪卡', icon: Layers, count: `${filteredCards.length}` },
+    { id: 'TEXTBOOK', label: '教材精读', icon: BookOpen, count: '标日/大家的日语' },
+    { id: 'PITCH', label: '声调纠音', icon: Mic, count: 'AI' },
+    { id: 'MISTAKES', label: '错题攻坚', icon: AlertTriangle, count: `${mistakes.filter((m) => !m.isResolved).length}` },
+    { id: 'RADAR', label: '学情画像', icon: TrendingUp },
   ];
 
   return (
@@ -242,44 +445,69 @@ export function App() {
         className="opacity-45 dark:opacity-15"
       />
 
+      {/* 全局指令面板 */}
+      <CommandPalette
+        isOpen={isCommandOpen}
+        onClose={() => setIsCommandOpen(false)}
+        actions={commandActions}
+      />
+
+      {/* AI 导师深度剖析与追问抽屉 */}
+      <AiTutorDrawer
+        isOpen={isTutorOpen}
+        onClose={() => setIsTutorOpen(false)}
+        context={tutorContext}
+      />
+
       {/* 顶部导航栏 */}
-      <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-50 transition-colors">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
+      <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <motion.div
               whileHover={{ scale: 1.05, rotate: 2 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => sound.playClick()}
-              className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-xs shadow-orange-500/20 cursor-pointer"
+              className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold flex items-center justify-center shadow-sm cursor-pointer"
             >
-              <GraduationCap className="w-5 h-5" />
+              <GraduationCap className="w-5 h-5 text-stone-950" />
             </motion.div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-stone-900 dark:text-stone-100 tracking-tight">
+                <span className="font-bold text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif">
                   Study Studio
                 </span>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/50">
-                  日语专项 · JLPT N3
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
+                  日语专项 · N5~N3
                 </span>
               </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语学习系统</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语自学与靶向攻坚系统</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3.5">
-            <motion.div
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* 快捷指令按钮 (Cmd+K) */}
+            <motion.button
               whileHover={{ scale: 1.02 }}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200/80 dark:border-orange-800/50 text-orange-800 dark:text-orange-300 text-xs font-semibold shadow-2xs"
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setIsCommandOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-100/70 dark:bg-stone-900/60 hover:border-amber-500/40 text-stone-600 dark:text-stone-300 text-xs font-medium transition-all"
             >
-              <TrendingUp className="w-4 h-4 text-orange-600 dark:text-orange-400" />
-              <span>
-                连续打卡 <NumberTicker value={5} className="font-bold inline-block" /> 天
-              </span>
-            </motion.div>
+              <Command className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span className="hidden sm:inline">快捷指令</span>
+              <kbd className="text-[10px] font-mono px-1 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-500">
+                ⌘K
+              </kbd>
+            </motion.button>
 
-            <div className="h-5 w-px bg-stone-200 dark:bg-stone-800" />
+            {/* 连续打卡天数指示徽章 */}
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 text-amber-900 dark:text-amber-200 text-xs font-semibold">
+              <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
+              <span>连续打卡 12 天</span>
+            </div>
 
+            <div className="h-5 w-px bg-stone-200 dark:bg-stone-800 hidden sm:block" />
+
+            {/* 明暗模式切换 */}
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={toggleTheme}
@@ -288,8 +516,8 @@ export function App() {
             >
               {theme === 'light' ? (
                 <div className="flex items-center gap-1.5 text-xs font-medium">
-                  <Moon className="w-4 h-4 text-orange-600" />
-                  <span className="hidden md:inline">暗色</span>
+                  <Moon className="w-4 h-4 text-amber-600" />
+                  <span className="hidden md:inline">深色</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-xs font-medium">
@@ -303,9 +531,9 @@ export function App() {
       </header>
 
       {/* 主工作区 */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 flex flex-col gap-6 relative z-10">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6 relative z-10">
         {/* 滑动指示标签栏 */}
-        <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-[#1f1d1b] rounded-2xl border border-stone-200/80 dark:border-stone-800 w-fit backdrop-blur-xs">
+        <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-[#1f1d1b] rounded-2xl border border-stone-200/80 dark:border-stone-800 w-fit backdrop-blur-xs overflow-x-auto max-w-full">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -315,11 +543,11 @@ export function App() {
                 key={tab.id}
                 onClick={() => {
                   sound.playClick();
-                  setActiveTab(tab.id as any);
+                  setActiveTab(tab.id);
                 }}
-                className={`relative px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-200 flex items-center gap-2 cursor-pointer ${
+                className={`relative px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors duration-200 flex items-center gap-2 cursor-pointer shrink-0 ${
                   isActive
-                    ? 'text-orange-700 dark:text-orange-400 font-semibold'
+                    ? 'text-amber-950 dark:text-amber-300 font-semibold'
                     : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
                 }`}
               >
@@ -330,15 +558,17 @@ export function App() {
                     transition={{ type: 'spring', stiffness: 450, damping: 35 }}
                   />
                 )}
-                <span className="relative z-10 flex items-center gap-2">
+                <span className="relative z-10 flex items-center gap-1.5">
                   <Icon className="w-4 h-4" />
                   {tab.label}
                   {tab.count && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      isActive
-                        ? 'bg-orange-100 dark:bg-orange-950/80 text-orange-700 dark:text-orange-300'
-                        : 'bg-stone-200 dark:bg-stone-800 text-stone-500'
-                    }`}>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                        isActive
+                          ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300'
+                          : 'bg-stone-200 dark:bg-stone-800 text-stone-500'
+                      }`}
+                    >
                       {tab.count}
                     </span>
                   )}
@@ -358,83 +588,79 @@ export function App() {
             transition={{ duration: 0.25 }}
             className="flex flex-col gap-5 max-w-3xl"
           >
-            <div className="bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-7 shadow-xs hover:shadow-sm transition-all relative overflow-hidden">
-              <div className="flex items-center justify-between pb-4 border-b border-stone-100 dark:border-stone-800">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/40">
-                    {currentQ.category}
-                  </span>
-                  <span className="text-xs text-stone-500 dark:text-stone-400">
-                    考查技能：{currentQ.testedSkill}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-stone-400 dark:text-stone-500">
-                  <Clock className="w-3.5 h-3.5" />
-                  <span>
-                    第 {questionIndex + 1} / {INITIAL_QUESTIONS.length} 题
-                  </span>
-                </div>
+            {/* 顶部进度指示 */}
+            <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 px-1">
+              <span className="flex items-center gap-1.5 font-medium">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                第 {questionIndex + 1} 题 / 共 {INITIAL_QUESTIONS.length} 题 · {currentQ.category}
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="hidden sm:inline text-[11px] text-stone-400 font-mono">
+                  快捷键: 1-4 选选项 / Enter 提交
+                </span>
+                <span className="font-semibold text-amber-700 dark:text-amber-400 font-mono">
+                  当前得分: {sessionScore}
+                </span>
               </div>
+            </div>
 
-              <div className="my-6">
-                <p className="text-xs font-medium text-stone-500 dark:text-stone-400 mb-2">
+            {/* 题目主卡片 */}
+            <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                    {currentQ.type === 'CHOICE' ? '单项选择题' : currentQ.type === 'FILL_BLANK' ? '填空变形题' : '连词成句题'}
+                  </span>
+                  <span className="text-xs text-stone-400 font-mono">
+                    考查点: {currentQ.testedSkill}
+                  </span>
+                </div>
+                <h3 className="text-sm font-medium text-stone-500 dark:text-stone-400">
                   {currentQ.prompt}
-                </p>
-                <div className="text-2xl font-bold text-stone-900 dark:text-stone-100 tracking-wide font-['Noto_Sans_JP'] py-2">
+                </h3>
+                <div className="text-lg sm:text-xl font-medium text-stone-900 dark:text-stone-100 pt-2 tracking-wide font-serif">
                   {currentQ.content}
                 </div>
               </div>
 
-              {/* 题型 A：单选题 */}
+              {/* 题型 1: CHOICE (单选) */}
               {currentQ.type === 'CHOICE' && currentQ.options && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  {currentQ.options.map((opt) => {
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  {currentQ.options.map((opt, optIdx) => {
                     const isSelected = selectedChoice === opt.key;
-                    const isCorrect = opt.key === currentQ.correctAnswer;
-
-                    let style =
-                      'border-stone-200/80 dark:border-stone-800 bg-stone-50/50 dark:bg-[#24221f]/50 hover:bg-stone-100/80 dark:hover:bg-[#282522] hover:border-stone-300 dark:hover:border-stone-700 text-stone-800 dark:text-stone-200';
-
-                    if (quizSubmitted) {
-                      if (isCorrect) {
-                        style =
-                          'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20';
-                      } else if (isSelected) {
-                        style =
-                          'border-rose-500 bg-rose-50/80 dark:bg-rose-950/40 text-rose-900 dark:text-rose-200 ring-2 ring-rose-500/20';
-                      }
-                    } else if (isSelected) {
-                      style =
-                        'border-orange-500 bg-orange-50/80 dark:bg-orange-950/50 text-orange-950 dark:text-orange-200 ring-2 ring-orange-500/30 font-semibold';
-                    }
+                    const showCorrect = quizSubmitted && opt.key === currentQ.correctAnswer;
+                    const showWrong = quizSubmitted && isSelected && !isCurrentAnswerCorrect;
 
                     return (
                       <motion.button
-                        whileHover={{ scale: quizSubmitted ? 1 : 1.01 }}
-                        whileTap={{ scale: quizSubmitted ? 1 : 0.99 }}
                         key={opt.key}
+                        whileHover={!quizSubmitted ? { scale: 1.01 } : {}}
+                        whileTap={!quizSubmitted ? { scale: 0.99 } : {}}
                         disabled={quizSubmitted}
                         onClick={() => {
                           sound.playClick();
                           setSelectedChoice(opt.key);
                         }}
-                        className={`p-4 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${style}`}
+                        className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between cursor-pointer ${
+                          showCorrect
+                            ? 'bg-emerald-500/15 border-emerald-500 text-emerald-950 dark:text-emerald-200'
+                            : showWrong
+                            ? 'bg-rose-500/15 border-rose-500 text-rose-950 dark:text-rose-200'
+                            : isSelected
+                            ? 'bg-amber-500/15 border-amber-500 text-amber-950 dark:text-amber-100 ring-2 ring-amber-500/30'
+                            : 'bg-stone-100/70 dark:bg-stone-900/50 border-stone-200/80 dark:border-stone-800 text-stone-800 dark:text-stone-200 hover:border-amber-500/40'
+                        }`}
                       >
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-base font-['Noto_Sans_JP']">
-                            {opt.key}. {opt.text}
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-stone-200/80 dark:bg-stone-800">
+                            {opt.key} ({optIdx + 1})
                           </span>
-                          {quizSubmitted && (
-                            <span className="text-xs text-stone-500 dark:text-stone-400 mt-1">
-                              {opt.note}
-                            </span>
-                          )}
+                          {showCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                          {showWrong && <XCircle className="w-4 h-4 text-rose-600" />}
                         </div>
-                        {quizSubmitted && isCorrect && (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                        )}
-                        {quizSubmitted && isSelected && !isCorrect && (
-                          <XCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
+                        <div className="text-base font-semibold pt-1">{opt.text}</div>
+                        {opt.note && (
+                          <div className="text-xs text-stone-400 mt-1">{opt.note}</div>
                         )}
                       </motion.button>
                     );
@@ -442,576 +668,535 @@ export function App() {
                 </div>
               )}
 
-              {/* 题型 B：填空题 */}
+              {/* 题型 2: FILL_BLANK (真实输入验证) */}
               {currentQ.type === 'FILL_BLANK' && (
-                <div className="flex flex-col gap-3">
-                  <div className="relative">
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center gap-2">
                     <input
                       type="text"
                       disabled={quizSubmitted}
                       value={fillBlankInput}
                       onChange={(e) => setFillBlankInput(e.target.value)}
-                      placeholder="在此处输入变形后的词汇（如：降ったら）..."
-                      className={`w-full p-4 rounded-xl border font-['Noto_Sans_JP'] text-base outline-hidden transition-all ${
-                        quizSubmitted
-                          ? isCurrentAnswerCorrect
-                            ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200'
-                            : 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200'
-                          : 'border-stone-300 dark:border-stone-700 bg-white dark:bg-[#24221f] focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20'
-                      }`}
+                      placeholder="在此键入日文变形形式..."
+                      className="flex-1 py-3 px-4 rounded-xl bg-stone-100/90 dark:bg-stone-900/80 text-stone-900 dark:text-stone-100 border border-stone-300 dark:border-stone-700 outline-none focus:border-amber-500 text-base"
                     />
-                    {quizSubmitted && (
-                      <div className="mt-2 text-xs flex items-center gap-2">
-                        {isCurrentAnswerCorrect ? (
-                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                            <CheckCircle2 className="w-4 h-4" /> 回答完全正确！
-                          </span>
-                        ) : (
-                          <span className="text-rose-600 dark:text-rose-400 font-semibold flex items-center gap-1">
-                            <XCircle className="w-4 h-4" /> 正确写法应为：{currentQ.correctAnswer}
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
 
-              {/* 题型 C：词块乱序重排题 */}
+              {/* 题型 3: REORDER (连词成句) */}
               {currentQ.type === 'REORDER' && currentQ.chunks && (
-                <div className="flex flex-col gap-4">
-                  {/* 已选定区域 */}
-                  <div className="min-h-14 p-3 rounded-xl border border-dashed border-stone-300 dark:border-stone-700 bg-stone-50/50 dark:bg-[#1a1816] flex flex-wrap gap-2 items-center">
+                <div className="space-y-4 pt-2">
+                  <div className="min-h-14 p-3 rounded-2xl border-2 border-dashed border-amber-500/30 bg-amber-50/40 dark:bg-stone-900/40 flex flex-wrap gap-2 items-center">
                     {reorderSelectedChunks.length === 0 ? (
-                      <span className="text-xs text-stone-400 pl-2">点击下方词块按语序拼接成句...</span>
+                      <span className="text-xs text-stone-400">
+                        点击下方词块按正确语序填入此处...
+                      </span>
                     ) : (
                       reorderSelectedChunks.map((chunk, idx) => (
-                        <motion.button
+                        <button
                           key={idx}
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
                           disabled={quizSubmitted}
                           onClick={() => {
                             sound.playClick();
                             setReorderSelectedChunks((prev) => prev.filter((_, i) => i !== idx));
                           }}
-                          className="px-3.5 py-1.5 rounded-lg bg-orange-500 text-white font-medium text-sm flex items-center gap-1.5 shadow-2xs cursor-pointer font-['Noto_Sans_JP']"
+                          className="px-3 py-1.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-semibold shadow-sm flex items-center gap-1"
                         >
                           <span>{chunk}</span>
-                          {!quizSubmitted && <span className="text-xs opacity-75">✕</span>}
-                        </motion.button>
+                          <span className="text-[10px] opacity-75">✕</span>
+                        </button>
                       ))
                     )}
                   </div>
 
-                  {/* 候选词块池 */}
-                  <div className="flex flex-wrap gap-2.5">
-                    {currentQ.chunks.map((chunk, idx) => {
+                  <div className="flex flex-wrap gap-2">
+                    {currentQ.chunks.map((chunk, cIdx) => {
                       const isUsed = reorderSelectedChunks.includes(chunk);
-
                       return (
-                        <motion.button
-                          key={idx}
-                          whileHover={{ scale: isUsed || quizSubmitted ? 1 : 1.03 }}
-                          whileTap={{ scale: isUsed || quizSubmitted ? 1 : 0.97 }}
+                        <button
+                          key={cIdx}
                           disabled={isUsed || quizSubmitted}
                           onClick={() => {
                             sound.playClick();
                             setReorderSelectedChunks((prev) => [...prev, chunk]);
                           }}
-                          className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all font-['Noto_Sans_JP'] ${
+                          className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
                             isUsed
-                              ? 'opacity-30 border-stone-200 dark:border-stone-800 bg-stone-100 dark:bg-stone-800 cursor-not-allowed'
-                              : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-[#24221f] text-stone-800 dark:text-stone-200 hover:border-orange-400 cursor-pointer shadow-2xs'
+                              ? 'opacity-30 border-stone-200 dark:border-stone-800 cursor-not-allowed'
+                              : 'bg-stone-100 dark:bg-stone-900 border-stone-300 dark:border-stone-700 hover:border-amber-500 text-stone-800 dark:text-stone-200'
                           }`}
                         >
                           {chunk}
-                        </motion.button>
+                        </button>
                       );
                     })}
                   </div>
                 </div>
               )}
 
-              {/* 底部按钮栏 */}
-              <div className="mt-7 pt-4 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between">
-                <div className="text-xs text-stone-400 dark:text-stone-500">
-                  答对自动放行，做错自动归档错题本
-                </div>
-
+              {/* 提交 / 下一题控制条 */}
+              <div className="flex items-center justify-between pt-4 border-t border-stone-200 dark:border-stone-800">
                 {!quizSubmitted ? (
                   <ShimmerButton
+                    onClick={handleQuizSubmit}
                     disabled={
                       (currentQ.type === 'CHOICE' && !selectedChoice) ||
                       (currentQ.type === 'FILL_BLANK' && !fillBlankInput.trim()) ||
-                      (currentQ.type === 'REORDER' && reorderSelectedChunks.length !== (currentQ.chunks?.length ?? 0))
+                      (currentQ.type === 'REORDER' && reorderSelectedChunks.length === 0)
                     }
-                    onClick={handleQuizSubmit}
+                    className="px-6 py-2.5 text-xs font-bold"
                   >
-                    <span>确认答案</span>
-                    <Sparkles className="w-4 h-4" />
+                    立即提交判定 (0ms 本地秒判)
                   </ShimmerButton>
                 ) : (
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                  <button
                     onClick={handleNextQuestion}
-                    className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs shadow-sm transition-all flex items-center gap-2"
                   >
-                    <span>下一题</span>
+                    <span>下一题练习</span>
                     <ArrowRight className="w-4 h-4" />
-                  </motion.button>
+                  </button>
                 )}
               </div>
-            </div>
 
-            {/* 考点剖析展开卡片 */}
-            <AnimatePresence>
+              {/* 答题反馈与解析抽屉入口 */}
               {quizSubmitted && (
                 <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-6 shadow-xs flex flex-col gap-3.5 transition-all"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`p-4 rounded-2xl border space-y-3 ${
+                    isCurrentAnswerCorrect
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : 'bg-rose-500/10 border-rose-500/30'
+                  }`}
                 >
-                  <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400 font-semibold text-sm">
-                    <Sparkles className="w-4 h-4" />
-                    <span>导师考点解析</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {isCurrentAnswerCorrect ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                      ) : (
+                        <XCircle className="w-5 h-5 text-rose-600" />
+                      )}
+                      <span className="font-bold text-sm">
+                        {isCurrentAnswerCorrect ? '解答正确！' : `解答有误，标准答案：${currentQ.correctAnswer}`}
+                      </span>
+                    </div>
+
+                    {/* AI 导师深度追问入口按钮 */}
+                    <button
+                      onClick={() =>
+                        handleOpenTutor({
+                          questionText: currentQ.content,
+                          userAnswer:
+                            currentQ.type === 'CHOICE'
+                              ? selectedChoice ?? undefined
+                              : currentQ.type === 'FILL_BLANK'
+                              ? fillBlankInput
+                              : reorderSelectedChunks.join(' '),
+                          correctAnswer: currentQ.correctAnswer,
+                          skillTag: currentQ.category,
+                          explanation: currentQ.explanation,
+                        })
+                      }
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 text-stone-950 hover:bg-amber-600 shadow-sm transition-all shrink-0"
+                    >
+                      <Bot className="w-3.5 h-3.5" />
+                      <span>AI 导师深度剖析与追问</span>
+                    </button>
                   </div>
-                  <p className="text-stone-700 dark:text-stone-300 text-sm leading-relaxed font-['Noto_Sans_JP']">
+
+                  <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed font-serif">
                     {currentQ.explanation}
                   </p>
-                  <div className="p-3.5 rounded-xl bg-orange-50/50 dark:bg-orange-950/20 border border-orange-200/70 dark:border-orange-900/40 text-xs text-stone-700 dark:text-stone-300 flex items-start gap-2.5">
-                    <span className="font-semibold text-orange-800 dark:text-orange-300 whitespace-nowrap">
-                      错因归纳：
-                    </span>
-                    <span>
-                      {isCurrentAnswerCorrect
-                        ? '掌握扎实！本考点熟练度指标已得到有效巩固。'
-                        : '容易受母语直译思维影响，建议在卡片记忆区反复强化接续与典型例句。'}
-                    </span>
-                  </div>
                 </motion.div>
               )}
-            </AnimatePresence>
+            </div>
           </motion.div>
         )}
 
         {/* ========================================================================= */}
-        {/* 2. 卡片记忆工坊 (FSRS 3D 触感卡片 + 分类过滤 + 前后卡切换)             */}
+        {/* 2. FSRS 闪卡记忆工坊                                                      */}
         {/* ========================================================================= */}
         {activeTab === 'CARDS' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-            className="flex flex-col items-center gap-6 max-w-lg mx-auto w-full"
+            className="flex flex-col gap-5 max-w-2xl"
           >
-            {/* 卡片分类过滤 */}
-            <div className="flex items-center gap-2 p-1 rounded-xl bg-stone-100 dark:bg-[#1f1d1b] border border-stone-200/70 dark:border-stone-800/80 text-xs font-medium">
-              {(['ALL', 'VOCAB', 'GRAMMAR', 'CONFUSION'] as const).map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => {
-                    sound.playClick();
-                    setCardFilter(cat);
-                    setCurrentCardIndex(0);
-                    setCardFlipped(false);
-                  }}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    cardFilter === cat
-                      ? 'bg-white dark:bg-stone-800 text-orange-700 dark:text-orange-400 font-bold shadow-2xs'
-                      : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
-                  }`}
-                >
-                  {cat === 'ALL' && '全部卡片'}
-                  {cat === 'VOCAB' && '核心词汇'}
-                  {cat === 'GRAMMAR' && '语法句型'}
-                  {cat === 'CONFUSION' && '易混辨析'}
-                </button>
-              ))}
+            <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
+              <span>
+                当前卡片: {currentCardIndex + 1} / {filteredCards.length}
+              </span>
+              <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-900 p-1 rounded-xl">
+                {(['ALL', 'VOCAB', 'GRAMMAR', 'CONFUSION'] as const).map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => {
+                      sound.playClick();
+                      setCardFilter(cat);
+                      setCurrentCardIndex(0);
+                      setCardFlipped(false);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                      cardFilter === cat
+                        ? 'bg-[#faf9f6] dark:bg-amber-600 text-stone-900 dark:text-white shadow-sm font-semibold'
+                        : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                    }`}
+                  >
+                    {cat === 'ALL' ? '全部' : cat === 'VOCAB' ? '生词' : cat === 'GRAMMAR' ? '文法' : '混淆'}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* 3D 触感卡片 */}
+            {/* 3D 翻转卡片 */}
             {activeCard && (
               <div
-                className="w-full h-84 perspective-1000 cursor-pointer"
                 onClick={() => {
                   sound.playClick();
-                  setCardFlipped(!cardFlipped);
+                  setCardFlipped((prev) => !prev);
                 }}
+                className="perspective-1000 min-h-[340px] cursor-pointer"
               >
                 <motion.div
                   animate={{ rotateY: cardFlipped ? 180 : 0 }}
-                  transition={{ duration: 0.55, ease: [0.23, 1, 0.32, 1] }}
-                  className="w-full h-full relative transform-style-3d shadow-xs hover:shadow-md transition-shadow rounded-2xl"
+                  transition={{ duration: 0.45, ease: 'easeOut' }}
+                  className="relative w-full h-full min-h-[340px] rounded-3xl p-8 bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm transform-style-3d flex flex-col justify-between"
                 >
                   {/* 正面 */}
-                  <div className="absolute inset-0 w-full h-full bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-8 flex flex-col items-center justify-between backface-hidden">
-                    <div className="w-full flex items-center justify-between text-xs text-stone-400">
-                      <span className="px-2.5 py-0.5 rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-800 dark:text-orange-300 border border-orange-200/70 dark:border-orange-800/40 font-medium">
-                        {activeCard.tag} · {activeCard.pos}
-                      </span>
-                      <span className="flex items-center gap-1 hover:text-orange-600">
-                        点击翻面 <ChevronRight className="w-3.5 h-3.5" />
-                      </span>
+                  {!cardFlipped ? (
+                    <div className="flex flex-col justify-between h-full space-y-6">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
+                          {activeCard.tag} · {activeCard.pos}
+                        </span>
+                        <span className="text-xs text-stone-400 font-mono">
+                          FSRS 稳定性: {activeCard.stability}d · 复习 {activeCard.reps} 次
+                        </span>
+                      </div>
+                      <div className="text-center py-8">
+                        <h2 className="text-4xl sm:text-5xl font-bold font-serif text-stone-900 dark:text-stone-100 tracking-wide">
+                          {activeCard.frontWord}
+                        </h2>
+                        {activeCard.reading && (
+                          <p className="text-sm text-amber-700 dark:text-amber-400 font-mono mt-2">
+                            {activeCard.reading}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-center text-xs text-stone-400">
+                        点击卡片或按 <kbd className="font-mono bg-stone-200 dark:bg-stone-800 px-1.5 py-0.5 rounded">Space</kbd> 翻转查看释义
+                      </div>
                     </div>
-
-                    <div className="flex flex-col items-center gap-3 my-auto">
-                      <div className="text-4xl font-bold font-['Noto_Sans_JP'] text-stone-900 dark:text-stone-100">
-                        {activeCard.frontWord}
-                      </div>
-                      <div className="text-sm font-medium text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
-                        <span>{activeCard.reading}</span>
-                      </div>
-                    </div>
-
-                    <div className="text-[11px] text-stone-400">思考词义、接续与例句后点击翻面</div>
-                  </div>
-
-                  {/* 背面 */}
-                  <div className="absolute inset-0 w-full h-full bg-white dark:bg-[#1c1a18] border border-orange-200/90 dark:border-orange-900/60 rounded-2xl p-8 flex flex-col items-center justify-between backface-hidden rotate-y-180">
-                    <div className="w-full flex items-center justify-between text-xs text-orange-700 dark:text-orange-400 font-medium">
-                      <span className="flex items-center gap-1">
-                        <Bookmark className="w-3.5 h-3.5" />
-                        考点剖析
-                      </span>
-                      <span>正面请点翻转</span>
-                    </div>
-
-                    <div className="flex flex-col items-center gap-3 my-auto">
-                      <div className="text-2xl font-bold text-orange-700 dark:text-orange-400">
-                        {activeCard.backMeaning}
-                      </div>
-                      <div className="text-sm text-stone-700 dark:text-stone-300 max-w-sm mt-1 leading-relaxed font-['Noto_Sans_JP'] text-center">
-                        {activeCard.exampleJp}
-                      </div>
-                      <div className="text-xs text-stone-500 dark:text-stone-400">
-                        {activeCard.exampleZh}
-                      </div>
-                      {activeCard.note && (
-                        <div className="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded mt-1">
-                          💡 {activeCard.note}
+                  ) : (
+                    /* 背面 */
+                    <div className="flex flex-col justify-between h-full space-y-4 [transform:rotateY(180deg)]">
+                      <div className="space-y-3">
+                        <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                          中文释义与核心考点
+                        </span>
+                        <h3 className="text-xl sm:text-2xl font-bold font-serif text-stone-900 dark:text-stone-100">
+                          {activeCard.backMeaning}
+                        </h3>
+                        <div className="p-3.5 rounded-xl bg-amber-500/10 dark:bg-stone-900/60 border border-amber-900/5 text-xs space-y-1">
+                          <p className="font-medium text-stone-900 dark:text-stone-100">
+                            {activeCard.exampleJp}
+                          </p>
+                          <p className="text-stone-500 dark:text-stone-400 font-serif">
+                            {activeCard.exampleZh}
+                          </p>
                         </div>
-                      )}
+                        {activeCard.note && (
+                          <p className="text-xs text-amber-800 dark:text-amber-300">
+                            💡 {activeCard.note}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* FSRS 4 档打分按钮 */}
+                      <div className="grid grid-cols-4 gap-2 pt-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCardReview('AGAIN');
+                          }}
+                          className="p-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-rose-500 hover:text-white transition-all"
+                        >
+                          重来 (1)
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCardReview('HARD');
+                          }}
+                          className="p-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-amber-500 hover:text-stone-950 transition-all"
+                        >
+                          困难 (2)
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCardReview('GOOD');
+                          }}
+                          className="p-2.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-600 shadow-sm transition-all"
+                        >
+                          良好 (3)
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCardReview('EASY');
+                          }}
+                          className="p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm transition-all"
+                        >
+                          简单 (4)
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="text-[11px] text-stone-400">请在下方评定您的记忆掌握度</div>
-                  </div>
+                  )}
                 </motion.div>
-              </div>
-            )}
-
-            {/* 卡片切换与 FSRS 评级 */}
-            {cardFlipped ? (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="grid grid-cols-4 gap-2.5 w-full"
-              >
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => handleCardReview('AGAIN')}
-                  className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800/60 text-rose-800 dark:text-rose-300 font-medium text-xs flex flex-col items-center gap-1 transition-all cursor-pointer"
-                >
-                  <span className="font-bold">生疏</span>
-                  <span className="text-[10px] opacity-75">1天后</span>
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => handleCardReview('HARD')}
-                  className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 font-medium text-xs flex flex-col items-center gap-1 transition-all cursor-pointer"
-                >
-                  <span className="font-bold">困难</span>
-                  <span className="text-[10px] opacity-75">2天后</span>
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => handleCardReview('GOOD')}
-                  className="p-3 rounded-xl bg-orange-50 dark:bg-orange-950/40 hover:bg-orange-100 dark:hover:bg-orange-900/60 border border-orange-200 dark:border-orange-800/60 text-orange-800 dark:text-orange-300 font-medium text-xs flex flex-col items-center gap-1 transition-all cursor-pointer"
-                >
-                  <span className="font-bold">良好</span>
-                  <span className="text-[10px] opacity-75">4天后</span>
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => handleCardReview('EASY')}
-                  className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 font-medium text-xs flex flex-col items-center gap-1 transition-all cursor-pointer"
-                >
-                  <span className="font-bold">简单</span>
-                  <span className="text-[10px] opacity-75">7天后</span>
-                </motion.button>
-              </motion.div>
-            ) : (
-              <div className="flex items-center justify-between w-full text-xs text-stone-400">
-                <button
-                  onClick={() => {
-                    sound.playClick();
-                    setCurrentCardIndex((prev) => Math.max(0, prev - 1));
-                  }}
-                  disabled={currentCardIndex === 0}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 cursor-pointer"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" /> 上一张
-                </button>
-                <span>
-                  第 {currentCardIndex + 1} / {filteredCards.length} 张
-                </span>
-                <button
-                  onClick={() => {
-                    sound.playClick();
-                    setCurrentCardIndex((prev) => Math.min(filteredCards.length - 1, prev + 1));
-                  }}
-                  disabled={currentCardIndex === filteredCards.length - 1}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 disabled:opacity-30 cursor-pointer"
-                >
-                  下一张 <ChevronRight className="w-3.5 h-3.5" />
-                </button>
               </div>
             )}
           </motion.div>
         )}
 
         {/* ========================================================================= */}
-        {/* 3. 互动式错题本攻克模块                                                   */}
+        {/* 3. 教材结构化知识树与精读导读器 (标日 / 大家的日语)                      */}
+        {/* ========================================================================= */}
+        {activeTab === 'TEXTBOOK' && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <TextbookCurriculum
+              onStartLessonQuiz={handleStartLessonQuiz}
+              onAddCardFromTextbook={handleAddCardFromTextbook}
+            />
+          </motion.div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* 4. AI 日语声调走向与口语纠音评测器                                        */}
+        {/* ========================================================================= */}
+        {activeTab === 'PITCH' && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <PitchAccentCoach />
+          </motion.div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* 5. 错题攻坚本模块                                                         */}
         {/* ========================================================================= */}
         {activeTab === 'MISTAKES' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
             className="flex flex-col gap-4 max-w-3xl"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-stone-900 dark:text-stone-100">错题本与攻克工作台</h2>
-                <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                  错题重做连续答对 2 次，系统将自动移出弱项并判定为攻克
-                </p>
-              </div>
-              {/* 状态筛选 */}
-              <div className="flex items-center gap-1 bg-stone-100 dark:bg-[#1f1d1b] p-1 rounded-xl text-xs">
-                {(['ALL', 'UNRESOLVED', 'RESOLVED'] as const).map((filter) => (
+            <div className="flex items-center justify-between text-xs text-stone-500 px-1">
+              <span>错题攻克规则：连续订正正确 2 次即自动标记攻克</span>
+              <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-900 p-1 rounded-xl">
+                {(['ALL', 'UNRESOLVED', 'RESOLVED'] as const).map((f) => (
                   <button
-                    key={filter}
-                    onClick={() => {
-                      sound.playClick();
-                      setMistakeFilter(filter);
-                    }}
-                    className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                      mistakeFilter === filter
-                        ? 'bg-white dark:bg-stone-800 text-orange-700 dark:text-orange-400 font-semibold shadow-2xs'
+                    key={f}
+                    onClick={() => setMistakeFilter(f)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                      mistakeFilter === f
+                        ? 'bg-[#faf9f6] dark:bg-amber-600 text-stone-900 dark:text-white shadow-sm font-semibold'
                         : 'text-stone-500'
                     }`}
                   >
-                    {filter === 'ALL' && '全部'}
-                    {filter === 'UNRESOLVED' && '待攻克'}
-                    {filter === 'RESOLVED' && '已攻克'}
+                    {f === 'ALL' ? '全部' : f === 'UNRESOLVED' ? '未攻克' : '已攻克'}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="flex flex-col gap-3.5">
+            <div className="space-y-3">
               {mistakes
-                .filter((m) => {
-                  if (mistakeFilter === 'UNRESOLVED') return !m.isResolved;
-                  if (mistakeFilter === 'RESOLVED') return m.isResolved;
-                  return true;
-                })
+                .filter((m) =>
+                  mistakeFilter === 'ALL'
+                    ? true
+                    : mistakeFilter === 'UNRESOLVED'
+                    ? !m.isResolved
+                    : m.isResolved
+                )
                 .map((m) => (
-                  <motion.div
+                  <div
                     key={m.id}
-                    layout
-                    className={`bg-white dark:bg-[#1c1a18] border rounded-2xl p-6 shadow-xs flex flex-col gap-3.5 transition-all ${
-                      m.isResolved
-                        ? 'border-emerald-200/80 dark:border-emerald-900/40 opacity-75'
-                        : 'border-stone-200/80 dark:border-stone-800'
-                    }`}
+                    className="p-5 rounded-2xl bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-3"
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2.5 py-0.5 rounded border border-rose-200 dark:border-rose-800/40">
+                        <span className="px-2 py-0.5 text-xs font-semibold rounded bg-amber-500/15 text-amber-800 dark:text-amber-300">
                           {m.categoryTag}
                         </span>
-                        <span className="text-xs text-stone-400">{m.prompt}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
                         {m.isResolved ? (
-                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/50">
-                            <CheckCheck className="w-3.5 h-3.5" /> 已攻克
+                          <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">
+                            ✓ 已成功攻克
                           </span>
                         ) : (
-                          <span className="text-xs text-stone-400">
-                            连对进度：<span className="font-bold text-orange-600">{m.consecutiveCorrect}</span> / 2
+                          <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono">
+                            连对进度: {m.consecutiveCorrect}/2
                           </span>
                         )}
                       </div>
+
+                      {/* AI 导师针对错题诊断 */}
+                      <button
+                        onClick={() =>
+                          handleOpenTutor({
+                            questionText: m.sentence,
+                            userAnswer: m.userWrongAnswer,
+                            correctAnswer: m.correctAnswer,
+                            skillTag: m.categoryTag,
+                            explanation: m.reviewNote,
+                          })
+                        }
+                        className="text-xs text-amber-700 dark:text-amber-400 font-semibold hover:underline flex items-center gap-1"
+                      >
+                        <Bot className="w-3.5 h-3.5" />
+                        <span>AI 导师诊断</span>
+                      </button>
                     </div>
 
-                    <div className="text-lg font-semibold text-stone-900 dark:text-stone-100 font-['Noto_Sans_JP']">
+                    <div className="text-sm font-medium text-stone-900 dark:text-stone-100 font-serif">
                       {m.sentence}
                     </div>
 
-                    <div className="text-xs text-stone-600 dark:text-stone-400 flex items-center gap-4">
-                      <span>
-                        你的历史错误：<span className="font-bold text-rose-600 line-through">{m.userWrongAnswer}</span>
-                      </span>
-                      <span>
-                        标准正解：<span className="font-bold text-emerald-600 dark:text-emerald-400">{m.correctAnswer}</span>
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-stone-600 dark:text-stone-400 bg-stone-50 dark:bg-[#24221f] p-3.5 rounded-xl border border-stone-200/70 dark:border-stone-700/50 leading-relaxed font-['Noto_Sans_JP'] flex items-start justify-between gap-4">
-                      <div>
-                        <span className="font-semibold text-stone-900 dark:text-stone-200">复盘要点：</span>
-                        {m.reviewNote}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-rose-500/10 text-rose-800 dark:text-rose-300">
+                        你的误答：<span className="font-bold">{m.userWrongAnswer}</span>
                       </div>
-
-                      {!m.isResolved && (
-                        <motion.button
-                          whileHover={{ scale: 1.04 }}
-                          whileTap={{ scale: 0.96 }}
-                          onClick={() => handleResolveMistakeRetry(m.id)}
-                          className="shrink-0 px-3.5 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs transition-all cursor-pointer shadow-2xs"
-                        >
-                          立即重练攻克
-                        </motion.button>
-                      )}
+                      <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
+                        标准答案：<span className="font-bold">{m.correctAnswer}</span>
+                      </div>
                     </div>
-                  </motion.div>
+
+                    <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed font-serif">
+                      💡 归因点拨：{m.reviewNote}
+                    </p>
+
+                    {!m.isResolved && (
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => handleResolveMistakeRetry(m.id)}
+                          className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold shadow-sm transition-all"
+                        >
+                          立即订正攻克 (连对 2 次攻克)
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 ))}
             </div>
           </motion.div>
         )}
 
         {/* ========================================================================= */}
-        {/* 4. 学情画像雷达模块 (维度切分 + 掌握度进度条)                           */}
+        {/* 6. 学情能力画像与连续学习打卡热力图                                       */}
         {/* ========================================================================= */}
         {activeTab === 'RADAR' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-            className="flex flex-col gap-5 max-w-3xl"
+            className="space-y-6 max-w-4xl"
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-stone-900 dark:text-stone-100">语言能力与学情画像</h2>
-                <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-                  基于做题正确率与遗忘曲线模型全自动聚类
-                </p>
-              </div>
+            {/* 连续学习与 28 天热力图组件 */}
+            <StudyStreakHeatmap />
 
-              {/* 维度筛选 */}
-              <div className="flex items-center gap-1 bg-stone-100 dark:bg-[#1f1d1b] p-1 rounded-xl text-xs">
-                {[
-                  { id: 'ALL', label: '全部' },
-                  { id: 'GRAMMAR', label: '语法' },
-                  { id: 'VOCABULARY', label: '词汇' },
-                  { id: 'LISTENING', label: '听力' },
-                  { id: 'NUANCE_PRAGMATIC', label: '语用' },
-                ].map((dim) => (
-                  <button
-                    key={dim.id}
-                    onClick={() => {
-                      sound.playClick();
-                      setMetricDimension(dim.id);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                      metricDimension === dim.id
-                        ? 'bg-white dark:bg-stone-800 text-orange-700 dark:text-orange-400 font-semibold shadow-2xs'
-                        : 'text-stone-500'
-                    }`}
-                  >
-                    {dim.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {metrics
-                .filter((m) => metricDimension === 'ALL' || m.dimension === metricDimension)
-                .map((metric) => {
-                  const isStrength = metric.status === 'STRENGTH';
-                  const isWeakness = metric.status === 'WEAKNESS';
-
-                  return (
-                    <motion.div
-                      whileHover={{ y: -2 }}
-                      key={metric.id}
-                      className={`p-5 rounded-2xl border transition-all bg-white dark:bg-[#1c1a18] shadow-xs flex flex-col gap-3 ${
-                        isStrength
-                          ? 'border-emerald-200/80 dark:border-emerald-900/50'
-                          : isWeakness
-                          ? 'border-rose-200/80 dark:border-rose-900/50'
-                          : 'border-stone-200/80 dark:border-stone-800'
+            {/* 掌握度细项雷达 */}
+            <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-5 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-stone-700 dark:text-stone-300 flex items-center gap-2">
+                  <Award className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  多维技能画像 (Learner Skill Profile)
+                </h3>
+                <div className="flex items-center gap-1 text-xs">
+                  {['ALL', 'GRAMMAR', 'VOCAB', 'LISTENING', 'NUANCE'].map((dim) => (
+                    <button
+                      key={dim}
+                      onClick={() => setMetricDimension(dim)}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${
+                        metricDimension === dim
+                          ? 'bg-amber-500 text-stone-950 font-bold'
+                          : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-stone-900 dark:text-stone-100">
-                          {metric.name}
-                        </span>
-                        {isStrength && (
-                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
-                            已掌握 (优势)
-                          </span>
-                        )}
-                        {isWeakness && (
-                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50">
-                            需巩固 (弱项)
-                          </span>
-                        )}
-                      </div>
+                      {dim === 'ALL' ? '全部' : dim === 'GRAMMAR' ? '文法' : dim === 'VOCAB' ? '词汇' : dim === 'LISTENING' ? '听力' : '语感'}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                      <div>
-                        <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 mb-1.5">
-                          <span>熟练掌握度</span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {metrics
+                  .filter((m) => metricDimension === 'ALL' || m.dimension === metricDimension)
+                  .map((metric) => {
+                    const isWeak = metric.proficiency < 0.6;
+                    const isStrong = metric.proficiency >= 0.85;
+
+                    return (
+                      <div
+                        key={metric.id}
+                        className="p-4 rounded-xl bg-stone-100/70 dark:bg-stone-900/50 border border-stone-200/80 dark:border-stone-800 space-y-2"
+                      >
+                        <div className="flex items-center justify-between text-xs">
                           <span className="font-bold text-stone-800 dark:text-stone-200">
-                            <NumberTicker value={metric.proficiency * 100} />%
+                            {metric.name}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded font-mono font-bold ${
+                              isStrong
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : isWeak
+                                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                                : 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
+                            }`}
+                          >
+                            {Math.round(metric.proficiency * 100)}%
                           </span>
                         </div>
-                        <div className="w-full h-2 rounded-full bg-stone-100 dark:bg-stone-800 overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${metric.proficiency * 100}%` }}
-                            transition={{ duration: 0.8, ease: 'easeOut' }}
-                            className={`h-full rounded-full ${
-                              isStrength
+
+                        {/* 进度条 */}
+                        <div className="w-full bg-stone-200 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-500 ${
+                              isStrong
                                 ? 'bg-emerald-500'
-                                : isWeakness
+                                : isWeak
                                 ? 'bg-rose-500'
-                                : 'bg-orange-500'
+                                : 'bg-amber-500'
                             }`}
+                            style={{ width: `${metric.proficiency * 100}%` }}
                           />
                         </div>
-                      </div>
 
-                      <div className="text-[11px] text-stone-400 dark:text-stone-500 flex justify-between items-center pt-1 border-t border-stone-100 dark:border-stone-800/60">
-                        <span>
-                          练习 {metric.totalAttempts} 次 · 连错 {metric.consecutiveErrors} 次
-                        </span>
-                        {isWeakness && (
-                          <button
-                            onClick={() => {
-                              sound.playClick();
-                              setActiveTab('QUIZ');
-                              toast(`已为您加载针对【${metric.name}】的靶向练习！`);
-                            }}
-                            className="text-orange-600 hover:text-orange-700 font-semibold cursor-pointer"
-                          >
-                            靶向加练 →
-                          </button>
-                        )}
+                        <div className="flex justify-between items-center text-[11px] text-stone-400 pt-1">
+                          <span>总练习 {metric.totalAttempts} 次 · 连续错误 {metric.consecutiveErrors} 次</span>
+                          {isWeak && (
+                            <button
+                              onClick={() => {
+                                sound.playClick();
+                                setActiveTab('QUIZ');
+                                toast.info(`已为您调取针对【${metric.name}】的加练题目！`);
+                              }}
+                              className="text-amber-700 dark:text-amber-400 font-bold hover:underline"
+                            >
+                              靶向加练 →
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </motion.div>
-                  );
-                })}
+                    );
+                  })}
+              </div>
             </div>
           </motion.div>
         )}
