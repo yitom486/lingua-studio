@@ -1,5 +1,5 @@
 import type { RssItem } from './news-rss.js';
-import { pickLeadSentence } from './news-rss.js';
+import { pickLeadSentence, sanitizeRssText } from './news-rss.js';
 import {
   type StudyContentLanguage,
   ENGLISH_NEWS_QUIZ_GUIDANCE,
@@ -180,5 +180,7 @@ export function formatNewsBody(
     language === 'EN' || language === 'KO'
       ? 'Study tip: Read the headline first, then the lead sentence — then check unknown collocations in context.'
       : '';
-  return [article.description, '', dateLine, linkLine, tip].filter(Boolean).join('\n');
+  return [sanitizeRssText(article.description), '', dateLine, linkLine, tip]
+    .filter(Boolean)
+    .join('\n');
 }

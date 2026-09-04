@@ -57,6 +57,35 @@ describe('news RSS integration', () => {
     expect(pickLeadSentence(items[0]!.description)).toBe('第一文です');
   });
 
+  it('strips Guardian-style entity-escaped HTML from description', () => {
+    const xml = `<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<item>
+  <title>UK hits back at Argentinian Falklands claim</title>
+  <link>https://example.com/falklands</link>
+  <description>&lt;p&gt;Ed Miliband says Britain&amp;#x27;s position remains unwavering.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;p&gt;&lt;a href=&quot;https://example.com/live&quot;&gt;UK politics live&lt;/a&gt;&lt;/p&gt;&lt;/li&gt;&lt;/ul&gt;</description>
+</item>
+</channel></rss>`;
+    const items = parseRssItems(xml);
+    expect(items.length).toBe(1);
+    const desc = items[0]!.description;
+    expect(desc).not.toMatch(/<\/?[a-z]+/i);
+    expect(desc).toContain('Ed Miliband');
+    expect(desc).toContain('UK politics live');
+    expect(desc).toContain("Britain's position");
+  });
+
+  it('sanitizeRssText handles real HTML tags inside CDATA', async () => {
+    const { sanitizeRssText } = await import('../services/news-rss.js');
+    const cleaned = sanitizeRssText(
+      '<![CDATA[<p>First sentence.</p><p>Second <a href="x">link</a> here.</p>]]>'
+    );
+    expect(cleaned).not.toMatch(/</);
+    expect(cleaned).toContain('First sentence');
+    expect(cleaned).toContain('Second');
+    expect(cleaned).toContain('link');
+  });
+
   it(
     'fetches a live English media feed when network allows',
     async () => {

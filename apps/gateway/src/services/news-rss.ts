@@ -182,9 +182,15 @@ export function parseRssItems(xml: string): RssItem[] {
   const items: RssItem[] = [];
   const itemBlocks = xml.match(/<item[\s\S]*?<\/item>/gi) ?? [];
   for (const block of itemBlocks) {
-    const title = decodeXml(stripCdata(pickTag(block, 'title')));
-    const link = decodeXml(stripCdata(pickTag(block, 'link') || pickTag(block, 'guid')));
-    const description = decodeXml(stripHtml(stripCdata(pickTag(block, 'description'))));
+    const title = sanitizeRssText(pickTag(block, 'title'));
+    const link = sanitizeRssText(pickTag(block, 'link') || pickTag(block, 'guid'));
+    // Guardian 等源常在 description / content:encoded 里塞 HTML 或 &lt;p&gt; 实体
+    const rawDesc =
+      pickTag(block, 'description') ||
+      pickTag(block, 'content:encoded') ||
+      pickTag(block, 'encoded') ||
+      '';
+    const description = sanitizeRssText(rawDesc);
     const pubDate = stripCdata(pickTag(block, 'pubDate')) || undefined;
     if (!title) continue;
     items.push({
@@ -204,32 +210,67 @@ function pickTag(block: string, tag: string): string {
 }
 
 function stripCdata(raw: string): string {
-  return raw.replace(/^<!\[CDATA\[/i, '').replace(/\]\]>$/i, '').trim();
+  return raw
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, '$1')
+    .replace(/^<!\[CDATA\[/i, '')
+    .replace(/\]\]>$/i, '')
+    .trim();
 }
 
-function stripHtml(raw: string): string {
+/**
+ * RSS 正文清洗：实体解码 → 剥标签 → 再解码残留实体。
+ * 错误顺序（先剥标签再解码）会把 `&lt;p&gt;` 变成可见 `<p>`。
+ */
+export function sanitizeRssText(raw: string): string {
+  if (!raw) return '';
+  let text = stripCdata(raw);
+  // 实体逃逸的 HTML（Guardian 常见）先解码一次，便于 stripHtml 识别标签
+  if (/&lt;|&gt;|&amp;(?:lt|gt|quot|nbsp|#)/i.test(text)) {
+    text = decodeXmlEntities(text);
+  }
+  text = stripHtml(text);
+  text = decodeXmlEntities(text);
+  return text
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
+export function stripHtml(raw: string): string {
   return raw
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/(?:p|div|h[1-6]|li|tr)>/gi, '\n')
+    .replace(/<\/(?:ul|ol|table)>/gi, '\n\n')
+    .replace(/<li[^>]*>/gi, '• ')
     .replace(/<[^>]+>/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-function decodeXml(raw: string): string {
-  return raw
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+function decodeXmlEntities(raw: string): string {
+  let text = raw;
+  // 最多两轮：处理 &amp;#x27; → &#x27; → ' 这类双重实体
+  for (let i = 0; i < 2; i++) {
+    text = text
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+      .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/&amp;/g, '&');
+  }
+  return text;
 }
 
 export function pickLeadSentence(text: string, maxLen = 60): string {
-  const cleaned = text.replace(/\s+/g, ' ').trim();
+  const cleaned = sanitizeRssText(text).replace(/\s+/g, ' ').trim();
   const cut = cleaned.split(/[。．.!?！？]/)[0]?.trim() || cleaned;
   return cut.length > maxLen ? `${cut.slice(0, maxLen)}…` : cut;
 }

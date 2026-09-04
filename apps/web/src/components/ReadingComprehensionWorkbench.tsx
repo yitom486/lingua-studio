@@ -35,6 +35,7 @@ import {
 import { Progress } from './ui/progress.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
+import { toPlainReadingText } from '../utils/plain-text.js';
 import {
   DEMO_READING_SETS,
   NEWS_TOPIC_OPTIONS,
@@ -134,6 +135,11 @@ export function ReadingComprehensionWorkbench({
   const activeSet: ReadingPassageSet | undefined =
     combinedSets.find((s) => s.id === activeSetId) ?? combinedSets[0];
 
+  const plainBody = useMemo(
+    () => (activeSet ? toPlainReadingText(activeSet.body) : ''),
+    [activeSet]
+  );
+
   const question = activeSet?.questions[stepIndex] ?? activeSet?.questions[0];
   const totalQuestions = activeSet?.questions?.length || 1;
   const progressPct = ((stepIndex + (submitted ? 1 : 0)) / totalQuestions) * 100;
@@ -159,7 +165,7 @@ export function ReadingComprehensionWorkbench({
       setIsPlayingAudio(false);
     } else {
       setIsPlayingAudio(true);
-      speechStudio.speak(activeSet.body, {
+      speechStudio.speak(plainBody || activeSet.body, {
         lang: activeSet.language,
         onEnd: () => setIsPlayingAudio(false),
         onError: () => setIsPlayingAudio(false),
@@ -218,7 +224,7 @@ export function ReadingComprehensionWorkbench({
         tag: '阅读精读',
         pos: '重点词句',
         backMeaning: `来自阅读篇目《${activeSet.title}》的重点摘录与研读。`,
-        exampleJp: activeSet.body.slice(0, 80),
+        exampleJp: plainBody.slice(0, 80) || activeSet.body.slice(0, 80),
         exampleHighlight: selectionRange.text,
         exampleZh: '',
         stability: 1.0,
@@ -492,13 +498,13 @@ export function ReadingComprehensionWorkbench({
       {/* 正文呈现区 */}
       <div className="flex-1 overflow-y-auto p-5 sm:p-6 select-text">
         <p className="text-[15px] sm:text-base leading-8 whitespace-pre-wrap font-serif text-stone-800 dark:text-stone-200 selection:bg-amber-500/25 selection:text-amber-900 dark:selection:text-amber-100">
-          {activeSet.body}
+          {plainBody}
         </p>
       </div>
 
       <div className="px-4 py-2 text-[11px] text-stone-400 dark:text-stone-500 border-t border-amber-900/5 dark:border-amber-500/5 flex items-center justify-between">
         <span>💡 划词可即时朗读、沉淀重点或一键出闪卡</span>
-        <span>共 {activeSet.body.length} 字/词</span>
+        <span>共 {plainBody.length} 字/词</span>
       </div>
     </div>
   );
@@ -609,7 +615,7 @@ export function ReadingComprehensionWorkbench({
                   userAnswer: selected ?? undefined,
                   correctAnswer: question.correctAnswer,
                   skillTag: '长文阅读理解',
-                  explanation: `篇目正文：“${activeSet.body.slice(0, 100)}...”\n\n题目解析：“${question.explanation}”`,
+                  explanation: `篇目正文：“${plainBody.slice(0, 100)}...”\n\n题目解析：“${question.explanation}”`,
                 })
               }
             >
