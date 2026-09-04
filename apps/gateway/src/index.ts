@@ -684,9 +684,14 @@ export function startGatewayServer(port = PORT) {
           const raw = typeof message === 'string' ? message : message.toString();
           const envelope = JSON.parse(raw) as WsEnvelope;
 
-          const res = await gatewayServer.handleClientMessage(envelope);
+          const isTurnSend = envelope.type === WsEventTypes.CLIENT_TURN_SEND;
+          const res = await gatewayServer.handleClientMessage(envelope, (outEnv) => {
+            ws.send(JSON.stringify(outEnv));
+          });
           if (isOk(res)) {
-            ws.send(JSON.stringify(res.value));
+            if (!isTurnSend) {
+              ws.send(JSON.stringify(res.value));
+            }
           } else {
             const errorEnvelope: WsEnvelope = {
               version: '1.0',

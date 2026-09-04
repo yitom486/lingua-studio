@@ -24,6 +24,8 @@ import {
 import { DrizzleLearnerRepository } from './repository/drizzle-learner-repository.js';
 import { GenerateAdaptiveQuizTool } from './tools/generate-adaptive-quiz.js';
 import { GradeSubjectiveQuizTool } from './tools/grade-subjective-quiz.js';
+import { LearningContentTool, type LearningContentOutput } from './tools/learning-content-tool.js';
+import { LearningAssessTool } from './tools/learning-assess-tool.js';
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -32,19 +34,23 @@ export class GatewayServer {
   public readonly toolRouter = new ToolRouter(this.toolRegistry);
   public readonly agentAdapter = new CodexAdapter();
   public readonly learnerRepo: LearnerRepository;
+  private readonly activeStreamControllers = new Map<string, AbortController>();
 
   constructor(learnerRepo?: LearnerRepository) {
     this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
-    // 注册 M4 阶段核心自适应与批改服务端工具
+    // 注册 M4 与 D4 阶段核心自适应、参数化内容与智能诊断工具
     this.toolRegistry.register(new GenerateAdaptiveQuizTool(this.learnerRepo));
     this.toolRegistry.register(new GradeSubjectiveQuizTool(this.learnerRepo));
+    this.toolRegistry.register(new LearningContentTool(this.learnerRepo));
+    this.toolRegistry.register(new LearningAssessTool(this.learnerRepo));
   }
 
   /**
-   * 处理客户端接入的 WebSocket 消息信封
+   * 处理客户端接入的 WebSocket 消息信封，支持可选多步流式发射器
    */
   public async handleClientMessage(
-    envelope: WsEnvelope
+    envelope: WsEnvelope,
+    emit?: (env: WsEnvelope) => void
   ): Promise<Result<WsEnvelope, BusinessError>> {
     switch (envelope.type) {
       case WsEventTypes.CLIENT_SESSION_INIT: {
@@ -316,6 +322,201 @@ export class GatewayServer {
           sessionId: envelope.sessionId,
           type: WsEventTypes.AGENT_TURN_COMPLETED,
           payload: toolRes.value,
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_TURN_SEND: {
+        const payload = (envelope.payload ?? {}) as {
+          input: string;
+          userId?: string;
+          intent?: string;
+          contextSnapshot?: any;
+        };
+        const userId = payload.userId || 'student_web_01';
+        const userPrompt = String(payload.input || '').trim();
+
+        // 1. 组装不可变学情快照
+        const snapshot = await this.contextBuilder.buildTurnSnapshot(
+          userId,
+          this.learnerRepo,
+          payload.contextSnapshot
+        );
+
+        // 2. 发出回合启动通知
+        const intent = payload.intent || snapshot.userIntentHint || 'EXPLAIN';
+        const startEnvelope: WsEnvelope = {
+          version: '1.0',
+          id: generateId('turn'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_START,
+          payload: { intent, focus: snapshot.focus },
+          timestamp: Date.now(),
+        };
+        if (emit) emit(startEnvelope);
+
+        // 3. 建立打断控制器
+        const abortController = new AbortController();
+        this.activeStreamControllers.set(envelope.sessionId, abortController);
+
+        let reply = '';
+        let toolResults: any = undefined;
+
+        try {
+          // 根据意图或用户自然语言分发到参数化工具或专家教学大纲
+          if (userPrompt.includes('例句') || userPrompt.includes('造句')) {
+            const tool = this.toolRegistry.get('learning.content');
+            if (tool) {
+              const res = await tool.execute(
+                {
+                  action: 'example_set',
+                  topic: snapshot.focus?.skillTag || '助词与谓语动词搭配',
+                  language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                },
+                { userId, sessionId: envelope.sessionId }
+              );
+              if (isOk(res)) {
+                const content = res.value as LearningContentOutput;
+                if (content.examples) {
+                  toolResults = content;
+                  reply =
+                    `为你精心梳理了 3 个与【${snapshot.focus?.skillTag || '当前语法点'}】紧密契合的地道生活化例句：\n\n` +
+                    content.examples
+                      .map(
+                        (ex: { sentence: string; translation: string; grammarPoint: string }, i: number) =>
+                          `${i + 1}. **${ex.sentence}**\n   ${ex.translation}\n   💡 *解析*：${ex.grammarPoint}`
+                      )
+                      .join('\n\n') +
+                    `\n\n建议尝试默写或大声朗读，加深肌肉记忆！`;
+                }
+              }
+            }
+          } else if (
+            userPrompt.includes('为什么') ||
+            userPrompt.includes('讲透') ||
+            userPrompt.includes('辨析') ||
+            userPrompt.includes('区分') ||
+            userPrompt.includes('考点')
+          ) {
+            const tool = this.toolRegistry.get('learning.content');
+            if (tool) {
+              const res = await tool.execute(
+                {
+                  action: 'explain',
+                  topic: snapshot.focus?.skillTag || '格助词辨析',
+                  language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                },
+                { userId, sessionId: envelope.sessionId }
+              );
+              if (isOk(res)) {
+                const content = res.value as LearningContentOutput;
+                if (content.explanation) {
+                  const exp = content.explanation;
+                  toolResults = content;
+                  reply =
+                    `【核心考点精讲】\n\n` +
+                    `📌 **底层逻辑**：\n${exp.coreConcept}\n\n` +
+                    `📐 **规则梳理**：\n${exp.rules.map((r: string) => `• ${r}`).join('\n')}\n\n` +
+                    `⚠️ **典型雷区**：\n${exp.commonMistakes.map((m: string) => `• ${m}`).join('\n')}\n\n` +
+                    `💡 **速记口诀**：\n${exp.mnemonicTip}`;
+                }
+              }
+            }
+          } else if (
+            userPrompt.includes('考我') ||
+            userPrompt.includes('出题') ||
+            userPrompt.includes('练一练')
+          ) {
+            const tool = this.toolRegistry.get('learning.content');
+            if (tool) {
+              const res = await tool.execute(
+                {
+                  action: 'generate_quiz',
+                  count: 1,
+                  difficulty: 2,
+                  language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                },
+                { userId, sessionId: envelope.sessionId }
+              );
+              if (isOk(res)) {
+                const content = res.value as LearningContentOutput;
+                if (content.questions?.[0]) {
+                  const q = content.questions[0];
+                  toolResults = content;
+                  reply =
+                    `为你量身定制了一道自适应诊断题，检验你对该考点的掌握：\n\n` +
+                    `❓ **题目**：${q.content}\n` +
+                    (q.options ?? []).map((opt: string, i: number) => `${String.fromCharCode(65 + i)}. ${opt}`).join('\n') +
+                    `\n\n想好答案后可以直接告诉我，或在做题工作台作答！`;
+                }
+              }
+            }
+          }
+
+          if (!reply) {
+            // 通用导师对话与聚焦答疑
+            const focusInfo = snapshot.focus
+              ? `针对你正在学习的【${snapshot.focus.skillTag || snapshot.focus.surface}】`
+              : '针对你的学情进度';
+            reply =
+              `你好！我是你的自适应学习专属导师。${focusInfo}：\n\n` +
+              `你刚刚提到：“${userPrompt}”。在外语习得过程中，把孤立的语法点放入完整语境中体会情感色彩是攻克瓶颈最高效的途径。\n\n` +
+              `建议结合我们刚刚复习的例句和错题，如果对某一句有疑惑，你可以随时点击「给出例句」或让我「讲透考点」！`;
+          }
+
+          // 4. 真流式逐块推流 (Text Delta)
+          const chunkSize = 6;
+          for (let i = 0; i < reply.length; i += chunkSize) {
+            if (abortController.signal.aborted) {
+              break;
+            }
+            const chunk = reply.slice(i, i + chunkSize);
+            const deltaEnvelope: WsEnvelope = {
+              version: '1.0',
+              id: generateId('delta'),
+              sessionId: envelope.sessionId,
+              type: WsEventTypes.AGENT_TEXT_DELTA,
+              payload: { delta: chunk, textDelta: chunk },
+              timestamp: Date.now(),
+            };
+            if (emit) emit(deltaEnvelope);
+            // 微延时模拟真实 LLM Token 流畅推流
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+        } finally {
+          this.activeStreamControllers.delete(envelope.sessionId);
+        }
+
+        const isInterrupted = abortController.signal.aborted;
+        const completedEnvelope: WsEnvelope = {
+          version: '1.0',
+          id: generateId('done'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: {
+            status: isInterrupted ? 'INTERRUPTED' : 'COMPLETED',
+            finalOutput: reply,
+            toolResults,
+          },
+          timestamp: Date.now(),
+        };
+        if (emit) emit(completedEnvelope);
+
+        return ok(completedEnvelope);
+      }
+
+      case WsEventTypes.CLIENT_TURN_INTERRUPT: {
+        const controller = this.activeStreamControllers.get(envelope.sessionId);
+        if (controller) {
+          controller.abort();
+          this.activeStreamControllers.delete(envelope.sessionId);
+        }
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: { status: 'INTERRUPTED' },
           timestamp: Date.now(),
         });
       }

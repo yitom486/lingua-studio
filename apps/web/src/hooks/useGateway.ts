@@ -8,6 +8,16 @@ import {
 } from '@study-studio/protocol';
 import { generateId } from '@study-studio/shared';
 
+export interface StreamTurnOptions {
+  input: string;
+  intent?: 'EXPLAIN' | 'GENERATE_QUIZ' | 'GRADE' | 'DRILL_KANA' | 'REVIEW_MISTAKES' | 'FREE_COACH' | undefined;
+  contextSnapshot?: any;
+  onStart?: () => void;
+  onDelta: (delta: string, accumulated: string) => void;
+  onComplete: (data: { status: 'COMPLETED' | 'INTERRUPTED'; finalOutput: string; toolResults?: any }) => void;
+  onError?: (err: any) => void;
+}
+
 interface UseGatewayOptions {
   url?: string;
   userId?: string;
@@ -29,6 +39,14 @@ export function useGateway({
   const pingIntervalRef = useRef<any>(null);
   const pingSentTimeRef = useRef<number>(0);
   const reconnectTimeoutRef = useRef<any>(null);
+
+  const activeStreamRef = useRef<{
+    onStart?: (() => void) | undefined;
+    onDelta: (delta: string, accumulated: string) => void;
+    onComplete: (data: any) => void;
+    onError?: ((err: any) => void) | undefined;
+    accumulatedText: string;
+  } | null>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
@@ -79,7 +97,21 @@ export function useGateway({
         try {
           const envelope = JSON.parse(event.data.toString()) as WsEnvelope;
 
-          if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
+          if (envelope.type === WsEventTypes.AGENT_TURN_START) {
+            activeStreamRef.current?.onStart?.();
+          } else if (envelope.type === WsEventTypes.AGENT_TEXT_DELTA) {
+            if (activeStreamRef.current) {
+              const p = envelope.payload as any;
+              const delta = p?.delta || p?.textDelta || '';
+              activeStreamRef.current.accumulatedText += delta;
+              activeStreamRef.current.onDelta(delta, activeStreamRef.current.accumulatedText);
+            }
+          } else if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
+            if (activeStreamRef.current) {
+              const listener = activeStreamRef.current;
+              activeStreamRef.current = null;
+              listener.onComplete(envelope.payload);
+            }
             if ((envelope.payload as any)?.status === 'INITIALIZED') {
               sessionIdRef.current = envelope.sessionId;
               setSessionId(envelope.sessionId);
@@ -101,6 +133,11 @@ export function useGateway({
               setLatencyMs(Date.now() - pingSentTimeRef.current);
             }
           } else if (envelope.type === WsEventTypes.AGENT_ERROR) {
+            if (activeStreamRef.current) {
+              const listener = activeStreamRef.current;
+              activeStreamRef.current = null;
+              listener.onError?.(envelope.payload);
+            }
             const errPayload = (envelope.payload as any)?.error;
             const userMsg =
               typeof errPayload === 'string'
@@ -278,6 +315,57 @@ export function useGateway({
     };
   }, [autoConnect, connect, disconnect]);
 
+  const sendTurnStream = useCallback(
+    (options: StreamTurnOptions) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        options.onError?.(new Error('Gateway is not connected'));
+        return false;
+      }
+
+      activeStreamRef.current = {
+        onStart: options.onStart,
+        onDelta: options.onDelta,
+        onComplete: options.onComplete,
+        onError: options.onError,
+        accumulatedText: '',
+      };
+
+      const envelope: WsEnvelope = {
+        version: '1.0',
+        id: generateId('turn_req'),
+        sessionId: sessionIdRef.current ?? 'active_session',
+        type: WsEventTypes.CLIENT_TURN_SEND,
+        payload: {
+          userId,
+          input: options.input,
+          intent: options.intent ?? 'EXPLAIN',
+          contextSnapshot: options.contextSnapshot,
+        },
+        timestamp: Date.now(),
+      };
+
+      wsRef.current.send(JSON.stringify(envelope));
+      return true;
+    },
+    [userId]
+  );
+
+  const interruptTurn = useCallback(() => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return false;
+
+    const envelope: WsEnvelope = {
+      version: '1.0',
+      id: generateId('int_req'),
+      sessionId: sessionIdRef.current ?? 'active_session',
+      type: WsEventTypes.CLIENT_TURN_INTERRUPT,
+      payload: {},
+      timestamp: Date.now(),
+    };
+
+    wsRef.current.send(JSON.stringify(envelope));
+    return true;
+  }, []);
+
   return {
     isConnected,
     isConnecting,
@@ -289,5 +377,7 @@ export function useGateway({
     reviewCardToGateway,
     generateAdaptiveQuiz,
     gradeSubjectiveQuiz,
+    sendTurnStream,
+    interruptTurn,
   };
 }

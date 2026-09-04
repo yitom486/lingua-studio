@@ -106,7 +106,12 @@ export function App() {
         onClose={() => setIsCommandOpen(false)}
         actions={commandActions}
       />
-      <AiTutorDrawer isOpen={isTutorOpen} onClose={closeTutor} context={tutorContext} />
+      <AiTutorDrawer
+        isOpen={isTutorOpen}
+        onClose={closeTutor}
+        context={tutorContext}
+        gateway={gateway}
+      />
 
       <AppSidebar
         quizProgress={`${Math.min(questionIndex + 1, questions.length)}/${questions.length || 1}`}
