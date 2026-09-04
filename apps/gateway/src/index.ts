@@ -353,6 +353,305 @@ export const app = new Hono()
         return formatBusinessErrorResponse(c, e, 'recordKanaPractice');
       }
     }
+  )
+  // 9. 阅读理解工作室 (Reading Comprehension)
+  .get(
+    '/api/reading/sets/:userId',
+    validator('query', (value) => value as { origin?: string; lang?: string }),
+    async (c) => {
+      const userId = c.req.param('userId');
+      const origin = c.req.query('origin') as any;
+      const lang = c.req.query('lang') as any;
+      const res = await drizzleRepo.listReadingSets(userId, origin, lang);
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    }
+  )
+  .post(
+    '/api/reading/generate/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as any;
+        const origin = (body.origin || 'ai') as 'ai' | 'news';
+        const difficulty = (Number(body.difficulty) || 2) as 1 | 2 | 3 | 4 | 5;
+        const language = (body.language === 'EN' ? 'EN' : 'JA') as 'JA' | 'EN';
+        const topic = String(body.topic || (language === 'JA' ? '日常生活' : 'technology'));
+
+        const newSetId = generateId('read_' + origin);
+        const isJa = language === 'JA';
+
+        let title = '';
+        let bodyText = '';
+        let sourceLabel = '';
+        let questions: any[] = [];
+
+        if (origin === 'news') {
+          sourceLabel = isJa
+            ? `合规真实精选 · ${topic} 领域最新动态`
+            : `Verified News Feed · ${topic} Weekly Digest`;
+          title = isJa
+            ? `【快讯】关于${topic}领域的最新发展与社会影响`
+            : `Latest Developments and Industry Trends in ${topic}`;
+          bodyText = isJa
+            ? `近年のグローバルな技術革新と社会の変化に伴い、${topic}分野における新たな取り組みが急速に注目を集めている。国内外の専門機関が発表した最新データによれば、関連する市場規模は過去2年間で約30%拡大したという。
+
+市場の成長とともに、ユーザーの利便性向上や業務効率化が実現される一方で、プライバシーの保護や安全性基準の整備といった制度的課題も指摘されている。
+
+関係者は「持続可能な発展を遂げるためには、技術の進化だけでなく、社会全体の倫理規範との調和が不可欠である」と強調している。今後の法整備や官民連携の行方が注目される。`
+            : `Rapid innovation in the field of ${topic} has captured international attention over recent quarters. According to newly published market assessments from industry observers, investment in core research has risen significantly across leading research clusters.
+
+While early adopters praise the enhanced productivity and seamless workflow integration, regulatory authorities caution that robust safeguards regarding data integrity and security must keep pace with deployment.
+
+Industry leaders emphasized at a recent summit that long-term sustainability depends on maintaining transparent standards while cultivating public trust. Pilot programs scheduled for the upcoming quarter will test these governance frameworks under live operational conditions.`;
+
+          questions = [
+            {
+              id: `${newSetId}_q1`,
+              prompt: isJa
+                ? `本文で言及されている主な動向として適切なものはどれか。`
+                : `What is the primary trend highlighted in the passage regarding ${topic}?`,
+              options: [
+                {
+                  key: 'A',
+                  text: isJa
+                    ? '関連分野の取り組みが急速に注目され市場が拡大している'
+                    : 'Market investment and interest have expanded significantly',
+                },
+                {
+                  key: 'B',
+                  text: isJa
+                    ? '政府が当該分野への投資を全面的に禁止した'
+                    : 'Governments completely banned all related development',
+                },
+                {
+                  key: 'C',
+                  text: isJa
+                    ? '技術の進化が完全に停滞し需要が消滅した'
+                    : 'Innovation halted entirely due to a total lack of consumer interest',
+                },
+                {
+                  key: 'D',
+                  text: isJa
+                    ? 'すべての規制や基準が撤廃された'
+                    : 'All regulatory standards were permanently discarded',
+                },
+              ],
+              correctAnswer: 'A',
+              explanation: isJa
+                ? '第1段落で市場規模の拡大と急速な注目の高まりが述べられている。'
+                : 'Paragraph 1 notes significant rise in attention and market investment.',
+            },
+            {
+              id: `${newSetId}_q2`,
+              prompt: isJa
+                ? `本文で指摘されている課題は何か。`
+                : `What key concern or challenge was raised in the report?`,
+              options: [
+                {
+                  key: 'A',
+                  text: isJa ? '原料の物理的枯渇' : 'Immediate physical resource depletion',
+                },
+                {
+                  key: 'B',
+                  text: isJa
+                    ? '安全性基準の整備やプライバシーの保護'
+                    : 'Security safeguards, data integrity, and regulatory standards',
+                },
+                {
+                  key: 'C',
+                  text: isJa
+                    ? '従事者の完全な不足'
+                    : 'A total absence of qualified technicians',
+                },
+                {
+                  key: 'D',
+                  text: isJa
+                    ? '交通インフラの機能停止'
+                    : 'Urban transit infrastructure collapse',
+                },
+              ],
+              correctAnswer: 'B',
+              explanation: isJa
+                ? '第2段落「プライバシーの保護や安全性基準の整備といった制度的課題」と合致。'
+                : 'Paragraph 2 highlights safeguards regarding data integrity, security, and standards.',
+            },
+            {
+              id: `${newSetId}_q3`,
+              prompt: isJa
+                ? `今後の持続可能な発展に必要な条件として関係者が挙げたものは何か。`
+                : `According to industry stakeholders, what is indispensable for long-term sustainability?`,
+              options: [
+                {
+                  key: 'A',
+                  text: isJa
+                    ? '技術の進化と社会全体の倫理規範・透明性との調和'
+                    : 'Balancing technological innovation with ethical standards and public trust',
+                },
+                {
+                  key: 'B',
+                  text: isJa
+                    ? '競争相手の排除と独占体制の確立'
+                    : 'Eliminating competition to establish complete monopoly',
+                },
+                {
+                  key: 'C',
+                  text: isJa
+                    ? 'すべての法整備の中止'
+                    : 'Halting all future legislative governance',
+                },
+                {
+                  key: 'D',
+                  text: isJa
+                    ? '海外市場からの即時撤退'
+                    : 'Immediate withdrawal from all international markets',
+                },
+              ],
+              correctAnswer: 'A',
+              explanation: isJa
+                ? '第3段落「技術の進化だけでなく、社会全体の倫理規範との調和が不可欠」と対応。'
+                : 'Paragraph 3 emphasizes that sustainability depends on transparent standards and public trust.',
+            },
+          ];
+        } else {
+          sourceLabel = isJa
+            ? `AI 自适应生成 · 难度 Lv.${difficulty} / 主题: ${topic}`
+            : `AI Adaptive Generator · Lv.${difficulty} / Topic: ${topic}`;
+          title = isJa
+            ? `${topic}に関する日々の観察と学び`
+            : `Perspectives and Insights on ${topic}`;
+          bodyText = isJa
+            ? `私たちの生活において、${topic}は常に身近で重要な役割を果たしています。毎日の慌ただしい時間の中でも、少し立ち止まって周囲を見渡すと、新しい気づきや発見がたくさんあります。
+
+例えば、昨日出会った出来事について考えてみましょう。最初は些細なことのように見えても、注意深く観察してみると、これまで知らなかった工夫や人々の温かさに気づくことができます。
+
+言葉を学ぶことも、まさにこれと同じです。日々の小さな発見を大切に積み重ねていくことで、表現力や理解力は少しずつ深まっていきます。これからも好奇心を持って、新しい世界を探求していきたいものです。`
+            : `In our everyday lives, ${topic} often plays a far more meaningful role than we initially realize. Amid the rush of daily commitments, taking a moment to observe our surroundings frequently reveals fresh perspectives.
+
+Consider small interactions that seem ordinary at first glance. Upon closer reflection, we often uncover subtle craftsmanship and thoughtful intentionality behind how people navigate daily challenges.
+
+Language acquisition follows much the same cadence. By celebrating steady, incremental insights, learners cultivate nuanced expression and deeper comprehension over time.`;
+
+          questions = [
+            {
+              id: `${newSetId}_q1`,
+              prompt: isJa
+                ? `筆者は${topic}についてどのように述べていますか。`
+                : `What does the author suggest about everyday observations regarding ${topic}?`,
+              options: [
+                {
+                  key: 'A',
+                  text: isJa
+                    ? '些細に見えることの中にも新しい気づきや工夫がある'
+                    : 'Even seemingly ordinary moments reveal meaningful insights and intentionality',
+                },
+                {
+                  key: 'B',
+                  text: isJa
+                    ? '忙しいときは一切周囲を観察してはならない'
+                    : 'Busy people should strictly avoid paying attention to surroundings',
+                },
+                {
+                  key: 'C',
+                  text: isJa
+                    ? '日常生活には何の学びも存在しない'
+                    : 'Daily routines offer no valuable lessons whatsoever',
+                },
+                {
+                  key: 'D',
+                  text: isJa
+                    ? '過去の経験はすべて忘れるべきである'
+                    : 'Past observations should be disregarded completely',
+                },
+              ],
+              correctAnswer: 'A',
+              explanation: isJa
+                ? '第1・第2段落で些細なことの中にある新しい気づきや工夫について述べられている。'
+                : 'Paragraphs 1 and 2 emphasize finding fresh insights in subtle, ordinary moments.',
+            },
+            {
+              id: `${newSetId}_q2`,
+              prompt: isJa
+                ? `筆者は言葉の学びを何にたとえていますか。`
+                : `What comparison does the author draw with language learning?`,
+              options: [
+                {
+                  key: 'A',
+                  text: isJa ? '一度きりの大勝負' : 'A one-time high-stakes gamble',
+                },
+                {
+                  key: 'B',
+                  text: isJa
+                    ? '日々の小さな発見と積み重ね'
+                    : 'Accumulating steady, incremental everyday insights',
+                },
+                {
+                  key: 'C',
+                  text: isJa
+                    ? '他者との終わりのない激しい競争'
+                    : 'Relentless competition against peer learners',
+                },
+                {
+                  key: 'D',
+                  text: isJa
+                    ? '完全に自動化された機械の動作'
+                    : 'An entirely mechanized, hands-off routine',
+                },
+              ],
+              correctAnswer: 'B',
+              explanation: isJa
+                ? '第3段落「日々の小さな発見を大切に積み重ねていくこと」と合致。'
+                : 'Paragraph 3 directly compares language learning to steady, incremental insights.',
+            },
+          ];
+        }
+
+        const newSet = {
+          id: newSetId,
+          origin,
+          title,
+          topic,
+          difficulty,
+          language,
+          sourceLabel,
+          body: bodyText,
+          questions,
+          createdAt: new Date().toISOString(),
+        };
+
+        const res = await drizzleRepo.saveReadingSet(userId, newSet);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'generateReadingSet');
+      }
+    }
+  )
+  .post(
+    '/api/reading/practice/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as any;
+        const setId = String(body.setId || '');
+        const score = Number(body.score) || 0;
+        const totalQuestions = Number(body.totalQuestions) || 1;
+        const language = (body.language === 'EN' ? 'EN' : 'JA') as 'JA' | 'EN';
+
+        const res = await drizzleRepo.recordReadingPractice(userId, {
+          setId,
+          score,
+          totalQuestions,
+          language,
+        });
+        if (isOk(res)) return c.json({ success: true, ...res.value });
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'recordReadingPractice');
+      }
+    }
   );
 
 export type GatewayAppType = typeof app;

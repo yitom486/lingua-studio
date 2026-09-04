@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { eq, and, desc, asc, lte } from 'drizzle-orm';
+import { eq, and, desc, asc, lte, or, inArray } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -19,7 +19,14 @@ import type {
   DailyTaskProgress,
   MistakeEntry,
 } from '@study-studio/learner-core';
-import type { Flashcard, DocumentItem, AnnotationItem, KanaItem } from '@study-studio/protocol';
+import type {
+  Flashcard,
+  DocumentItem,
+  AnnotationItem,
+  KanaItem,
+  ReadingPassageSet,
+  SubmitReadingPractice,
+} from '@study-studio/protocol';
 import {
   createDrizzleDb,
   type DrizzleDb,
@@ -1338,6 +1345,217 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           category: 'DATABASE',
           action: 'recordKanaPractice',
           entityId: kanaId,
+        })
+      );
+    }
+  }
+
+  /**
+   * 检索阅读理解篇目套题列表 (AI 分级篇目 / 真实新闻)
+   */
+  public async listReadingSets(
+    userId: string,
+    origin?: 'ai' | 'news' | 'user_import',
+    language?: 'JA' | 'EN'
+  ): Promise<Result<ReadingPassageSet[], BusinessError>> {
+    try {
+      const userCondition = or(
+        eq(documents.userId, userId),
+        eq(documents.userId, 'default_user'),
+        eq(documents.userId, 'system')
+      );
+
+      const rows = await this.db
+        .select()
+        .from(documents)
+        .where(
+          and(
+            userCondition,
+            inArray(documents.sourceKind, ['ai_generated', 'news', 'user_import'])
+          )
+        )
+        .orderBy(desc(documents.createdAt));
+
+      const sets: ReadingPassageSet[] = rows
+        .map((row) => {
+          let questions = [];
+          if (row.astJson) {
+            try {
+              const parsed = JSON.parse(row.astJson);
+              questions = parsed.questions || [];
+            } catch {
+              questions = [];
+            }
+          }
+          const itemOrigin =
+            row.sourceKind === 'news'
+              ? ('news' as const)
+              : row.sourceKind === 'ai_generated'
+              ? ('ai' as const)
+              : ('user_import' as const);
+
+          const itemLang = row.language.toUpperCase() === 'EN' ? ('EN' as const) : ('JA' as const);
+
+          return {
+            id: row.id,
+            origin: itemOrigin,
+            title: row.title,
+            topic: row.topic || '综合',
+            difficulty: (row.difficulty ?? 2) as 1 | 2 | 3 | 4 | 5,
+            language: itemLang,
+            sourceLabel:
+              row.sourcePublisher ||
+              (itemOrigin === 'news' ? '合规精选新闻' : 'AI 精选篇目'),
+            sourceUrl: row.sourceUrl ?? undefined,
+            body: row.content,
+            questions,
+            createdAt: row.createdAt,
+          };
+        })
+        .filter((set) => {
+          if (origin && set.origin !== origin) return false;
+          if (language && set.language !== language) return false;
+          return true;
+        });
+
+      return ok(sets);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'listReadingSets',
+          entityId: userId,
+        })
+      );
+    }
+  }
+
+  /**
+   * 保存或更新阅读理解篇目套题
+   */
+  public async saveReadingSet(
+    userId: string,
+    set: ReadingPassageSet
+  ): Promise<Result<ReadingPassageSet, BusinessError>> {
+    try {
+      const now = nowIso();
+      const sourceKind =
+        set.origin === 'news' ? 'news' : set.origin === 'ai' ? 'ai_generated' : 'user_import';
+
+      const existing = await this.db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(eq(documents.id, set.id))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await this.db
+          .update(documents)
+          .set({
+            title: set.title,
+            content: set.body,
+            astJson: JSON.stringify({ questions: set.questions }),
+            topic: set.topic,
+            difficulty: set.difficulty,
+            sourceUrl: set.sourceUrl ?? null,
+            sourcePublisher: set.sourceLabel,
+            updatedAt: now,
+          })
+          .where(eq(documents.id, set.id));
+      } else {
+        await this.db.insert(documents).values({
+          id: set.id,
+          userId,
+          title: set.title,
+          sourceKind,
+          language: set.language.toLowerCase(),
+          content: set.body,
+          astJson: JSON.stringify({ questions: set.questions }),
+          topic: set.topic,
+          difficulty: set.difficulty,
+          sourceUrl: set.sourceUrl ?? null,
+          sourcePublisher: set.sourceLabel,
+          createdAt: set.createdAt || now,
+          updatedAt: now,
+        });
+      }
+
+      return ok(set);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'saveReadingSet',
+          entityId: set.id,
+        })
+      );
+    }
+  }
+
+  /**
+   * 记录阅读理解做题成绩，同步更新学情雷达与当日打卡活动
+   */
+  public async recordReadingPractice(
+    userId: string,
+    input: SubmitReadingPractice
+  ): Promise<Result<{ proficiency: number }, BusinessError>> {
+    try {
+      const isJa = input.language === 'JA';
+      const skillId = isJa ? 'jp.reading.comprehension' : 'en.reading.comprehension';
+      const skillName = isJa ? '日语长文阅读与理解' : '英语篇章精读与理解';
+
+      const existingRows = await this.db
+        .select()
+        .from(skillMetrics)
+        .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.skillId, skillId)))
+        .limit(1);
+
+      let totalAttempts = input.totalQuestions;
+      let correctAttempts = input.score;
+      const isGoodScore = input.score >= Math.ceil(input.totalQuestions * 0.6);
+      let consecutiveErrors = isGoodScore ? 0 : 1;
+
+      if (existingRows.length > 0) {
+        const row = existingRows[0]!;
+        totalAttempts = row.totalAttempts + input.totalQuestions;
+        correctAttempts = row.correctAttempts + input.score;
+        consecutiveErrors = isGoodScore ? 0 : row.consecutiveErrors + 1;
+      }
+
+      const proficiency = Math.min(
+        1.0,
+        Math.max(0.05, Number((correctAttempts / totalAttempts).toFixed(2)))
+      );
+
+      const status =
+        consecutiveErrors >= 2
+          ? 'WEAKNESS'
+          : proficiency >= 0.85 && totalAttempts >= 6
+          ? 'STRENGTH'
+          : 'NORMAL';
+
+      await this.saveSkillMetric(userId, {
+        id: skillId,
+        dimension: 'READING',
+        name: skillName,
+        proficiency,
+        totalAttempts,
+        correctAttempts,
+        consecutiveErrors,
+        status,
+        lastPracticedAt: nowIso(),
+      });
+
+      // 累计当日做题数
+      await this.recordDailyActivity(userId, { quizzes: input.totalQuestions });
+
+      return ok({ proficiency });
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'recordReadingPractice',
+          entityId: input.setId,
         })
       );
     }

@@ -2,9 +2,11 @@ import { Database } from 'bun:sqlite';
 import { drizzle, type BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema.js';
 import { KANA_SEEDS } from './seeds/kana-seed.js';
+import { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
 
 export * from './schema.js';
 export { KANA_SEEDS } from './seeds/kana-seed.js';
+export { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
 
 export type DrizzleDb = BunSQLiteDatabase<typeof schema>;
 
@@ -177,34 +179,70 @@ export function initSchema(sqlite: Database): void {
     CREATE INDEX IF NOT EXISTS idx_kana_type ON curriculum_kana(type, sort_order);
   `);
 
-  // 自动填充五十音权威种子数据（若空）
-  try {
-    const countRow = sqlite
-      .query<{ count: number }, []>('SELECT COUNT(*) as count FROM curriculum_kana')
-      .get();
-    if (!countRow || countRow.count === 0) {
-      const insertStmt = sqlite.prepare(`
-        INSERT INTO curriculum_kana (id, type, hiragana, katakana, romaji, row, col, mnemonic, audio_text, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const k of KANA_SEEDS) {
-        insertStmt.run(
-          k.id,
-          k.type,
-          k.hiragana,
-          k.katakana,
-          k.romaji,
-          k.row,
-          k.col,
-          k.mnemonic ?? null,
-          k.audioText,
-          k.sortOrder
-        );
+    // 自动填充五十音权威种子数据（若空）
+    try {
+      const countRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM curriculum_kana')
+        .get();
+      if (!countRow || countRow.count === 0) {
+        const insertStmt = sqlite.prepare(`
+          INSERT INTO curriculum_kana (id, type, hiragana, katakana, romaji, row, col, mnemonic, audio_text, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const k of KANA_SEEDS) {
+          insertStmt.run(
+            k.id,
+            k.type,
+            k.hiragana,
+            k.katakana,
+            k.romaji,
+            k.row,
+            k.col,
+            k.mnemonic ?? null,
+            k.audioText,
+            k.sortOrder
+          );
+        }
       }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed curriculum_kana:', e);
     }
-  } catch (e) {
-    console.warn('[initSchema] Failed to auto-seed curriculum_kana:', e);
+
+    // 自动填充双源阅读篇目（若空）
+    try {
+      const readingCountRow = sqlite
+        .query<{ count: number }, []>(
+          "SELECT COUNT(*) as count FROM documents WHERE source_kind IN ('ai_generated', 'news')"
+        )
+        .get();
+      if (!readingCountRow || readingCountRow.count === 0) {
+        const now = new Date().toISOString();
+        const insertDocStmt = sqlite.prepare(`
+          INSERT INTO documents (
+            id, user_id, title, source_kind, language, content, ast_json, topic, difficulty, source_url, source_publisher, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const set of INITIAL_READING_SEEDS) {
+          insertDocStmt.run(
+            set.id,
+            'default_user',
+            set.title,
+            set.origin === 'news' ? 'news' : 'ai_generated',
+            set.language.toLowerCase(),
+            set.body,
+            JSON.stringify({ questions: set.questions }),
+            set.topic,
+            set.difficulty,
+            set.sourceUrl ?? null,
+            set.sourceLabel,
+            now,
+            now
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed reading passages:', e);
+    }
   }
-}
 
 

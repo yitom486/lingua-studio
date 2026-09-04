@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { SkillMetric } from '@study-studio/learner-core';
-import type { KanaItem } from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
 import { apiClient } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
 import {
@@ -21,6 +21,7 @@ export const QUERY_KEYS = {
   DOCUMENTS: ['learner', 'documents'] as const,
   ANNOTATIONS: ['learner', 'annotations'] as const,
   KANA: ['curriculum', 'kana'] as const,
+  READING: ['learner', 'reading'] as const,
   PROFILE: ['learner', 'profile'] as const,
   MISTAKES: ['learner', 'mistakes'] as const,
   QUESTIONS: ['learner', 'questions'] as const,
@@ -628,3 +629,99 @@ export function useKanaPracticeMutation(userId = DEFAULT_USER_ID) {
     },
   });
 }
+
+/** 双源阅读理解篇目查询 (AI 分级篇目 / 真实合规新闻) */
+export function useReadingSetsQuery(
+  origin?: 'ai' | 'news' | 'user_import',
+  lang?: 'JA' | 'EN',
+  userId = DEFAULT_USER_ID
+) {
+  return useQuery<ReadingPassageSet[]>({
+    queryKey: [...QUERY_KEYS.READING, userId, origin ?? 'ALL', lang ?? 'ALL'],
+    queryFn: async () => {
+      try {
+        const query: any = {};
+        if (origin) query.origin = origin;
+        if (lang) query.lang = lang;
+        const res = await apiClient.api.reading.sets[':userId'].$get({
+          param: { userId },
+          query,
+        });
+        if (res.ok) {
+          const sets = await res.json();
+          if (Array.isArray(sets) && sets.length > 0) {
+            return sets as ReadingPassageSet[];
+          }
+        }
+      } catch (e) {
+        console.warn('[useReadingSetsQuery] Hono RPC fallback', e);
+      }
+      return [];
+    },
+    staleTime: 1000 * 60 * 5, // 5 分钟缓存
+  });
+}
+
+/** 动态生成或抓取阅读套题 (Hono RPC) */
+export function useGenerateReadingSetMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      origin?: 'ai' | 'news';
+      difficulty?: number;
+      language?: 'JA' | 'EN';
+      topic?: string;
+    }) => {
+      const res = await apiClient.api.reading.generate[':userId'].$post({
+        param: { userId },
+        json: {
+          origin: payload.origin || 'ai',
+          difficulty: payload.difficulty || 2,
+          language: payload.language || 'JA',
+          topic: payload.topic || '日常生活',
+        },
+      });
+      if (res.ok) {
+        return (await res.json()) as ReadingPassageSet;
+      }
+      throw new Error('生成阅读篇目失败');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.READING });
+    },
+  });
+}
+
+/** 提交阅读理解答题成绩 (Hono RPC) */
+export function useSubmitReadingPracticeMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      setId: string;
+      score: number;
+      totalQuestions: number;
+      language?: 'JA' | 'EN';
+    }) => {
+      const res = await apiClient.api.reading.practice[':userId'].$post({
+        param: { userId },
+        json: {
+          setId: payload.setId,
+          score: payload.score,
+          totalQuestions: payload.totalQuestions,
+          language: payload.language || 'JA',
+        },
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      throw new Error('提交阅读成绩失败');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+    },
+  });
+}
+
