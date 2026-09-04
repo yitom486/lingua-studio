@@ -18,16 +18,17 @@ export function fireSuccessConfetti() {
   fire(0.25, {
     spread: 26,
     startVelocity: 55,
-    colors: ['#4f46e5', '#10b981', '#38bdf8'],
+    colors: ['#f97316', '#fb923c', '#f59e0b'],
   });
   fire(0.2, {
     spread: 60,
-    colors: ['#f59e0b', '#ec4899', '#8b5cf6'],
+    colors: ['#ea580c', '#f43f5e', '#10b981'],
   });
   fire(0.35, {
     spread: 100,
     decay: 0.91,
     scalar: 0.8,
+    colors: ['#f97316', '#fde047', '#fed7aa'],
   });
   fire(0.1, {
     spread: 120,

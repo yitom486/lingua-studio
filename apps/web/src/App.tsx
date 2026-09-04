@@ -15,7 +15,7 @@ import {
   GraduationCap,
   Clock,
   ArrowRight,
-  Volume2,
+  Bookmark,
 } from 'lucide-react';
 import {
   initFsrsState,
@@ -31,7 +31,7 @@ import {
 } from './components/magicui/index.js';
 
 export function App() {
-  // 主题状态：默认浅色（阳间模式），持久化于 localStorage
+  // 主题状态：默认浅色（温暖纸面阳间色），持久化于 localStorage
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('study_studio_theme');
@@ -61,7 +61,7 @@ export function App() {
   const [cardFlipped, setCardFlipped] = useState(false);
   const [cardState, setCardState] = useState(initFsrsState());
 
-  // 典型日语句型题目
+  // 日语助词经典题目
   const currentQuestion = {
     id: 'q_demo_01',
     category: '助词辨析',
@@ -70,12 +70,12 @@ export function App() {
     options: [
       { key: 'A', text: 'で', note: '表示动作场所或工具手段' },
       { key: 'B', text: 'に', note: '表示移动的目的地、到达点' },
-      { key: 'C', text: 'を', note: '表示宾语或离开的场所' },
+      { key: 'C', text: 'を', note: '表示动作对象或经过离开的场所' },
       { key: 'D', text: 'から', note: '表示起点或出处' },
     ],
     correctAnswer: 'B',
     explanation:
-      '句中动词为移动动词「行きました」（去了）。表示移动的目的地、着落点时，必须使用格助词「に」或方向助词「へ」；而「で」通常表示动作实际发生、进行的场所（例如：京都で写真を撮りました）。',
+      '句中动词为移动动词「行きました」（去了）。表示移动的目的地、到达点时，必须使用格助词「に」或方向助词「へ」；而「で」通常表示动作实际发生、进行的场所（例如：京都で写真を撮りました）。',
     testedSkill: 'jp.particle.destination_ni',
   };
 
@@ -84,7 +84,7 @@ export function App() {
     {
       id: 'jp.particle.destination_ni',
       dimension: 'GRAMMAR',
-      name: '目的地着落点助词「に」',
+      name: '目的地到达点助词「に」',
       proficiency: 0.88,
       totalAttempts: 12,
       correctAttempts: 11,
@@ -149,74 +149,76 @@ export function App() {
   return (
     <div
       className={`min-h-screen ${
-        theme === 'dark' ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50/70 text-slate-800'
+        theme === 'dark'
+          ? 'dark bg-[#141312] text-stone-100'
+          : 'bg-[#fbfaf8] text-stone-800'
       } transition-colors duration-200 flex flex-col font-sans relative overflow-x-hidden`}
     >
-      {/* 背景 DotPattern 优雅点阵纹理 */}
+      {/* 温暖点阵纸页质感纹理 */}
       <DotPattern
-        width={28}
-        height={28}
+        width={26}
+        height={26}
         cx={1.5}
         cy={1.5}
         cr={1}
-        className="opacity-40 dark:opacity-20"
+        className="opacity-45 dark:opacity-15"
       />
 
       {/* 顶部导航栏 */}
-      <header className="border-b border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 transition-colors">
+      <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/80 dark:bg-[#1a1917]/80 backdrop-blur-md sticky top-0 z-50 transition-colors">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          {/* Logo 与产品定位 */}
+          {/* Logo 与温暖品牌标 */}
           <div className="flex items-center gap-3">
             <motion.div
               whileHover={{ scale: 1.05, rotate: 2 }}
               whileTap={{ scale: 0.95 }}
-              className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm cursor-pointer"
+              className="w-10 h-10 rounded-xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center shadow-sm shadow-orange-500/20 cursor-pointer"
             >
               <GraduationCap className="w-5 h-5" />
             </motion.div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-slate-900 dark:text-slate-100 tracking-tight">
+                <span className="font-bold text-lg text-stone-900 dark:text-stone-100 tracking-tight">
                   Study Studio
                 </span>
-                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/50">
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-orange-50 dark:bg-orange-950/50 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/50">
                   日语突破 · JLPT N3
                 </span>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">基于记忆规律的自适应学习系统</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语学习系统</p>
             </div>
           </div>
 
-          {/* 右侧：连续学习与主题切换 */}
+          {/* 右侧：连续学习打卡与暖色明暗切换 */}
           <div className="flex items-center gap-3.5">
             <motion.div
               whileHover={{ scale: 1.02 }}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-300 text-xs font-semibold shadow-xs"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200/80 dark:border-orange-800/50 text-orange-800 dark:text-orange-300 text-xs font-semibold shadow-2xs"
             >
-              <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <TrendingUp className="w-4 h-4 text-orange-600 dark:text-orange-400" />
               <span>
                 连续打卡 <NumberTicker value={5} className="font-bold inline-block" /> 天
               </span>
             </motion.div>
 
-            <div className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
+            <div className="h-5 w-px bg-stone-200 dark:bg-stone-800" />
 
-            {/* 明暗切换按钮 */}
+            {/* 明暗切换 */}
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={toggleTheme}
               aria-label="切换明暗主题"
-              className="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 shadow-xs transition-all cursor-pointer"
+              className="p-2.5 rounded-xl border border-stone-200/80 dark:border-stone-800 bg-white dark:bg-[#211f1d] hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 shadow-2xs transition-all cursor-pointer"
             >
               {theme === 'light' ? (
                 <div className="flex items-center gap-1.5 text-xs font-medium">
-                  <Moon className="w-4 h-4 text-indigo-600" />
+                  <Moon className="w-4 h-4 text-orange-600" />
                   <span className="hidden md:inline">暗色</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-xs font-medium">
                   <Sun className="w-4 h-4 text-amber-400" />
-                  <span className="hidden md:inline">亮色</span>
+                  <span className="hidden md:inline">暖亮</span>
                 </div>
               )}
             </motion.button>
@@ -226,8 +228,8 @@ export function App() {
 
       {/* 主工作区 */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-6 py-8 flex flex-col gap-6 relative z-10">
-        {/* Magic UI 风格滑动指示标签栏 */}
-        <div className="flex items-center gap-1.5 p-1 bg-slate-200/60 dark:bg-slate-900/90 rounded-2xl border border-slate-200/80 dark:border-slate-800 w-fit backdrop-blur-xs">
+        {/* 滑动指示标签栏 */}
+        <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-[#1f1d1b] rounded-2xl border border-stone-200/80 dark:border-stone-800 w-fit backdrop-blur-xs">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -238,14 +240,14 @@ export function App() {
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`relative px-4 py-2 rounded-xl text-sm font-medium transition-colors duration-200 flex items-center gap-2 cursor-pointer ${
                   isActive
-                    ? 'text-indigo-600 dark:text-indigo-400 font-semibold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    ? 'text-orange-700 dark:text-orange-400 font-semibold'
+                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
                 }`}
               >
                 {isActive && (
                   <motion.div
                     layoutId="active-pill"
-                    className="absolute inset-0 rounded-xl bg-white dark:bg-slate-800 shadow-xs"
+                    className="absolute inset-0 rounded-xl bg-white dark:bg-[#282522] shadow-xs"
                     transition={{ type: 'spring', stiffness: 450, damping: 35 }}
                   />
                 )}
@@ -266,25 +268,25 @@ export function App() {
             transition={{ duration: 0.25 }}
             className="flex flex-col gap-5 max-w-3xl"
           >
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/90 rounded-2xl p-7 shadow-xs hover:shadow-sm transition-all relative overflow-hidden">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-7 shadow-xs hover:shadow-sm transition-all relative overflow-hidden">
+              <div className="flex items-center justify-between pb-4 border-b border-stone-100 dark:border-stone-800">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/40">
-                    针对弱项练习
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border border-orange-200/80 dark:border-orange-800/40">
+                    针对薄弱项练习
                   </span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">考点：助词用法辨析</span>
+                  <span className="text-xs text-stone-500 dark:text-stone-400">考点：助词用法辨析</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+                <div className="flex items-center gap-1.5 text-xs text-stone-400 dark:text-stone-500">
                   <Clock className="w-3.5 h-3.5" />
                   <span>第 1 / 5 题</span>
                 </div>
               </div>
 
               <div className="my-6">
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">
+                <p className="text-xs font-medium text-stone-500 dark:text-stone-400 mb-2">
                   {currentQuestion.prompt}
                 </p>
-                <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-wide font-['Noto_Sans_JP'] py-2">
+                <div className="text-2xl font-bold text-stone-900 dark:text-stone-100 tracking-wide font-['Noto_Sans_JP'] py-2">
                   {currentQuestion.content}
                 </div>
               </div>
@@ -296,7 +298,7 @@ export function App() {
                   const isCorrect = opt.key === currentQuestion.correctAnswer;
 
                   let style =
-                    'border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-800 dark:text-slate-200';
+                    'border-stone-200/80 dark:border-stone-800 bg-stone-50/50 dark:bg-[#24221f]/50 hover:bg-stone-100/80 dark:hover:bg-[#282522] hover:border-stone-300 dark:hover:border-stone-700 text-stone-800 dark:text-stone-200';
 
                   if (quizSubmitted) {
                     if (isCorrect) {
@@ -308,7 +310,7 @@ export function App() {
                     }
                   } else if (isSelected) {
                     style =
-                      'border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-950 dark:text-indigo-200 ring-2 ring-indigo-500/30 font-semibold';
+                      'border-orange-500 bg-orange-50/80 dark:bg-orange-950/50 text-orange-950 dark:text-orange-200 ring-2 ring-orange-500/30 font-semibold';
                   }
 
                   return (
@@ -325,7 +327,7 @@ export function App() {
                           {opt.key}. {opt.text}
                         </span>
                         {quizSubmitted && (
-                          <span className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                          <span className="text-xs text-stone-500 dark:text-stone-400 mt-1">
                             {opt.note}
                           </span>
                         )}
@@ -341,9 +343,9 @@ export function App() {
                 })}
               </div>
 
-              {/* 底部按钮栏 */}
-              <div className="mt-7 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <div className="text-xs text-slate-400 dark:text-slate-500">
+              {/* 底部确认按钮 */}
+              <div className="mt-7 pt-4 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between">
+                <div className="text-xs text-stone-400 dark:text-stone-500">
                   答对自动放行，做错自动纳入错题本
                 </div>
 
@@ -363,7 +365,7 @@ export function App() {
                       setQuizSubmitted(false);
                       setSelectedOption(null);
                     }}
-                    className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-medium text-sm transition-all flex items-center gap-2 shadow-sm cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm transition-all flex items-center gap-2 shadow-sm cursor-pointer"
                   >
                     <span>下一题</span>
                     <ArrowRight className="w-4 h-4" />
@@ -372,28 +374,28 @@ export function App() {
               </div>
             </div>
 
-            {/* AI 深度考点解析 */}
+            {/* 考点解析卡片 */}
             <AnimatePresence>
               {quizSubmitted && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-xs flex flex-col gap-3.5 transition-all"
+                  className="bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-6 shadow-xs flex flex-col gap-3.5 transition-all"
                 >
-                  <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-semibold text-sm">
+                  <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400 font-semibold text-sm">
                     <Sparkles className="w-4 h-4" />
                     <span>导师考点解析</span>
                   </div>
-                  <p className="text-slate-700 dark:text-slate-300 text-sm leading-relaxed font-['Noto_Sans_JP']">
+                  <p className="text-stone-700 dark:text-stone-300 text-sm leading-relaxed font-['Noto_Sans_JP']">
                     {currentQuestion.explanation}
                   </p>
-                  <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2.5">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                  <div className="p-3.5 rounded-xl bg-orange-50/50 dark:bg-orange-950/20 border border-orange-200/70 dark:border-orange-900/40 text-xs text-stone-700 dark:text-stone-300 flex items-start gap-2.5">
+                    <span className="font-semibold text-orange-800 dark:text-orange-300 whitespace-nowrap">
                       错因归纳：
                     </span>
                     <span>
-                      助词混淆。初学者易受母语“去某地”与“在某地”思维影响；记住“移动有目的地用に，静态动作发生用で”。已自动同步至您的薄弱项画像。
+                      助词混淆。初学者易受母语“去某地”与“在某地”思维影响；记住“移动有到达目的地用に，静态动作发生用で”。已自动同步至您的薄弱项画像。
                     </span>
                   </div>
                 </motion.div>
@@ -402,7 +404,7 @@ export function App() {
           </motion.div>
         )}
 
-        {/* 2. 卡片复习模块 (3D 触感翻转卡片 + FSRS) */}
+        {/* 2. 卡片复习模块 (3D 触感翻转 + FSRS) */}
         {activeTab === 'CARDS' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -410,7 +412,7 @@ export function App() {
             transition={{ duration: 0.25 }}
             className="flex flex-col items-center gap-6 max-w-lg mx-auto w-full"
           >
-            {/* 3D 翻转卡片容器 */}
+            {/* 3D 翻转卡片 */}
             <div
               className="w-full h-80 perspective-1000 cursor-pointer"
               onClick={() => setCardFlipped(!cardFlipped)}
@@ -421,56 +423,59 @@ export function App() {
                 className="w-full h-full relative transform-style-3d shadow-xs hover:shadow-md transition-shadow rounded-2xl"
               >
                 {/* 卡片正面 */}
-                <div className="absolute inset-0 w-full h-full bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-8 flex flex-col items-center justify-between backface-hidden">
-                  <div className="w-full flex items-center justify-between text-xs text-slate-400">
-                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-medium">
+                <div className="absolute inset-0 w-full h-full bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-8 flex flex-col items-center justify-between backface-hidden">
+                  <div className="w-full flex items-center justify-between text-xs text-stone-400">
+                    <span className="px-2.5 py-0.5 rounded-full bg-orange-50 dark:bg-orange-950/40 text-orange-800 dark:text-orange-300 border border-orange-200/70 dark:border-orange-800/40 font-medium">
                       生词卡 · JLPT N3
                     </span>
-                    <span className="flex items-center gap-1 hover:text-indigo-600">
+                    <span className="flex items-center gap-1 hover:text-orange-600">
                       点击翻面 <ChevronRight className="w-3.5 h-3.5" />
                     </span>
                   </div>
 
                   <div className="flex flex-col items-center gap-3 my-auto">
-                    <div className="text-5xl font-bold font-['Noto_Sans_JP'] text-slate-900 dark:text-slate-100">
+                    <div className="text-5xl font-bold font-['Noto_Sans_JP'] text-stone-900 dark:text-stone-100">
                       降る
                     </div>
-                    <div className="text-sm font-medium text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <div className="text-sm font-medium text-stone-500 dark:text-stone-400 flex items-center gap-1.5">
                       <span>ふる</span>
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300">
                         动1 · 自动
                       </span>
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-400">思考词义与接续后点击翻面</div>
+                  <div className="text-[11px] text-stone-400">思考词义与接续后点击翻面</div>
                 </div>
 
                 {/* 卡片背面 */}
-                <div className="absolute inset-0 w-full h-full bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/60 rounded-2xl p-8 flex flex-col items-center justify-between backface-hidden rotate-y-180">
-                  <div className="w-full flex items-center justify-between text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-                    <span>考点剖析</span>
+                <div className="absolute inset-0 w-full h-full bg-white dark:bg-[#1c1a18] border border-orange-200/90 dark:border-orange-900/60 rounded-2xl p-8 flex flex-col items-center justify-between backface-hidden rotate-y-180">
+                  <div className="w-full flex items-center justify-between text-xs text-orange-700 dark:text-orange-400 font-medium">
+                    <span className="flex items-center gap-1">
+                      <Bookmark className="w-3.5 h-3.5" />
+                      考点剖析
+                    </span>
                     <span>正面请点翻转</span>
                   </div>
 
                   <div className="flex flex-col items-center gap-3 my-auto">
-                    <div className="text-2xl font-bold text-indigo-700 dark:text-indigo-400">
+                    <div className="text-2xl font-bold text-orange-700 dark:text-orange-400">
                       下 (雨、雪等)
                     </div>
-                    <div className="text-sm text-slate-700 dark:text-slate-300 max-w-sm mt-1 leading-relaxed font-['Noto_Sans_JP']">
-                      明日、雨が<span className="font-bold underline decoration-indigo-500 underline-offset-4">降ったら</span>、試合は中止です。
+                    <div className="text-sm text-stone-700 dark:text-stone-300 max-w-sm mt-1 leading-relaxed font-['Noto_Sans_JP']">
+                      明日、雨が<span className="font-bold underline decoration-orange-400 underline-offset-4">降ったら</span>、試合は中止です。
                     </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                    <div className="text-xs text-stone-500 dark:text-stone-400">
                       明天要是下雨的话，比赛就中止。
                     </div>
                   </div>
 
-                  <div className="text-[11px] text-slate-400">请在下方选择您的熟练度</div>
+                  <div className="text-[11px] text-stone-400">请在下方选择您的熟练度</div>
                 </div>
               </motion.div>
             </div>
 
-            {/* FSRS 评级按钮 */}
+            {/* FSRS 评级按钮 (暖色系) */}
             {cardFlipped && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
@@ -499,7 +504,7 @@ export function App() {
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => handleReviewRating('GOOD')}
-                  className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800/60 text-indigo-800 dark:text-indigo-300 font-medium text-xs flex flex-col items-center gap-1 transition-all cursor-pointer"
+                  className="p-3 rounded-xl bg-orange-50 dark:bg-orange-950/40 hover:bg-orange-100 dark:hover:bg-orange-900/60 border border-orange-200 dark:border-orange-800/60 text-orange-800 dark:text-orange-300 font-medium text-xs flex flex-col items-center gap-1 transition-all cursor-pointer"
                 >
                   <span className="font-bold">良好</span>
                   <span className="text-[10px] opacity-75">4天后</span>
@@ -516,8 +521,8 @@ export function App() {
               </motion.div>
             )}
 
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              FSRS 记忆稳定性：<span className="font-semibold text-slate-800 dark:text-slate-200">{cardState.stability.toFixed(1)}</span> · 累计复习：{cardState.reps} 次
+            <div className="text-xs text-stone-500 dark:text-stone-400">
+              FSRS 记忆稳定性：<span className="font-semibold text-stone-800 dark:text-stone-200">{cardState.stability.toFixed(1)}</span> · 累计复习：{cardState.reps} 次
             </div>
           </motion.div>
         )}
@@ -532,30 +537,30 @@ export function App() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">待攻克错题清单</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">错题重做连续答对 2 次将自动归档攻克</p>
+                <h2 className="text-lg font-bold text-stone-900 dark:text-stone-100">待攻克错题清单</h2>
+                <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">错题重做连续答对 2 次将自动归档攻克</p>
               </div>
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50">
                 1 题待攻克
               </span>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-xs flex flex-col gap-3.5">
+            <div className="bg-white dark:bg-[#1c1a18] border border-stone-200/80 dark:border-stone-800 rounded-2xl p-6 shadow-xs flex flex-col gap-3.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2.5 py-0.5 rounded border border-rose-200 dark:border-rose-800/40">
                   错因：助词混淆
                 </span>
-                <span className="text-xs text-slate-400">攻克进度：0 / 2</span>
+                <span className="text-xs text-stone-400">攻克进度：0 / 2</span>
               </div>
-              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 font-['Noto_Sans_JP']">
+              <div className="text-lg font-semibold text-stone-900 dark:text-stone-100 font-['Noto_Sans_JP']">
                 図書館（　）本を読みます。
               </div>
-              <div className="text-xs text-slate-600 dark:text-slate-400 flex items-center gap-3">
+              <div className="text-xs text-stone-600 dark:text-stone-400 flex items-center gap-3">
                 <span>你的错误作答：<span className="font-bold text-rose-600">に</span></span>
                 <span>标准答案：<span className="font-bold text-emerald-600 dark:text-emerald-400">で</span></span>
               </div>
-              <div className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-xl border border-slate-200/70 dark:border-slate-700/50 leading-relaxed font-['Noto_Sans_JP']">
-                <span className="font-semibold text-slate-900 dark:text-slate-200">复盘要点：</span>
+              <div className="text-xs text-stone-600 dark:text-stone-400 bg-stone-50 dark:bg-[#24221f] p-3.5 rounded-xl border border-stone-200/70 dark:border-stone-700/50 leading-relaxed font-['Noto_Sans_JP']">
+                <span className="font-semibold text-stone-900 dark:text-stone-200">复盘要点：</span>
                 在图书馆进行“读书”这一动作，强调动作发生的场所，必须使用助词「で」。只有表示存在场所时才使用「に」（如：図書館に本があります）。
               </div>
             </div>
@@ -572,8 +577,8 @@ export function App() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">语言能力与学情画像</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">系统根据近 50 次做题与卡片复习数据动态计算</p>
+                <h2 className="text-lg font-bold text-stone-900 dark:text-stone-100">语言能力与学情画像</h2>
+                <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">系统根据近 50 次做题与卡片复习数据动态计算</p>
               </div>
             </div>
 
@@ -586,16 +591,16 @@ export function App() {
                   <motion.div
                     whileHover={{ y: -2 }}
                     key={metric.id}
-                    className={`p-5 rounded-2xl border transition-all bg-white dark:bg-slate-900 shadow-xs flex flex-col gap-3 ${
+                    className={`p-5 rounded-2xl border transition-all bg-white dark:bg-[#1c1a18] shadow-xs flex flex-col gap-3 ${
                       isStrength
                         ? 'border-emerald-200/80 dark:border-emerald-900/50'
                         : isWeakness
                         ? 'border-rose-200/80 dark:border-rose-900/50'
-                        : 'border-slate-200/80 dark:border-slate-800'
+                        : 'border-stone-200/80 dark:border-stone-800'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      <span className="text-sm font-semibold text-stone-900 dark:text-stone-100">
                         {metric.name}
                       </span>
                       {isStrength && (
@@ -611,13 +616,13 @@ export function App() {
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 mb-1.5">
+                      <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 mb-1.5">
                         <span>掌握度</span>
-                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                        <span className="font-bold text-stone-800 dark:text-stone-200">
                           <NumberTicker value={metric.proficiency * 100} />%
                         </span>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                      <div className="w-full h-2 rounded-full bg-stone-100 dark:bg-stone-800 overflow-hidden">
                         <motion.div
                           initial={{ width: 0 }}
                           animate={{ width: `${metric.proficiency * 100}%` }}
@@ -627,13 +632,13 @@ export function App() {
                               ? 'bg-emerald-500'
                               : isWeakness
                               ? 'bg-rose-500'
-                              : 'bg-indigo-600'
+                              : 'bg-orange-500'
                           }`}
                         />
                       </div>
                     </div>
 
-                    <div className="text-[11px] text-slate-400 dark:text-slate-500 flex justify-between pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                    <div className="text-[11px] text-stone-400 dark:text-stone-500 flex justify-between pt-1 border-t border-stone-100 dark:border-stone-800/60">
                       <span>练习 {metric.totalAttempts} 次</span>
                       <span>连续错误 {metric.consecutiveErrors} 次</span>
                     </div>
