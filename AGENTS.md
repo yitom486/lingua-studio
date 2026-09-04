@@ -81,3 +81,26 @@
     4. 未来动态化改造对接方案（如改写为通过 Gateway 异步查询 SQLite 数据库、调用 AI Agent 实时组卷生成等）。
 - **后续重构依据**：未来所有“由静态转向真实数据驱动”的工程任务，均严格以此清单作为第一事实源进行逐项改造与闭环验证。
 
+---
+
+## 6. 前端现代基建与组件选型铁律 (UI & State Infrastructure Invariants)
+
+### 6.1 杜绝自建简陋玩具轮子 (Zero Hand-Rolled UI Toys)
+- **全面对齐现代成熟组件生态**：禁止在业务组件中手写缺乏无障碍（WAI-ARIA）支持的简陋弹窗、原生丑陋 `<select>` 下拉框或生硬的进度条。
+- **shadcn/ui (Base UI / Radix) 规范化**：
+  - 基础交互组件全面依托 **shadcn/ui** 架构体系（支持并拥抱最新基于 **Base UI** 或 Radix Primitives 的现代化实现）；
+  - 核心控件（`Select`、`Dialog`、`Popover`、`Tabs`、`Slider`、`Tooltip`、`Badge`）统一收归在 `apps/web/src/components/ui/`，具备完善的键盘导航、Focus Trap 与自动防滚动击穿。
+
+### 6.2 Magic UI 增强优先原则 (Magic UI First Principle)
+- **同根同源与交互升维**：Magic UI 与 shadcn 属于同一技术生态与设计哲学（React + Tailwind + Headless Primitives）。
+- **适用场景优先采纳 Magic UI**：凡在涉及学习者仪式感、正向心理反馈（Delight UX）、高质感数据看板与发音纠音视觉呈现的场景，**优先采纳 Magic UI 改造或增强后的组件**（如 `BorderBeam` 流光边框、`BentoGrid` 学情仪表盘、`NumberTicker` 翻牌数字、`AnimatedBeam` 知识图谱连线、`ShimmerButton` 微光按钮等）。
+
+### 6.3 严格区分两类状态架构 (Server State vs Client Persist State)
+- **服务端/网关异步状态 (Server State) 归 TanStack Query**：
+  - 教材课文树、用户学情画像、熟练度指标、错题本查询与自适应做题评测，统一使用 **TanStack Query (`@tanstack/react-query`)** 的 `useQuery` / `useMutation`；
+  - 严格依托 QueryClient 进行缓存控制、后台自动重试与变更失效（`invalidateQueries`），**严禁手写 `useEffect` + `useState(loading)` 自建请求轮子**。
+- **客户端偏好与本地状态 (Client State) 归 Zustand + `persist`**：
+  - TTS 语音参数（男女声、语速、音色、自定义外挂端点）、主题明暗（Light/Dark）、盲听遮罩开关、假名注音开关及 UI 导航状态，统一使用 **Zustand 并启用 `persist` 中间件**；
+  - 彻底杜绝在各个组件中到处分散编写 `localStorage.getItem/setItem` 胶水代码，保证多组件、跨标签页与未来 Tauri 桌面端的响应式自动持久化。
+
+
