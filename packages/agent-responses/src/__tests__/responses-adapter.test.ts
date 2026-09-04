@@ -40,4 +40,18 @@ describe('ResponsesAdapter stub', () => {
     }
     expect(final).toContain('英语');
   });
+
+  it('includes focus and weakness hints from ContextSnapshot', async () => {
+    const { buildLightweightReply } = await import('../index.js');
+    const reply = buildLightweightReply('这个词怎么读？', {
+      targetLanguage: 'ja',
+      learnerLevel: 'N3',
+      focus: { kind: 'CARD', surface: '橋', skillTag: 'jp.pitch' },
+      learnerDigest: {
+        topWeaknesses: [{ skillId: 'jp.particle.ni_vs_de', name: 'に/で', proficiency: 42 }],
+      },
+    });
+    expect(reply).toContain('橋');
+    expect(reply).toContain('に/で');
+  });
 });

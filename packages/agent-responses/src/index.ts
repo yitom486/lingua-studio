@@ -1,1 +1,1 @@
-export { ResponsesAdapter, ResponsesSession } from './responses-adapter.js';
+export { ResponsesAdapter, ResponsesSession, buildLightweightReply } from './responses-adapter.js';

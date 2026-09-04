@@ -12,10 +12,25 @@ describe('selectAgentRoute', () => {
 
   it('routes pitch / particle hints to responses-lite', () => {
     expect(selectAgentRoute({ userPrompt: '「橋」的声调怎么读？' }).route).toBe('responses-lite');
-    expect(selectAgentRoute({ userPrompt: '助词で的读音是什么' }).route).toBe('responses-lite');
+    expect(selectAgentRoute({ userPrompt: '助词で怎么用' }).route).toBe('responses-lite');
     expect(selectAgentRoute({ userPrompt: 'drill', intent: 'DRILL_KANA' }).route).toBe(
       'responses-lite'
     );
+  });
+
+  it('routes short EXPLAIN and track-aware lite hints', () => {
+    expect(
+      selectAgentRoute({ userPrompt: 'に vs で', intent: 'EXPLAIN', targetLanguage: 'ja' }).route
+    ).toBe('responses-lite');
+    expect(
+      selectAgentRoute({
+        userPrompt: 'How do you pronounce thorough?',
+        targetLanguage: 'en',
+      }).route
+    ).toBe('responses-lite');
+    expect(
+      selectAgentRoute({ userPrompt: '에서와 에 차이', targetLanguage: 'ko' }).route
+    ).toBe('responses-lite');
   });
 
   it('routes short factual questions to responses-lite', () => {

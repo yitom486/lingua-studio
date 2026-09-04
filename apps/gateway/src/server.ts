@@ -40,7 +40,7 @@ import {
   normalizeTrackLanguage,
 } from './services/learning-language-policy.js';
 import { selectAgentRoute } from './router/agent-router.js';
-import { tryPitchLexiconCoachReply } from './db/seeds/pitch-seed.js';
+import { resolveResponsesLiteCoach } from './services/responses-lite-coach.js';
 
 
 export class GatewayServer {
@@ -626,12 +626,12 @@ export class GatewayServer {
             });
 
             if (decision.route === 'responses-lite') {
-              // 日语声调/读音：优先走本地课程词表，再回落 stub
-              if (track === 'ja') {
-                const lexiconReply = tryPitchLexiconCoachReply(userPrompt);
-                if (lexiconReply) {
-                  reply = lexiconReply;
-                }
+              const coach = resolveResponsesLiteCoach({
+                prompt: userPrompt,
+                track,
+              });
+              if (coach) {
+                reply = coach.reply;
               }
 
               if (!reply) {
