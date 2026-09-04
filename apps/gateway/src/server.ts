@@ -3,6 +3,7 @@ import { ContextBuilder } from './context/context-builder.js';
 import { ToolRouter } from './router/tool-router.js';
 import { ToolRegistry } from '@study-studio/tool-core';
 import { CodexAdapter } from '@study-studio/agent-codex';
+import { ResponsesAdapter } from '@study-studio/agent-responses';
 import {
   type WsEnvelope,
   WsEventTypes,
@@ -38,6 +39,8 @@ export class GatewayServer {
   public readonly toolRegistry = new ToolRegistry();
   public readonly toolRouter = new ToolRouter(this.toolRegistry);
   public readonly agentAdapter = new CodexAdapter();
+  /** 轻量旁路骨架：未接入路由前勿当默认学习闭环依赖 */
+  public readonly responsesAdapter = new ResponsesAdapter();
   public readonly learnerRepo: LearnerRepository;
   private readonly activeStreamControllers = new Map<string, AbortController>();
 

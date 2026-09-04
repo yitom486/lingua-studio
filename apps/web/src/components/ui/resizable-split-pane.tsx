@@ -10,11 +10,13 @@ export interface ResizableSplitPaneProps {
   minRatio?: number;
   maxRatio?: number;
   className?: string;
+  /** 工作台挂载时允许全局 [ / ]（输入框内除外） */
+  enableBracketShortcuts?: boolean;
 }
 
 /**
  * 左右可拖拽分栏（阅读：文章 | 题目）。
- * 键盘：聚焦分隔条后 ArrowLeft / ArrowRight 微调；Home / End 到边界。
+ * 键盘：聚焦分隔条后 ArrowLeft/Right、[ / ] 微调；Home / End 到边界。
  * md 以下改为上下堆叠，分隔条隐藏。
  */
 export function ResizableSplitPane({
@@ -25,6 +27,8 @@ export function ResizableSplitPane({
   minRatio = 0.28,
   maxRatio = 0.72,
   className,
+  /** 工作台挂载时允许全局 [ / ]（输入框内除外） */
+  enableBracketShortcuts = false,
 }: ResizableSplitPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -33,6 +37,13 @@ export function ResizableSplitPane({
   const clamp = useCallback(
     (value: number) => Math.min(maxRatio, Math.max(minRatio, value)),
     [minRatio, maxRatio]
+  );
+
+  const nudge = useCallback(
+    (delta: number) => {
+      onRatioChange(clamp(ratio + delta));
+    },
+    [clamp, onRatioChange, ratio]
   );
 
   const updateFromClientX = useCallback(
@@ -71,12 +82,12 @@ export function ResizableSplitPane({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? 0.05 : 0.02;
-    if (e.key === 'ArrowLeft') {
+    if (e.key === 'ArrowLeft' || e.key === '[') {
       e.preventDefault();
-      onRatioChange(clamp(ratio - step));
-    } else if (e.key === 'ArrowRight') {
+      nudge(-step);
+    } else if (e.key === 'ArrowRight' || e.key === ']') {
       e.preventDefault();
-      onRatioChange(clamp(ratio + step));
+      nudge(step);
     } else if (e.key === 'Home') {
       e.preventDefault();
       onRatioChange(minRatio);
@@ -85,6 +96,30 @@ export function ResizableSplitPane({
       onRatioChange(maxRatio);
     }
   };
+
+  React.useEffect(() => {
+    if (!enableBracketShortcuts) return;
+    const onWindowKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = t.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable) {
+          return;
+        }
+      }
+      const step = e.shiftKey ? 0.05 : 0.02;
+      if (e.key === '[') {
+        e.preventDefault();
+        nudge(-step);
+      } else if (e.key === ']') {
+        e.preventDefault();
+        nudge(step);
+      }
+    };
+    window.addEventListener('keydown', onWindowKey);
+    return () => window.removeEventListener('keydown', onWindowKey);
+  }, [enableBracketShortcuts, nudge]);
 
   const leftPct = `${(ratio * 100).toFixed(2)}%`;
 
@@ -114,7 +149,7 @@ export function ResizableSplitPane({
           aria-valuenow={Math.round(ratio * 100)}
           aria-valuemin={Math.round(minRatio * 100)}
           aria-valuemax={Math.round(maxRatio * 100)}
-          aria-label="调整文章与题目区域宽度，可用左右方向键微调"
+          aria-label="调整文章与题目区域宽度，可用 [ ] 或左右方向键微调"
           tabIndex={0}
           onKeyDown={onKeyDown}
           onPointerDown={onPointerDown}

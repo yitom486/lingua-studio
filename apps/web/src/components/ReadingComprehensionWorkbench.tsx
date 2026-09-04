@@ -45,6 +45,7 @@ import {
   useSubmitReadingPracticeMutation,
   useAddAnnotationMutation,
   useAddCardsMutation,
+  useNewsTopicsQuery,
 } from '../queries/useLearnerQueries.js';
 import type { ReadingPassageSet } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
@@ -67,6 +68,7 @@ export function ReadingComprehensionWorkbench({
   const [newsTopic, setNewsTopic] = useState('technology');
 
   // TanStack Query 服务端状态对接
+  const { data: newsTopics = NEWS_TOPIC_OPTIONS } = useNewsTopicsQuery();
   const { data: dbReadingSets = [], isLoading: isSetsLoading } = useReadingSetsQuery(
     origin,
     langFilter === 'ALL' ? undefined : langFilter
@@ -682,7 +684,7 @@ export function ReadingComprehensionWorkbench({
                 <SelectValue placeholder="栏目" />
               </SelectTrigger>
               <SelectContent>
-                {NEWS_TOPIC_OPTIONS.map((t) => (
+                {newsTopics.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     {t.label}
                   </SelectItem>
@@ -713,6 +715,12 @@ export function ReadingComprehensionWorkbench({
         </div>
       </div>
 
+      <p className="text-[11px] text-stone-400 hidden md:block px-1">
+        拖拽中间分隔条，或按 <kbd className="px-1 rounded bg-stone-200/80 dark:bg-stone-800 font-mono">[</kbd>
+        {' / '}
+        <kbd className="px-1 rounded bg-stone-200/80 dark:bg-stone-800 font-mono">]</kbd>
+        微调双栏宽度（Shift 加大步进；偏好已本地持久化）。
+      </p>
       <p className="text-[11px] text-stone-400 md:hidden px-1">
         手机端为上下布局；桌面端可拖拽中间分隔条调整宽度（分栏偏好已自动本地持久化）。
       </p>
@@ -721,6 +729,7 @@ export function ReadingComprehensionWorkbench({
       <ResizableSplitPane
         ratio={splitRatio}
         onRatioChange={setReadingSplitRatio}
+        enableBracketShortcuts
         left={passagePanel}
         right={questionPanel}
       />

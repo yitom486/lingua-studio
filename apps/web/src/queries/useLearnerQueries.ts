@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { SkillMetric } from '@study-studio/learner-core';
-import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
-import { apiClient } from '../lib/api-client.js';
+import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
 import {
   type MistakeNotebookItem,
@@ -19,6 +19,8 @@ export const QUERY_KEYS = {
   ANNOTATIONS: ['learner', 'annotations'] as const,
   KANA: ['curriculum', 'kana'] as const,
   READING: ['learner', 'reading'] as const,
+  NEWS_TOPICS: ['learner', 'newsTopics'] as const,
+  PITCH: ['curriculum', 'pitch'] as const,
   PROFILE: ['learner', 'profile'] as const,
   MISTAKES: ['learner', 'mistakes'] as const,
   QUESTIONS: ['learner', 'questions'] as const,
@@ -700,6 +702,70 @@ export function useReadingSetsQuery(
       return [];
     },
     staleTime: 1000 * 60 * 5, // 5 分钟缓存
+  });
+}
+
+/** 新闻栏目 SSOT（Gateway / protocol） */
+export function useNewsTopicsQuery() {
+  return useQuery<NewsTopic[]>({
+    queryKey: QUERY_KEYS.NEWS_TOPICS,
+    queryFn: async () => {
+      try {
+        const res = await (apiClient.api.reading as any)['news-topics'].$get();
+        if (res.ok) {
+          const topics = await res.json();
+          if (Array.isArray(topics) && topics.length > 0) return topics as NewsTopic[];
+        }
+      } catch (e) {
+        console.warn('[useNewsTopicsQuery] fallback to protocol NEWS_TOPICS', e);
+      }
+      const { NEWS_TOPICS } = await import('@study-studio/protocol');
+      return [...NEWS_TOPICS];
+    },
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
+export type PitchLexiconItem = {
+  id: string;
+  kanji: string;
+  kana: string;
+  romaji: string;
+  meaning: string;
+  pitchType: string;
+  pitchPattern: Array<'L' | 'H'>;
+  moraList: string[];
+  contrastPair?: {
+    kanji: string;
+    kana: string;
+    pitchType: string;
+    pitchPattern: Array<'L' | 'H'>;
+    meaning: string;
+  };
+  tip: string;
+};
+
+/** 声调基准词表（Gateway curriculum，非 OJAD） */
+export function usePitchLexiconQuery(search = '') {
+  return useQuery<PitchLexiconItem[]>({
+    queryKey: [...QUERY_KEYS.PITCH, search],
+    queryFn: async () => {
+      try {
+        const qs = search ? `?q=${encodeURIComponent(search)}` : '';
+        const res = await fetch(`${GATEWAY_BASE_URL}/api/curriculum/pitch${qs}`);
+        if (res.ok) {
+          const data = (await res.json()) as { pitchEntries?: PitchLexiconItem[] };
+          if (Array.isArray(data.pitchEntries) && data.pitchEntries.length > 0) {
+            return data.pitchEntries;
+          }
+        }
+      } catch (e) {
+        console.warn('[usePitchLexiconQuery] fallback to local demo lexicon', e);
+      }
+      const { BENCHMARK_PITCH_WORDS } = await import('../data/pitch-accent-demo-data.js');
+      return BENCHMARK_PITCH_WORDS as PitchLexiconItem[];
+    },
+    staleTime: 1000 * 60 * 10,
   });
 }
 

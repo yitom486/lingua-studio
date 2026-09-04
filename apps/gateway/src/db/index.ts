@@ -169,6 +169,7 @@ export function initSchema(sqlite: Database): void {
       note TEXT,
       start_offset INTEGER NOT NULL DEFAULT 0,
       end_offset INTEGER NOT NULL DEFAULT 0,
+      page_number INTEGER,
       created_by TEXT NOT NULL DEFAULT 'USER',
       flashcard_id TEXT,
       created_at TEXT NOT NULL
@@ -236,6 +237,13 @@ export function initSchema(sqlite: Database): void {
     CREATE INDEX IF NOT EXISTS idx_practice_items_collection ON practice_items(collection_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_practice_items_user ON practice_items(user_id, collected_at);
   `);
+
+    // 增量列：已有库补 PDF 页码锚点
+    try {
+      sqlite.exec('ALTER TABLE annotations ADD COLUMN page_number INTEGER');
+    } catch {
+      /* column already exists */
+    }
 
     // 1. 自动填充五十音权威种子数据（若空）
     try {

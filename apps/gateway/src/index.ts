@@ -8,6 +8,7 @@ import {
   type WsEnvelope,
   type LearnerProfile,
   WsEventTypes,
+  listNewsTopics,
 } from '@study-studio/protocol';
 import { isOk, generateId, BusinessError } from '@study-studio/shared';
 import { formatBusinessErrorResponse } from './errors/http-error-handler.js';
@@ -318,6 +319,7 @@ export const app = new Hono()
           note: body.note ? String(body.note) : undefined,
           startOffset: Number(body.startOffset || 0),
           endOffset: Number(body.endOffset || 0),
+          pageNumber: body.pageNumber ? Number(body.pageNumber) : undefined,
           createdBy: body.createdBy || 'USER',
           flashcardId: body.flashcardId,
           createdAt: body.createdAt || new Date().toISOString(),
@@ -403,6 +405,26 @@ export const app = new Hono()
       return formatBusinessErrorResponse(c, res.error);
     }
   )
+  .get('/api/reading/news-topics', (c) => c.json(listNewsTopics()))
+  .get('/api/curriculum/pitch', async (c) => {
+    const q = c.req.query('q') || '';
+    const tool = gatewayServer.toolRegistry.get('learning.curriculum');
+    if (!tool) {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_TOOL_MISSING', 'learning.curriculum 未注册', 'TOOL_EXECUTION')
+      );
+    }
+    const res = await tool.execute(
+      {
+        action: q ? 'lookup_pitch' : 'list_pitch_benchmarks',
+        filters: q ? { query: q } : undefined,
+      },
+      { userId: 'system', sessionId: 'http_pitch' }
+    );
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
   .post(
     '/api/reading/generate/:userId',
     validator('json', (value) => value as Record<string, unknown>),
@@ -425,8 +447,8 @@ export const app = new Hono()
 
         if (origin === 'news') {
           sourceLabel = isJa
-            ? `合规真实精选 · ${topic} 领域最新动态`
-            : `Verified News Feed · ${topic} Weekly Digest`;
+            ? `合规模板稿 · ${topic}（非实时 RSS；栏目 SSOT 见 /api/reading/news-topics）`
+            : `Curated template · ${topic} (not live RSS; see /api/reading/news-topics)`;
           title = isJa
             ? `【快讯】关于${topic}领域的最新发展与社会影响`
             : `Latest Developments and Industry Trends in ${topic}`;

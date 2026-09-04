@@ -143,6 +143,8 @@ export const annotations = sqliteTable('annotations', {
   note: text('note'),
   startOffset: integer('start_offset').notNull().default(0),
   endOffset: integer('end_offset').notNull().default(0),
+  /** PDF 页码（1-based），纯文本批注可空 */
+  pageNumber: integer('page_number'),
   createdBy: text('created_by').notNull().default('USER'), // 'USER' | 'AGENT'
   flashcardId: text('flashcard_id'),
   createdAt: text('created_at').notNull(),

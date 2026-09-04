@@ -19,9 +19,12 @@ import { Progress } from './ui/progress.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
-import { BENCHMARK_PITCH_WORDS } from '../data/pitch-accent-demo-data.js';
+import { BENCHMARK_PITCH_WORDS, type PitchWord } from '../data/pitch-accent-demo-data.js';
+import { usePitchLexiconQuery } from '../queries/useLearnerQueries.js';
 
 export function PitchAccentCoach() {
+  const { data: lexicon = BENCHMARK_PITCH_WORDS } = usePitchLexiconQuery();
+  const words = (lexicon.length > 0 ? lexicon : BENCHMARK_PITCH_WORDS) as PitchWord[];
   const [selectedWordIndex, setSelectedWordIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingProgress, setRecordingProgress] = useState(0);
@@ -37,7 +40,8 @@ export function PitchAccentCoach() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
 
-  const currentWord = BENCHMARK_PITCH_WORDS[selectedWordIndex] ?? BENCHMARK_PITCH_WORDS[0]!;
+  const safeIndex = Math.min(selectedWordIndex, Math.max(words.length - 1, 0));
+  const currentWord = words[safeIndex] ?? words[0]!;
 
   // 播放标准音调模拟（双音纯音演示高低调）
   const playStandardPitch = (pattern: ('L' | 'H')[], moras: string[]) => {
@@ -216,7 +220,7 @@ export function PitchAccentCoach() {
           >
             <TabsList className="bg-stone-200/60 dark:bg-stone-900 flex-wrap h-auto">
               <TabsIndicator />
-              {BENCHMARK_PITCH_WORDS.map((item, idx) => (
+              {words.map((item, idx) => (
                 <TabsTrigger key={item.id} value={String(idx)} className="px-3 py-1.5 text-xs">
                   {item.kanji} ({item.kana})
                 </TabsTrigger>

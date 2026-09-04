@@ -2,6 +2,8 @@
  * 阅读理解工作室演示数据（AI 生成篇 / 模拟新闻篇 + 配题）
  * 登记：.studio-internal/STATIC-DATA-INVENTORY.md
  */
+import type { NewsTopic } from '@study-studio/protocol';
+import { NEWS_TOPICS } from '@study-studio/protocol';
 
 export type PassageOrigin = 'ai' | 'news';
 
@@ -134,10 +136,5 @@ Advocates argue the model could expand to weekend mornings. Critics want clearer
   },
 ];
 
-export const NEWS_TOPIC_OPTIONS = [
-  { id: 'technology', label: '科技 Tech' },
-  { id: 'world', label: '国际 World' },
-  { id: 'culture', label: '文化 Culture' },
-  { id: 'business', label: '商业 Business' },
-  { id: 'exam_prep', label: '应试 Exam' },
-] as const;
+/** 离线兜底；运行时优先 useNewsTopicsQuery */
+export const NEWS_TOPIC_OPTIONS: readonly NewsTopic[] = NEWS_TOPICS;

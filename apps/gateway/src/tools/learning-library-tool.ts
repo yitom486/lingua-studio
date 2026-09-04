@@ -6,7 +6,8 @@ import {
   ToolLocations,
 } from '@study-studio/tool-core';
 import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared';
-import type { DocumentItem, AnnotationItem } from '@study-studio/protocol';
+import type { DocumentItem, AnnotationItem, NewsTopic } from '@study-studio/protocol';
+import { listNewsTopics } from '@study-studio/protocol';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
 
 export const LearningLibraryInputSchema = z.object({
@@ -33,7 +34,7 @@ export class LearningLibraryTool
         documents?: DocumentItem[];
         slice?: string;
         annotations?: AnnotationItem[];
-        topics?: string[];
+        topics?: NewsTopic[];
       }
     >
 {
@@ -56,7 +57,7 @@ export class LearningLibraryTool
         documents?: DocumentItem[];
         slice?: string;
         annotations?: AnnotationItem[];
-        topics?: string[];
+        topics?: NewsTopic[];
       },
       BusinessError
     >
@@ -91,14 +92,14 @@ export class LearningLibraryTool
         if (!input.documentId) {
           return err(new BusinessError('E_INVALID_INPUT', '需要 documentId', 'VALIDATION'));
         }
-        const res = await this.learnerRepo.listAnnotations(context.userId, input.documentId);
+        const res = await this.learnerRepo.listAnnotations(input.documentId, context.userId);
         if (!isOk(res)) return res;
         return ok({ action: input.action, annotations: res.value });
       }
       case 'list_news_topics':
         return ok({
           action: input.action,
-          topics: ['world', 'tech', 'business', 'culture', 'sports', 'exam_prep'],
+          topics: listNewsTopics(),
         });
       default:
         return err(new BusinessError('E_INVALID_INPUT', '未知 library action', 'VALIDATION'));

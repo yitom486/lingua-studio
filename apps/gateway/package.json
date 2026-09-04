@@ -5,6 +5,7 @@
   "main": "./src/index.ts",
   "dependencies": {
     "@study-studio/agent-codex": "workspace:*",
+    "@study-studio/agent-responses": "workspace:*",
     "@study-studio/agent-core": "workspace:*",
     "@study-studio/learner-core": "workspace:*",
     "@study-studio/protocol": "workspace:*",

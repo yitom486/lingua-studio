@@ -44,6 +44,8 @@ export const AnnotationItemSchema = z.object({
   note: z.string().optional(),
   startOffset: z.number().int().default(0),
   endOffset: z.number().int().default(0),
+  /** PDF 等分页文档的页码锚点（1-based）；纯文本可缺省 */
+  pageNumber: z.number().int().positive().optional(),
   createdBy: z.enum(['USER', 'AGENT']).default('USER'),
   flashcardId: z.string().optional(),
   createdAt: z.string(),
@@ -57,6 +59,7 @@ export const CreateAnnotationInputSchema = z.object({
   note: z.string().optional(),
   startOffset: z.number().int().default(0),
   endOffset: z.number().int().default(0),
+  pageNumber: z.number().int().positive().optional(),
   createdBy: z.enum(['USER', 'AGENT']).default('USER'),
 });
 export type CreateAnnotationInput = z.infer<typeof CreateAnnotationInputSchema>;

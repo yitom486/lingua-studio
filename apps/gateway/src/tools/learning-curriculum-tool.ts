@@ -8,9 +8,15 @@ import {
 import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared';
 import type { KanaItem } from '@study-studio/protocol';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { lookupPitchEntries, PITCH_LEXICON, type PitchLexiconEntry } from '../db/seeds/pitch-seed.js';
 
 export const LearningCurriculumInputSchema = z.object({
-  action: z.enum(['get_kana_chart', 'search_entry']),
+  action: z.enum([
+    'get_kana_chart',
+    'search_entry',
+    'list_pitch_benchmarks',
+    'lookup_pitch',
+  ]),
   filters: z
     .object({
       type: z.string().optional(),
@@ -25,12 +31,17 @@ export class LearningCurriculumTool
   implements
     ToolDefinition<
       LearningCurriculumInput,
-      { action: string; kana?: KanaItem[]; matched?: KanaItem[] }
+      {
+        action: string;
+        kana?: KanaItem[];
+        matched?: KanaItem[];
+        pitchEntries?: PitchLexiconEntry[];
+      }
     >
 {
   public readonly name = 'learning.curriculum';
   public readonly description =
-    '只读课程资产：五十音表、假名检索。禁止由模型编造假名表。';
+    '只读课程资产：五十音表、假名检索、声调基准词表。禁止由模型编造假名/声调。';
   public readonly location = ToolLocations.SERVER;
   public readonly permission = ToolPermissions.READ;
   public readonly schema = LearningCurriculumInputSchema;
@@ -41,7 +52,15 @@ export class LearningCurriculumTool
     input: LearningCurriculumInput,
     _context: ToolExecutionContext
   ): Promise<
-    Result<{ action: string; kana?: KanaItem[]; matched?: KanaItem[] }, BusinessError>
+    Result<
+      {
+        action: string;
+        kana?: KanaItem[];
+        matched?: KanaItem[];
+        pitchEntries?: PitchLexiconEntry[];
+      },
+      BusinessError
+    >
   > {
     if (input.action === 'get_kana_chart') {
       const res = await this.learnerRepo.getCurriculumKana(input.filters?.type);
@@ -62,6 +81,15 @@ export class LearningCurriculumTool
           )
         : res.value.slice(0, 20);
       return ok({ action: input.action, matched });
+    }
+
+    if (input.action === 'list_pitch_benchmarks') {
+      return ok({ action: input.action, pitchEntries: [...PITCH_LEXICON] });
+    }
+
+    if (input.action === 'lookup_pitch') {
+      const q = input.filters?.query || '';
+      return ok({ action: input.action, pitchEntries: lookupPitchEntries(q) });
     }
 
     return err(new BusinessError('E_INVALID_INPUT', '未知 curriculum action', 'VALIDATION'));

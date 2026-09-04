@@ -48,6 +48,21 @@ describe('learning control tools (C1–C3 / D)', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.topics?.length).toBeGreaterThan(0);
+      expect(res.value.topics?.[0]).toHaveProperty('id');
+      expect(res.value.topics?.[0]).toHaveProperty('label');
+    }
+  });
+
+  it('learning.curriculum lists pitch lexicon without OJAD', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const tool = new LearningCurriculumTool(repo);
+    const res = await tool.execute(
+      { action: 'list_pitch_benchmarks' },
+      { userId: 'u_test', sessionId: 's1' }
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.pitchEntries?.length).toBeGreaterThan(0);
     }
   });
 
