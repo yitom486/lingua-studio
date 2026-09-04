@@ -1,7 +1,43 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+@keyframes shine {
+  0% {
+    left: -100%;
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    left: 200%;
+    opacity: 0;
+  }
+}
+
+.animate-shine {
+  animation: shine 1.6s ease-in-out infinite;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-style-3d {
+  transform-style: preserve-3d;
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
 @layer base {
   body {
-    font-family: 'Inter', 'Noto Sans JP', sans-serif;
+    font-family: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 }

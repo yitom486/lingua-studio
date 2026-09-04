@@ -9,21 +9,24 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@study-studio/shared": "workspace:*",
-    "@study-studio/protocol": "workspace:*",
     "@study-studio/learner-core": "workspace:*",
+    "@study-studio/protocol": "workspace:*",
+    "@study-studio/shared": "workspace:*",
+    "canvas-confetti": "^1.9.4",
+    "clsx": "^2.1.1",
+    "framer-motion": "^13.2.0",
+    "lucide-react": "^0.475.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "lucide-react": "^0.475.0",
-    "clsx": "^2.1.1",
     "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.1.0",
     "tailwindcss": "^4.0.6",
-    "@tailwindcss/vite": "^4.0.6"
+    "vite": "^6.1.0"
   }
 }
