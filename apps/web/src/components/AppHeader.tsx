@@ -2,21 +2,17 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import {
   GraduationCap,
-  Command,
-  Flame,
+  Search,
+  Sparkles,
   Moon,
   Sun,
   PanelLeft,
 } from 'lucide-react';
-import { NumberTicker } from './magicui/index.js';
-import { VoiceSettingsPopover } from './VoiceSettingsPopover.js';
 import { Button } from './ui/button.js';
-import { Badge } from './ui/badge.js';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
-import { useUserProfileStore } from '../stores/useUserProfileStore.js';
-import { DailyTaskProgressBar } from './DailyTaskProgressBar.js';
+import { SystemSettingsPopover } from './SystemSettingsPopover.js';
 import { UserProfileModal } from './UserProfileModal.js';
 
 interface AppHeaderProps {
@@ -31,17 +27,18 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
   const theme = usePreferencesStore((s) => s.theme);
   const toggleTheme = usePreferencesStore((s) => s.toggleTheme);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
-  const profile = useUserProfileStore((s) => s.profile);
-  const setOpenProfile = useUserProfileStore((s) => s.setProfileModalOpen);
+  const openTutor = useStudySessionStore((s) => s.openTutor);
+  const activeTab = useStudySessionStore((s) => s.activeTab);
 
   return (
     <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
-      <div className="px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+      <div className="px-4 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-3">
+        {/* 左侧：移动端汉堡菜单 + 品牌标志 + 网关微指示灯 */}
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
           <Button
             variant="outline"
             size="icon"
-            className="md:hidden shrink-0"
+            className="md:hidden shrink-0 h-8 w-8"
             aria-label="打开导航"
             onClick={() => {
               sound.playClick();
@@ -50,122 +47,119 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
           >
             <PanelLeft className="w-4 h-4" />
           </Button>
-          <motion.div
-            whileHover={{ scale: 1.05, rotate: 2 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => sound.playClick()}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold flex items-center justify-center shadow-sm cursor-pointer shrink-0"
-          >
-            <GraduationCap className="w-5 h-5 text-stone-950" />
-          </motion.div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-base sm:text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif truncate">
-                Study Studio
-              </span>
-              <Badge variant="amber" className="hidden sm:inline-flex text-[11px] font-semibold border-amber-500/30">
-                多语种自适应架构 · 日英双通
-              </Badge>
-            </div>
-            <p className="text-xs text-stone-500 dark:text-stone-400 hidden sm:block">
-              自适应外语自学与靶向攻坚工作台
-            </p>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <motion.div
+              whileHover={{ scale: 1.05, rotate: 2 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => sound.playClick()}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold flex items-center justify-center shadow-xs cursor-pointer shrink-0"
+            >
+              <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-stone-950" />
+            </motion.div>
+
+            <span className="font-bold text-base sm:text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif truncate">
+              Study Studio
+            </span>
+
+            {/* 极简网关连通状态指示灯 */}
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 transition-colors ${
+                gateway.isConnected
+                  ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
+                  : 'bg-amber-400'
+              }`}
+              title={
+                gateway.isConnected
+                  ? `网关已联通${gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}`
+                  : '离线模式'
+              }
+            />
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* 网关实时联通状态指示 */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium transition-colors border border-amber-900/10 dark:border-amber-500/15 bg-stone-100/70 dark:bg-stone-900/60">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                gateway.isConnected ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-amber-400'
-              }`}
-            />
-            <span className="hidden sm:inline text-stone-600 dark:text-stone-300">
-              {gateway.isConnected
-                ? `网关联通${gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}`
-                : '离线模式'}
-            </span>
-          </div>
-
-          {/* TTS 音色切换浮动面板 */}
-          <VoiceSettingsPopover currentLanguage="JA" />
-
-          {/* 快捷指令按钮 (Cmd+K) */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsCommandOpen(true)}
-            className="gap-2"
-          >
-            <Command className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            <span className="hidden sm:inline">快捷指令</span>
-            <kbd className="text-[10px] font-mono px-1 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-500">
-              ⌘K
-            </kbd>
-          </Button>
-
-          {/* 实时打卡进度与超额连刷微胶囊 */}
-          <DailyTaskProgressBar />
-
-          {/* 用户画像与目标设置入口 */}
+        {/* 中间：居中全局快捷搜索与指令栏 (桌面端主要导航入口) */}
+        <div className="hidden sm:flex flex-1 max-w-sm mx-4 justify-center">
           <button
             type="button"
             onClick={() => {
               sound.playClick();
-              setOpenProfile(true);
+              setIsCommandOpen(true);
             }}
-            title="点击配置学习者画像与每日目标"
-            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border border-amber-900/15 dark:border-amber-500/20 bg-stone-100/80 dark:bg-stone-900/70 hover:border-amber-500/50 transition-all cursor-pointer shadow-xs"
+            className="w-full flex items-center justify-between gap-3 px-3 py-1.5 rounded-xl border border-stone-200/90 dark:border-stone-800/90 bg-stone-100/70 dark:bg-stone-900/60 hover:bg-stone-100 dark:hover:bg-stone-900 hover:border-amber-500/40 text-stone-500 dark:text-stone-400 text-xs transition-all shadow-2xs cursor-pointer group"
           >
-            <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 flex items-center justify-center text-[10px] font-bold text-stone-950 shrink-0">
-              {profile.displayName.slice(0, 1) || '学'}
+            <div className="flex items-center gap-2 truncate">
+              <Search className="w-3.5 h-3.5 text-stone-400 group-hover:text-amber-500 transition-colors shrink-0" />
+              <span className="truncate">搜索题库、课文、指令...</span>
             </div>
-            <span className="font-semibold text-stone-800 dark:text-stone-200 max-w-[80px] truncate">
-              {profile.displayName}
-            </span>
-            <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-500/30 text-amber-600 dark:text-amber-400">
-              {profile.studyGoal.replace('JLPT_', '')}
-            </Badge>
+            <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 text-stone-500 dark:text-stone-400 shadow-2xs shrink-0">
+              ⌘K
+            </kbd>
           </button>
+        </div>
 
-          {/* 连续打卡天数指示徽章 (动态数据驱动) */}
-          <Badge
-            variant="amber"
+        {/* 右侧：精简高价值工具集（移动端快捷搜索、AI助教快速唤起、控制中心设置、主题切换） */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* 移动端快捷搜索图标 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sm:hidden h-8 w-8 text-stone-600 dark:text-stone-300"
+            aria-label="快捷搜索"
             onClick={() => {
               sound.playClick();
-              setOpenProfile(true);
+              setIsCommandOpen(true);
             }}
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-amber-500/25 cursor-pointer hover:border-amber-500/50 transition-all"
           >
-            <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
-            <span>连续打卡 <NumberTicker value={profile.streakDays} className="inline-block font-mono font-bold" /> 天</span>
-          </Badge>
+            <Search className="w-4 h-4" />
+          </Button>
 
-          <div className="h-5 w-px bg-stone-200 dark:bg-stone-800 hidden sm:block" />
-
-          {/* 明暗模式切换 */}
+          {/* AI 助教快速唤起按钮 */}
           <Button
             variant="outline"
             size="sm"
-            onClick={toggleTheme}
+            onClick={() => {
+              sound.playClick();
+              openTutor({
+                questionText: '自由互动学习与答疑',
+                correctAnswer: '开放式交流',
+                skillTag: 'jp.general.consultation',
+                explanation: '随时向 AI 助教提问关于语法辨析、例句造句、阅读理解或备考建议。',
+              });
+            }}
+            className="gap-1.5 border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/15 text-amber-900 dark:text-amber-200 font-medium h-8 sm:h-9 px-2.5 sm:px-3 text-xs"
+            title="唤起 AI 交互助教"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span className="hidden sm:inline">AI 助教</span>
+          </Button>
+
+          {/* 偏好与系统控制中心收纳面板 (集成 Edge-TTS 音色、网关状态、画像入口) */}
+          <SystemSettingsPopover gateway={gateway} />
+
+          {/* 明暗模式主题切换 */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              sound.playClick();
+              toggleTheme();
+            }}
             aria-label="切换明暗主题"
+            className="h-8 w-8 sm:h-9 sm:w-9 text-stone-600 dark:text-stone-300 hover:text-amber-600 dark:hover:text-amber-400"
+            title={theme === 'light' ? '切换到深色模式' : '切换到暖亮模式'}
           >
             {theme === 'light' ? (
-              <div className="flex items-center gap-1.5 text-xs font-medium">
-                <Moon className="w-4 h-4 text-amber-600" />
-                <span className="hidden md:inline">深色</span>
-              </div>
+              <Moon className="w-4 h-4 text-amber-600" />
             ) : (
-              <div className="flex items-center gap-1.5 text-xs font-medium">
-                <Sun className="w-4 h-4 text-amber-400" />
-                <span className="hidden md:inline">暖亮</span>
-              </div>
+              <Sun className="w-4 h-4 text-amber-400" />
             )}
           </Button>
         </div>
       </div>
+
       <UserProfileModal />
     </header>
   );
 }
+
