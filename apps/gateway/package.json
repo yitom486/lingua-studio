@@ -12,6 +12,7 @@
     "@study-studio/tool-core": "workspace:*"
   },
   "scripts": {
+    "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "test": "bun test"
   }

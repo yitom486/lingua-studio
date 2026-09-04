@@ -18,7 +18,7 @@ export interface SkillMetric {
   correctAttempts: number;
   consecutiveErrors: number;
   status: SkillStatus;
-  lastPracticedAt?: string;
+  lastPracticedAt?: string | undefined;
 }
 
 export interface LearnerProfileSnapshot {

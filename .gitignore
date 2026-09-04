@@ -18,6 +18,8 @@ out/
 .env.local
 .env.*.local
 *.pem
+*.db*
+*.sqlite*
 
 # Logs
 npm-debug.log*

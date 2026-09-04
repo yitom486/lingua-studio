@@ -9,7 +9,7 @@ export interface MistakeEntry {
   lastUserSubmission: string;
   lastGrading: QuizGradingResult;
   recordedAt: string;
-  lastRetriedAt?: string;
+  lastRetriedAt?: string | undefined;
   retryCount: number;
   consecutiveCorrect: number;
   isResolved: boolean;

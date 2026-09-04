@@ -14,7 +14,14 @@ import {
   BusinessError,
   generateId,
   isOk,
+  nowIso,
 } from '@study-studio/shared';
+import {
+  type LearnerRepository,
+  createMistakeEntry,
+  scheduleNextReview,
+} from '@study-studio/learner-core';
+import { SqliteLearnerRepository } from './repository/sqlite-learner-repository.js';
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -22,6 +29,11 @@ export class GatewayServer {
   public readonly toolRegistry = new ToolRegistry();
   public readonly toolRouter = new ToolRouter(this.toolRegistry);
   public readonly agentAdapter = new CodexAdapter();
+  public readonly learnerRepo: LearnerRepository;
+
+  constructor(learnerRepo?: LearnerRepository) {
+    this.learnerRepo = learnerRepo ?? new SqliteLearnerRepository(':memory:');
+  }
 
   /**
    * 处理客户端接入的 WebSocket 消息信封
@@ -45,12 +57,16 @@ export class GatewayServer {
           return err(sessionRes.error);
         }
 
+        // 获取该学习者的最新画像快照
+        const snapshotRes = await this.learnerRepo.getProfileSnapshot(payload.userId);
+        const snapshot = isOk(snapshotRes) ? snapshotRes.value : undefined;
+
         return ok({
           version: '1.0',
           id: generateId('msg'),
           sessionId: sessionRes.value.id,
           type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: { status: 'INITIALIZED', session: sessionRes.value },
+          payload: { status: 'INITIALIZED', session: sessionRes.value, profile: snapshot },
           timestamp: Date.now(),
         });
       }
@@ -62,6 +78,110 @@ export class GatewayServer {
           sessionId: envelope.sessionId,
           type: WsEventTypes.GATEWAY_PONG,
           payload: { serverTimestamp: Date.now() },
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_QUIZ_SUBMIT: {
+        const payload = envelope.payload as {
+          userId: string;
+          questionId: string;
+          userAnswer: string;
+          isCorrect: boolean;
+          score: number;
+          timeSpentMs: number;
+          testedSkillId: string;
+          questionContent?: string;
+          correctAnswer?: string;
+          explanation?: string;
+        };
+
+        // 1. 持久化单次做题记录
+        await this.learnerRepo.recordQuizAttempt({
+          id: generateId('att'),
+          userId: payload.userId,
+          questionId: payload.questionId,
+          userAnswer: payload.userAnswer,
+          isCorrect: payload.isCorrect,
+          score: payload.score,
+          timeSpentMs: payload.timeSpentMs,
+          testedSkillId: payload.testedSkillId,
+          createdAt: nowIso(),
+        });
+
+        // 2. 如果答错，自动将该题归入 SQLite 错题本
+        if (!payload.isCorrect) {
+          const mistake = createMistakeEntry(
+            payload.userId,
+            {
+              id: payload.questionId,
+              type: 'MULTIPLE_CHOICE',
+              prompt: '自适应客观题',
+              content: payload.questionContent ?? '',
+              correctAnswer: payload.correctAnswer ?? '',
+              explanation: payload.explanation ?? '',
+              testedSkillId: payload.testedSkillId,
+              difficultyTier: 3,
+            },
+            payload.userAnswer,
+            {
+              questionId: payload.questionId,
+              isCorrect: false,
+              score: 0,
+              correctAnswer: payload.correctAnswer ?? '',
+              userSubmission: payload.userAnswer,
+              explanation: payload.explanation ?? '回答有误',
+              mistakeRecorded: true,
+            }
+          );
+          await this.learnerRepo.saveMistake(mistake);
+        }
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: {
+            status: 'RECORDED',
+            questionId: payload.questionId,
+            isCorrect: payload.isCorrect,
+            persistedToDb: true,
+          },
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_CARD_REVIEW: {
+        const payload = envelope.payload as {
+          userId: string;
+          cardId: string;
+          rating: 'AGAIN' | 'HARD' | 'GOOD' | 'EASY';
+          currentStability?: number;
+          currentReps?: number;
+        };
+
+        const currentFsrs = {
+          stability: payload.currentStability ?? 1.0,
+          difficulty: 5.0,
+          reps: payload.currentReps ?? 0,
+          lapses: 0,
+          dueAt: nowIso(),
+          state: 'REVIEW' as const,
+        };
+
+        const nextFsrs = scheduleNextReview(currentFsrs, payload.rating);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: {
+            cardId: payload.cardId,
+            nextFsrs,
+            nextReviewDays: Math.round(nextFsrs.stability),
+          },
           timestamp: Date.now(),
         });
       }

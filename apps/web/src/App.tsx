@@ -57,8 +57,12 @@ import { TextbookCurriculum } from './components/TextbookCurriculum.js';
 import { PitchAccentCoach } from './components/PitchAccentCoach.js';
 import { StudyStreakHeatmap } from './components/StudyStreakHeatmap.js';
 import { AiTutorDrawer, type AiTutorContext } from './components/AiTutorDrawer.js';
+import { useGateway } from './hooks/useGateway.js';
 
 export function App() {
+  // 网关实时双向通讯与数据库持久化钩子
+  const gateway = useGateway();
+
   // 主题状态：默认浅色（温暖日式纸面质感），持久化于 localStorage
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
@@ -182,6 +186,24 @@ export function App() {
     setIsCurrentAnswerCorrect(correct);
     setQuizSubmitted(true);
 
+    // 同步将做题结果与错题上报网关，由 SQLite 统一持久化
+    gateway.submitQuizToGateway({
+      questionId: currentQ.id,
+      userAnswer:
+        currentQ.type === 'CHOICE'
+          ? selectedChoice ?? ''
+          : currentQ.type === 'FILL_BLANK'
+          ? fillBlankInput
+          : reorderSelectedChunks.join(' '),
+      isCorrect: correct,
+      score: correct ? 1 : 0,
+      timeSpentMs: 2800,
+      testedSkillId: currentQ.testedSkill,
+      questionContent: currentQ.content,
+      correctAnswer: currentQ.correctAnswer,
+      explanation: currentQ.explanation,
+    });
+
     if (correct) {
       sound.playSuccess();
       fireSuccessConfetti();
@@ -232,6 +254,14 @@ export function App() {
           : c
       )
     );
+
+    // 上报网关同步持久化
+    gateway.reviewCardToGateway({
+      cardId: activeCard.id,
+      rating,
+      currentStability: activeCard.stability,
+      currentReps: activeCard.reps,
+    });
 
     setCardFlipped(false);
 
@@ -485,6 +515,20 @@ export function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* 网关实时联通状态指示 */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium transition-colors border border-amber-900/10 dark:border-amber-500/15 bg-stone-100/70 dark:bg-stone-900/60">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  gateway.isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+                }`}
+              />
+              <span className="hidden sm:inline text-stone-600 dark:text-stone-300">
+                {gateway.isConnected
+                  ? `网关联通${gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}`
+                  : '离线模式'}
+              </span>
+            </div>
+
             {/* 快捷指令按钮 (Cmd+K) */}
             <motion.button
               whileHover={{ scale: 1.02 }}
