@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <linearGradient id="innerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1c1917" />
+      <stop offset="100%" stop-color="#292524" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded App Icon Background -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  
+  <!-- Inner Contrast Base -->
+  <rect x="32" y="32" width="448" height="448" rx="88" fill="url(#innerGrad)" />
+
+  <!-- Stylized Book / Graduation Symbol -->
+  <path d="M256 128 L384 192 L256 256 L128 192 Z" fill="#f59e0b" />
+  <path d="M160 215 L160 290 Q256 350 352 290 L352 215 L256 268 Z" fill="#fbbf24" opacity="0.9" />
+  
+  <!-- Tassel -->
+  <path d="M384 192 L408 260 L398 264 L378 200 Z" fill="#fef3c7" />
+  <circle cx="403" cy="275" r="10" fill="#fef3c7" />
+
+  <!-- Study Glow Circle -->
+  <circle cx="256" cy="380" r="32" fill="#f59e0b" opacity="0.8" />
+  <text x="256" y="392" font-family="Noto Sans JP, sans-serif" font-size="34" font-weight="bold" fill="#1c1917" text-anchor="middle">学</text>
+</svg>

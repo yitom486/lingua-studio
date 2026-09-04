@@ -258,10 +258,41 @@ export function App() {
     setCards((prev) => [newCard, ...prev]);
   };
 
+  // 批量导入生词卡 (教材一键提取)
+  const handleAddCardsBatch = (newCards: { front: string; back: string; category: string; prompt: string }[]) => {
+    const cardsToAdd: StudyCardItem[] = newCards.map((vocab, idx) => ({
+      id: `card_tb_${Date.now()}_${idx}`,
+      type: 'VOCAB',
+      frontWord: vocab.front,
+      reading: '',
+      tag: '教材生词',
+      pos: '生词',
+      backMeaning: vocab.back,
+      exampleJp: vocab.prompt,
+      exampleHighlight: vocab.front,
+      exampleZh: '',
+      stability: 1.0,
+      reps: 0,
+    }));
+    setCards((prev) => [...cardsToAdd, ...prev]);
+  };
+
+  // 教材划词唤起 AI 导师深度点拨
+  const handleAskTutorFromTextbook = (selectedText: string, contextPrompt: string) => {
+    handleOpenTutor({
+      questionText: `${contextPrompt} “${selectedText}”`,
+      correctAnswer: selectedText,
+      skillTag: '教材精读 · 句法剖析',
+      explanation: `当前选中教材句段：“${selectedText}”。重点关注助词接续与语境敬体/简体用法。`,
+    });
+  };
+
+
   // 提交做题答题
   const handleQuizSubmit = () => {
     sound.playClick();
     let correct = false;
+
 
     if (currentQ.type === 'CHOICE') {
       correct = selectedChoice === currentQ.correctAnswer;
@@ -1205,7 +1236,10 @@ export function App() {
             <TextbookCurriculum
               onStartLessonQuiz={handleStartLessonQuiz}
               onAddCardFromTextbook={handleAddCardFromTextbook}
+              onAddCardsBatch={handleAddCardsBatch}
+              onAskAiTutor={handleAskTutorFromTextbook}
             />
+
           </motion.div>
         )}
 

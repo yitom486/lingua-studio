@@ -4,7 +4,10 @@ import {
   WsEventTypes,
   GeneratedQuestionSchema,
   QuizGradingResultSchema,
+  parseTextbookAST,
+  TextbookASTSchema,
 } from '../index.js';
+
 
 describe('Protocol Package Schemas', () => {
   it('should validate standard envelope correctly', () => {
@@ -60,4 +63,75 @@ describe('Protocol Package Schemas', () => {
     const parsed = QuizGradingResultSchema.safeParse(report);
     expect(parsed.success).toBe(true);
   });
+
+  it('should validate structured textbook AST and parse valid payload', () => {
+    const rawTextbook = {
+      id: 'book-test',
+      title: '测试日语教材',
+      shortTitle: '测日',
+      level: 'N5',
+      publisher: 'Study Studio Press',
+      totalLessons: 1,
+      lessons: [
+        {
+          id: 'lesson-1',
+          lessonNumber: 1,
+          title: '第1课 初次见面',
+          summary: '基本寒暄与自我介绍',
+          vocabularies: [
+            {
+              id: 'v-1',
+              kanji: '初めまして',
+              kana: 'はじめまして',
+              pos: '寒暄语',
+              pitchAccent: '④',
+              chinese: '初次见面',
+            },
+          ],
+          grammarPoints: [
+            {
+              id: 'g-1',
+              title: '～は～です',
+              connection: '名词1 + は + 名词2 + です',
+              explanation: '判断句结构，表示断定。',
+              examples: [{ japanese: '私は学生です。', chinese: '我是学生。' }],
+            },
+          ],
+          dialogues: [
+            {
+              speaker: '田中',
+              japanese: '初めまして、田中です。',
+              chinese: '初次见面，我是田中。',
+            },
+          ],
+          exercises: [
+            {
+              id: 'ex-1',
+              type: 'CHOICE',
+              prompt: '私は学生_____。',
+              options: ['です', 'ます', 'でした', 'ません'],
+              answer: 'です',
+              explanation: '现在肯定判断用「です」。',
+            },
+          ],
+        },
+      ],
+    };
+
+    const parseResult = parseTextbookAST(rawTextbook);
+    expect(parseResult.ok).toBe(true);
+    if (parseResult.ok) {
+      expect(parseResult.value.shortTitle).toBe('测日');
+      expect(parseResult.value.lessons[0]!.vocabularies.length).toBe(1);
+    }
+
+    // 测试非法数据返回 BusinessError
+    const invalidResult = parseTextbookAST({ id: 'invalid' });
+    expect(invalidResult.ok).toBe(false);
+    if (!invalidResult.ok) {
+      expect(invalidResult.error.code).toBe('E_INVALID_TEXTBOOK_AST');
+    }
+  });
 });
+
+
