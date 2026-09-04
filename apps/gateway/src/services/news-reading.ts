@@ -171,16 +171,12 @@ export function formatNewsBody(
       ? `公開：${article.pubDate}`
       : `Published: ${article.pubDate}`
     : '';
-  const linkLine = article.link
-    ? isJa
-      ? `原文リンク：${article.link}`
-      : `Source link: ${article.link}`
-    : '';
+  // 原文 URL 由 ReadingPassageSet.sourceUrl + 阅读台「查看原文」按钮承载，避免正文里再贴一长串链接
   const tip =
     language === 'EN' || language === 'KO'
       ? 'Study tip: Read the headline first, then the lead sentence — then check unknown collocations in context.'
-      : '';
-  return [sanitizeRssText(article.description), '', dateLine, linkLine, tip]
-    .filter(Boolean)
-    .join('\n');
+      : language === 'JA'
+        ? '学習ヒント：見出し→リード文の順で読み、わからない語は文脈で推測してから辞書を開きましょう。'
+        : '';
+  return [sanitizeRssText(article.description), '', dateLine, tip].filter(Boolean).join('\n');
 }

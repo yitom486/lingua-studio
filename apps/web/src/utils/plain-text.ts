@@ -17,7 +17,7 @@ export function toPlainReadingText(raw: string): string {
       .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
       .replace(/&amp;/g, '&');
   }
-  return text
+  text = text
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n')
     .replace(/<li[^>]*>/gi, '• ')
@@ -25,4 +25,14 @@ export function toPlainReadingText(raw: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
+
+  // 旧新闻正文可能内嵌 Source link / 原文リンク，UI 已有「查看原文」按钮
+  text = text
+    .split('\n')
+    .filter((line) => !/^\s*(Source link|原文リンク|原文链接)\s*[:：]/i.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return text;
 }

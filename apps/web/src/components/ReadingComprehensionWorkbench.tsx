@@ -22,7 +22,8 @@ import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
 import { fireSuccessConfetti } from './magicui/index.js';
 import { ResizableSplitPane } from './ui/resizable-split-pane.js';
-import { Button } from './ui/button.js';
+import { Button, buttonVariants } from './ui/button.js';
+import { cn } from '../lib/utils.js';
 import { Badge } from './ui/badge.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import {
@@ -454,10 +455,13 @@ export function ReadingComprehensionWorkbench({
             <a
               href={activeSet.sourceUrl}
               target="_blank"
-              rel="noreferrer"
-              className="text-[11px] text-amber-700 dark:text-amber-400 inline-flex items-center gap-1 hover:underline"
+              rel="noopener noreferrer"
+              title={activeSet.sourceUrl}
+              onClick={() => sound.playClick()}
+              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'text-xs gap-1')}
             >
-              来源 <ExternalLink className="w-3 h-3" />
+              <ExternalLink className="w-3.5 h-3.5" />
+              查看原文
             </a>
           )}
         </div>
@@ -502,9 +506,12 @@ export function ReadingComprehensionWorkbench({
         </p>
       </div>
 
-      <div className="px-4 py-2 text-[11px] text-stone-400 dark:text-stone-500 border-t border-amber-900/5 dark:border-amber-500/5 flex items-center justify-between">
-        <span>💡 划词可即时朗读、沉淀重点或一键出闪卡</span>
-        <span>共 {plainBody.length} 字/词</span>
+      <div className="px-4 py-2 text-[11px] text-stone-400 dark:text-stone-500 border-t border-amber-900/5 dark:border-amber-500/5 flex items-center justify-between gap-2">
+        <span>
+          💡 划词可即时朗读、沉淀重点或一键出闪卡
+          {activeSet.sourceUrl ? ' · 右上角可打开媒体原文核对' : ''}
+        </span>
+        <span className="shrink-0">共 {plainBody.length} 字/词</span>
       </div>
     </div>
   );
