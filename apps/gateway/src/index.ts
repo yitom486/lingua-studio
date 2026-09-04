@@ -25,6 +25,7 @@ export * from './server.js';
 export * from './session/session-manager.js';
 export * from './context/context-builder.js';
 export * from './router/tool-router.js';
+export * from './router/agent-router.js';
 export * from './db/index.js';
 export * from './repository/drizzle-learner-repository.js';
 export * from './repository/sqlite-learner-repository.js';

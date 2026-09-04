@@ -39,6 +39,8 @@ import {
   defaultQuizSkillId,
   normalizeTrackLanguage,
 } from './services/learning-language-policy.js';
+import { selectAgentRoute } from './router/agent-router.js';
+
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -616,11 +618,45 @@ export class GatewayServer {
           }
 
           if (!reply) {
-            reply = buildGenericCoachReply({
-              track,
+            const decision = selectAgentRoute({
               userPrompt,
-              focusLabel: snapshot.focus?.skillTag || snapshot.focus?.surface,
+              intent: typeof intent === 'string' ? intent : undefined,
+              targetLanguage: track,
             });
+
+            if (decision.route === 'responses-lite') {
+              const liteSessionRes = await this.responsesAdapter.createSession({
+                sessionId: envelope.sessionId,
+                userId,
+              });
+              if (isOk(liteSessionRes)) {
+                let liteOut = '';
+                for await (const ev of liteSessionRes.value.send({
+                  message: userPrompt,
+                  contextSnapshot: snapshot,
+                })) {
+                  if (abortController.signal.aborted) break;
+                  if (ev.type === 'TEXT_DELTA' && 'delta' in ev && ev.delta) {
+                    liteOut += ev.delta;
+                  } else if (ev.type === 'COMPLETED' && 'finalOutput' in ev && ev.finalOutput) {
+                    liteOut = String(ev.finalOutput);
+                  } else if (ev.type === 'ERROR' && 'error' in ev) {
+                    return err(ev.error);
+                  }
+                }
+                if (liteOut) {
+                  reply = liteOut;
+                }
+              }
+            }
+
+            if (!reply) {
+              reply = buildGenericCoachReply({
+                track,
+                userPrompt,
+                focusLabel: snapshot.focus?.skillTag || snapshot.focus?.surface,
+              });
+            }
           }
 
           // 4. 真流式逐块推流 (Text Delta)
