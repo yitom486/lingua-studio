@@ -26,6 +26,9 @@ import type {
   KanaItem,
   ReadingPassageSet,
   SubmitReadingPractice,
+  PracticeCollection,
+  PracticeItem,
+  GeneratedQuestion,
 } from '@study-studio/protocol';
 import {
   createDrizzleDb,
@@ -38,9 +41,11 @@ import {
   mistakes,
   documents,
   annotations,
+  practiceCollections,
+  practiceItems,
   curriculumKana,
+  quizQuestions,
 } from '../db/index.js';
-
 function getTodayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -533,7 +538,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   public async getDueCards(
     userId: string,
-    limit: number = 20
+    limit: number = 500,
+    options?: { dueOnly?: boolean }
   ): Promise<Result<Flashcard[], BusinessError>> {
     try {
       const now = nowIso();
@@ -596,19 +602,30 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         rows = await this.db.select().from(flashcards).where(eq(flashcards.userId, userId)).limit(limit);
       }
 
-      const cards: Flashcard[] = rows
-        .map((r) => ({
-          id: r.id,
-          userId: r.userId,
-          type: r.type as any,
-          front: r.front,
-          back: r.back,
-          phonetic: r.phonetic ?? undefined,
-          audioUrl: r.audioUrl ?? undefined,
-          tags: JSON.parse(r.tags),
-          fsrs: JSON.parse(r.fsrs),
-        }))
-        .filter((c) => !c.fsrs.dueAt || c.fsrs.dueAt <= now);
+      const cards: Flashcard[] = rows.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        type: r.type as any,
+        front: r.front,
+        back: r.back,
+        phonetic: r.phonetic ?? undefined,
+        audioUrl: r.audioUrl ?? undefined,
+        tags: JSON.parse(r.tags),
+        fsrs: JSON.parse(r.fsrs),
+      }));
+
+      // 如果显式要求仅待复习，则过滤到期卡片；否则返回全量卡片（优先展示待复习）
+      if (options?.dueOnly) {
+        return ok(cards.filter((c) => !c.fsrs.dueAt || c.fsrs.dueAt <= now));
+      }
+
+      cards.sort((a, b) => {
+        const aDue = !a.fsrs.dueAt || a.fsrs.dueAt <= now;
+        const bDue = !b.fsrs.dueAt || b.fsrs.dueAt <= now;
+        if (aDue && !bDue) return -1;
+        if (!aDue && bDue) return 1;
+        return a.id.localeCompare(b.id);
+      });
 
       return ok(cards);
     } catch (error) {
@@ -620,6 +637,133 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         })
       );
     }
+  }
+
+  /**
+   * 获取题库题目列表 (从 SQLite quiz_questions 表读取)
+   */
+  public async getQuestions(
+    userId: string,
+    limit: number = 50
+  ): Promise<Result<any[], BusinessError>> {
+    try {
+      let rows = await this.db
+        .select()
+        .from(quizQuestions)
+        .where(or(eq(quizQuestions.userId, userId), eq(quizQuestions.userId, 'default_user')))
+        .orderBy(desc(quizQuestions.createdAt))
+        .limit(limit);
+
+      if (rows.length === 0) {
+        rows = await this.db.select().from(quizQuestions).orderBy(desc(quizQuestions.createdAt)).limit(limit);
+      }
+
+      const mapped = rows.map((r) => ({
+        id: r.id,
+        userId: r.userId,
+        type: r.type,
+        category: r.category,
+        prompt: r.prompt,
+        content: r.content,
+        options: r.options ? JSON.parse(r.options) : undefined,
+        chunks: r.chunks ? JSON.parse(r.chunks) : undefined,
+        correctAnswer: r.correctAnswer,
+        explanation: r.explanation,
+        testedSkill: r.testedSkillId,
+        testedSkillId: r.testedSkillId,
+        difficulty: r.difficulty,
+        createdAt: r.createdAt,
+      }));
+
+      return ok(mapped);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'getQuestions',
+          entityId: userId,
+        })
+      );
+    }
+  }
+
+  /**
+   * 保存或更新单道题目至 SQLite quiz_questions
+   */
+  public async saveQuestion(question: any): Promise<Result<void, BusinessError>> {
+    try {
+      const existing = await this.db
+        .select()
+        .from(quizQuestions)
+        .where(eq(quizQuestions.id, question.id))
+        .limit(1);
+
+      const optionsStr = question.options
+        ? typeof question.options === 'string'
+          ? question.options
+          : JSON.stringify(question.options)
+        : null;
+      const chunksStr = question.chunks
+        ? typeof question.chunks === 'string'
+          ? question.chunks
+          : JSON.stringify(question.chunks)
+        : null;
+
+      if (existing.length > 0) {
+        await this.db
+          .update(quizQuestions)
+          .set({
+            type: question.type,
+            category: question.category,
+            prompt: question.prompt,
+            content: question.content,
+            options: optionsStr,
+            chunks: chunksStr,
+            correctAnswer: question.correctAnswer,
+            explanation: question.explanation,
+            testedSkillId: question.testedSkill || question.testedSkillId || '',
+            difficulty: question.difficulty ?? 3,
+          })
+          .where(eq(quizQuestions.id, question.id));
+      } else {
+        await this.db.insert(quizQuestions).values({
+          id: question.id,
+          userId: question.userId || 'default_user',
+          type: question.type,
+          category: question.category,
+          prompt: question.prompt,
+          content: question.content,
+          options: optionsStr,
+          chunks: chunksStr,
+          correctAnswer: question.correctAnswer,
+          explanation: question.explanation,
+          testedSkillId: question.testedSkill || question.testedSkillId || '',
+          difficulty: question.difficulty ?? 3,
+          createdAt: question.createdAt || nowIso(),
+        });
+      }
+
+      return ok(undefined);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'saveQuestion',
+          entityId: question.id,
+        })
+      );
+    }
+  }
+
+  /**
+   * 批量保存题目至 SQLite
+   */
+  public async saveQuestions(questions: any[]): Promise<Result<void, BusinessError>> {
+    for (const q of questions) {
+      const res = await this.saveQuestion(q);
+      if (!isOk(res)) return res;
+    }
+    return ok(undefined);
   }
 
   public async saveCard(card: Flashcard): Promise<Result<void, BusinessError>> {
@@ -756,76 +900,10 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     filter?: { resolved?: boolean }
   ): Promise<Result<MistakeEntry[], BusinessError>> {
     try {
-      let query = this.db
+      const rows = await this.db
         .select()
         .from(mistakes)
         .where(eq(mistakes.userId, userId));
-
-      let rows = await query;
-      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user')) {
-        const seedMistakes = [
-          {
-            id: 'm_01',
-            userId,
-            questionId: 'q_01',
-            question: JSON.stringify({
-              id: 'q_01',
-              type: 'CHOICE',
-              category: '助词辨析',
-              prompt: '选择最恰当的助词填入括号：',
-              content: '夏休みに、友だちと京都（　）行きました。',
-              correctAnswer: 'B',
-              explanation: '动词「行きました」为移动动词，表示移动目的地必须使用格助词「に」。',
-              testedSkillId: 'jp.particle.destination_ni',
-            }),
-            lastUserSubmission: 'A (で)',
-            lastGrading: JSON.stringify({
-              isCorrect: false,
-              score: 0,
-              correctAnswer: 'B (に)',
-              userSubmission: 'A (で)',
-              explanation: '「で」用于动作发生场所；移动目的地必须使用「に」。',
-            }),
-            recordedAt: nowIso(),
-            lastRetriedAt: null,
-            retryCount: 1,
-            consecutiveCorrect: 0,
-            isResolved: false,
-          },
-          {
-            id: 'm_02',
-            userId,
-            questionId: 'q_02',
-            question: JSON.stringify({
-              id: 'q_02',
-              type: 'FILL_BLANK',
-              category: '动词假定形',
-              prompt: '将括号中的动词变形为正确的假定形（～たら）：',
-              content: '明日、雨が（降る ──► 降ったら）、試合は中止です。',
-              correctAnswer: '降ったら',
-              explanation: '动词「降る」过去式为「降った」，后接「ら」构成假定。',
-              testedSkillId: 'jp.grammar.conditional_tara',
-            }),
-            lastUserSubmission: '降るたら',
-            lastGrading: JSON.stringify({
-              isCorrect: false,
-              score: 0,
-              correctAnswer: '降ったら',
-              userSubmission: '降るたら',
-              explanation: '动词「たら」前接必须是动词的「た形」（连用形音便）。',
-            }),
-            recordedAt: nowIso(),
-            lastRetriedAt: null,
-            retryCount: 1,
-            consecutiveCorrect: 0,
-            isResolved: false,
-          },
-        ];
-        for (const sm of seedMistakes) {
-          await this.db.insert(mistakes).values(sm);
-        }
-        rows = await this.db.select().from(mistakes).where(eq(mistakes.userId, userId));
-      }
 
       const filteredRows = filter?.resolved !== undefined
         ? rows.filter((r) => Boolean(r.isResolved) === filter.resolved)
@@ -874,7 +952,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .update(mistakes)
         .set({
           isResolved: true,
-          consecutiveCorrect: mistake.consecutiveCorrect + 1,
+          consecutiveCorrect: Math.max(2, mistake.consecutiveCorrect + 1),
           lastRetriedAt: nowIso(),
         })
         .where(eq(mistakes.id, mistakeId));
@@ -1560,6 +1638,162 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       );
     }
   }
-}
 
+  /**
+   * 创建练习集合并批量写入练习队列条目（collect:true）
+   */
+  public async collectPracticeQuestions(input: {
+    userId: string;
+    title: string;
+    intent?: string;
+    layoutHint?: string | undefined;
+    sourceRef?: string | undefined;
+    questions: GeneratedQuestion[];
+  }): Promise<Result<{ collection: PracticeCollection; items: PracticeItem[] }, BusinessError>> {
+    try {
+      const parsed = input.questions.map((q) => {
+        // 运行时再校验，避免坏 JSON 入库
+        return q;
+      });
+      if (parsed.length === 0) {
+        return err(
+          new BusinessError('E_INVALID_INPUT', '练习队列至少需要 1 道题', 'VALIDATION')
+        );
+      }
+
+      const collectionId = generateId('pcol');
+      const createdAt = nowIso();
+      const intent = input.intent ?? 'GENERATE_QUIZ';
+
+      await this.db.insert(practiceCollections).values({
+        id: collectionId,
+        userId: input.userId,
+        title: input.title,
+        intent,
+        layoutHint: input.layoutHint ?? null,
+        sourceRef: input.sourceRef ?? null,
+        createdAt,
+      });
+
+      const items: PracticeItem[] = [];
+      for (let i = 0; i < parsed.length; i++) {
+        const q = parsed[i]!;
+        const itemId = generateId('pitem');
+        const skillIds = q.testedSkillId ? [q.testedSkillId] : [];
+        await this.db.insert(practiceItems).values({
+          id: itemId,
+          userId: input.userId,
+          collectionId,
+          questionJson: JSON.stringify(q),
+          skillIds: JSON.stringify(skillIds),
+          sourceRef: input.sourceRef ?? null,
+          passageDocumentId: null,
+          sortOrder: i,
+          collectedAt: createdAt,
+        });
+        items.push({
+          id: itemId,
+          userId: input.userId,
+          collectionId,
+          question: q,
+          skillIds,
+          sourceRef: input.sourceRef,
+          sortOrder: i,
+          collectedAt: createdAt,
+        });
+      }
+
+      const collection: PracticeCollection = {
+        id: collectionId,
+        userId: input.userId,
+        title: input.title,
+        intent,
+        layoutHint: input.layoutHint as PracticeCollection['layoutHint'],
+        sourceRef: input.sourceRef,
+        createdAt,
+      };
+
+      return ok({ collection, items });
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'collectPracticeQuestions',
+          entityId: input.userId,
+        })
+      );
+    }
+  }
+
+  public async listPracticeCollections(
+    userId: string,
+    limit = 20
+  ): Promise<Result<PracticeCollection[], BusinessError>> {
+    try {
+      const rows = await this.db
+        .select()
+        .from(practiceCollections)
+        .where(eq(practiceCollections.userId, userId))
+        .orderBy(desc(practiceCollections.createdAt))
+        .limit(limit);
+
+      return ok(
+        rows.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          title: r.title,
+          intent: r.intent,
+          layoutHint: (r.layoutHint as PracticeCollection['layoutHint']) ?? undefined,
+          sourceRef: r.sourceRef ?? undefined,
+          createdAt: r.createdAt,
+        }))
+      );
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'listPracticeCollections',
+          entityId: userId,
+        })
+      );
+    }
+  }
+
+  public async listPracticeItems(
+    userId: string,
+    collectionId: string
+  ): Promise<Result<PracticeItem[], BusinessError>> {
+    try {
+      const rows = await this.db
+        .select()
+        .from(practiceItems)
+        .where(
+          and(eq(practiceItems.userId, userId), eq(practiceItems.collectionId, collectionId))
+        )
+        .orderBy(asc(practiceItems.sortOrder));
+
+      return ok(
+        rows.map((r) => ({
+          id: r.id,
+          userId: r.userId,
+          collectionId: r.collectionId,
+          question: JSON.parse(r.questionJson) as GeneratedQuestion,
+          skillIds: r.skillIds ? (JSON.parse(r.skillIds) as string[]) : [],
+          sourceRef: r.sourceRef ?? undefined,
+          passageDocumentId: r.passageDocumentId ?? undefined,
+          sortOrder: r.sortOrder,
+          collectedAt: r.collectedAt,
+        }))
+      );
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'listPracticeItems',
+          entityId: collectionId,
+        })
+      );
+    }
+  }
+}
 

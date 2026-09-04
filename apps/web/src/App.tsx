@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
@@ -23,7 +23,6 @@ import { usePreferencesStore } from './stores/usePreferencesStore.js';
 import { useStudySessionStore } from './stores/useStudySessionStore.js';
 import { useUserProfileStore } from './stores/useUserProfileStore.js';
 import {
-  useQuestionsQuery,
   useCardsQuery,
   useMistakesQuery,
   useLearnerProfileQuery,
@@ -39,7 +38,6 @@ export function App() {
   const activeTab = useStudySessionStore((s) => s.activeTab);
   const isCommandOpen = useStudySessionStore((s) => s.isCommandOpen);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
-  const questionIndex = useStudySessionStore((s) => s.questionIndex);
   const isTutorOpen = useStudySessionStore((s) => s.isTutorOpen);
   const tutorContext = useStudySessionStore((s) => s.tutorContext);
   const openTutor = useStudySessionStore((s) => s.openTutor);
@@ -69,7 +67,6 @@ export function App() {
     [gateway, recordActivity]
   );
 
-  const { data: questions = [] } = useQuestionsQuery();
   const { data: cards = [] } = useCardsQuery();
   const { data: mistakes = [] } = useMistakesQuery();
   const { data: metrics = [] } = useLearnerProfileQuery();
@@ -79,11 +76,6 @@ export function App() {
 
   const unresolvedMistakesCount = mistakes.filter((m) => !m.isResolved).length;
   const commandActions = useCommandActions(unresolvedMistakesCount);
-  const topWeaknessLabel = useMemo(() => {
-    if (!metrics.length) return undefined;
-    const weakest = [...metrics].sort((a, b) => a.proficiency - b.proficiency)[0];
-    return weakest?.name;
-  }, [metrics]);
 
   return (
     <div
@@ -114,10 +106,6 @@ export function App() {
       />
 
       <AppSidebar
-        quizProgress={`${Math.min(questionIndex + 1, questions.length)}/${questions.length || 1}`}
-        cardCount={cards.length}
-        unresolvedMistakeCount={unresolvedMistakesCount}
-        topWeaknessLabel={topWeaknessLabel}
         mobileOpen={mobileNavOpen}
         onMobileOpenChange={setMobileNavOpen}
       />

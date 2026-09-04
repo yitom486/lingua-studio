@@ -164,4 +164,50 @@ export const curriculumKana = sqliteTable('curriculum_kana', {
   sortOrder: integer('sort_order').notNull(),
 });
 
+/**
+ * 自适应题库表 (Quiz Questions)
+ * 存储初始评测题与 AI 靶向弱项生成的题目，保证最新做题队列持久化
+ */
+export const quizQuestions = sqliteTable('quiz_questions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().default('default_user'),
+  type: text('type').notNull(), // 'CHOICE' | 'FILL_BLANK' | 'REORDER'
+  category: text('category').notNull(),
+  prompt: text('prompt').notNull(),
+  content: text('content').notNull(),
+  options: text('options'), // JSON string of options [{ key, text, note }]
+  chunks: text('chunks'), // JSON string of chunks ['a', 'b']
+  correctAnswer: text('correct_answer').notNull(),
+  explanation: text('explanation').notNull(),
+  testedSkillId: text('tested_skill_id').notNull(),
+  difficulty: integer('difficulty').notNull().default(3),
+  createdAt: text('created_at').notNull(),
+});
 
+/**
+ * 一次「出 N 道 / 阅读套题」练习会话（≠ FSRS 卡）
+ */
+export const practiceCollections = sqliteTable('practice_collections', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  title: text('title').notNull(),
+  intent: text('intent').notNull().default('GENERATE_QUIZ'),
+  layoutHint: text('layout_hint'), // 'SPLIT_PASSAGE_QUESTIONS' | 'SINGLE_COLUMN' | null
+  sourceRef: text('source_ref'),
+  createdAt: text('created_at').notNull(),
+});
+
+/**
+ * 练习队列条目（可映射 GeneratedQuestion JSON）
+ */
+export const practiceItems = sqliteTable('practice_items', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  collectionId: text('collection_id').notNull(),
+  questionJson: text('question_json').notNull(),
+  skillIds: text('skill_ids'), // JSON string array
+  sourceRef: text('source_ref'),
+  passageDocumentId: text('passage_document_id'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  collectedAt: text('collected_at').notNull(),
+});

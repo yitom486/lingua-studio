@@ -172,12 +172,12 @@ export const SIDEBAR_AST_TREE: SidebarAstNodeDef[] = [
   },
 ];
 
-/** 侧栏顶部学习者资料演示字段（后续接 profile API） */
+/** 侧栏资料区仅作缺省文案兜底；运行时姓名/连胜/目标来自 useUserProfileStore，角标来自 Query */
 export const SIDEBAR_PROFILE_DEMO = {
   displayName: '学习者',
   levelBadge: 'N5',
-  streakDays: 12,
-  todayGoalPercent: 62,
+  streakDays: 0,
+  todayGoalPercent: 0,
   todayGoalLabel: '今日目标',
   defaultWeaknessLabel: '助词で/に',
 } as const;

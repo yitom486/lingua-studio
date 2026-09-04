@@ -44,8 +44,15 @@ import {
   type SidebarNavItemDef,
   type SidebarRuntimeCounts,
 } from '../data/sidebar-nav-data.js';
+import {
+  useCardsQuery,
+  useLearnerProfileQuery,
+  useMistakesQuery,
+  useQuestionsQuery,
+} from '../queries/useLearnerQueries.js';
 
 export interface AppSidebarProps {
+  /** 可选覆盖；缺省由 TanStack Query 实时计算 */
   quizProgress?: string | undefined;
   cardCount?: number | undefined;
   unresolvedMistakeCount?: number | undefined;
@@ -412,14 +419,33 @@ function SidebarBody({
 }
 
 export function AppSidebar({
-  quizProgress,
-  cardCount,
-  unresolvedMistakeCount,
-  topWeaknessLabel = SIDEBAR_PROFILE_DEMO.defaultWeaknessLabel,
+  quizProgress: quizProgressProp,
+  cardCount: cardCountProp,
+  unresolvedMistakeCount: mistakeCountProp,
+  topWeaknessLabel: topWeaknessProp,
   mobileOpen = false,
   onMobileOpenChange,
 }: AppSidebarProps) {
   const collapsed = usePreferencesStore((s) => s.sidebarCollapsed);
+  const questionIndex = useStudySessionStore((s) => s.questionIndex);
+
+  const { data: questions = [] } = useQuestionsQuery();
+  const { data: cards = [] } = useCardsQuery();
+  const { data: mistakes = [] } = useMistakesQuery();
+  const { data: metrics = [] } = useLearnerProfileQuery();
+
+  const nowIso = new Date().toISOString();
+  const dueCardCount = cards.filter((c) => !c.dueAt || c.dueAt <= nowIso).length;
+  const unresolvedMistakeCount =
+    mistakeCountProp ?? mistakes.filter((m) => !m.isResolved).length;
+  const quizProgress =
+    quizProgressProp ??
+    `${Math.min(questionIndex + 1, questions.length)}/${questions.length || 1}`;
+  const cardCount = cardCountProp ?? dueCardCount;
+  const topWeaknessLabel =
+    topWeaknessProp ??
+    [...metrics].sort((a, b) => a.proficiency - b.proficiency)[0]?.name ??
+    SIDEBAR_PROFILE_DEMO.defaultWeaknessLabel;
 
   const navigate = (tab: NavigationTab) => {
     useStudySessionStore.getState().setActiveTab(tab);

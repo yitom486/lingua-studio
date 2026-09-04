@@ -5,8 +5,10 @@ import {
   type WsEventType,
   type WsEnvelope,
   type CardReviewRating,
+  type GeneratedQuestion,
 } from '@study-studio/protocol';
 import { generateId } from '@study-studio/shared';
+import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 
 export interface StreamTurnOptions {
   input: string;
@@ -127,6 +129,55 @@ export function useGateway({
                 pendingResolversRef.current.delete(WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE);
                 resolver(envelope.payload);
               }
+            }
+          } else if (envelope.type === WsEventTypes.AGENT_TOOL_CALL) {
+            const p = envelope.payload as {
+              callId?: string;
+              toolName?: string;
+              args?: Record<string, unknown>;
+            };
+            const toolName = p?.toolName;
+            const args = p?.args ?? {};
+            const session = useStudySessionStore.getState();
+
+            if (toolName === 'ui.navigate') {
+              session.applyUiNavigate(
+                String(args.target ?? ''),
+                Boolean(args.openTutor)
+              );
+              toast.success(`已切换到 ${String(args.target ?? '工作台')}`);
+            } else if (toolName === 'ui.present') {
+              const questions = Array.isArray(args.questions)
+                ? (args.questions as GeneratedQuestion[])
+                : [];
+              if (questions.length > 0) {
+                session.presentQuiz({
+                  surface: (args.surface as 'quiz') || 'quiz',
+                  layout: args.layout as 'SINGLE_COLUMN' | undefined,
+                  collectionId: args.collectionId as string | undefined,
+                  questions,
+                  stepIndex: typeof args.stepIndex === 'number' ? args.stepIndex : 0,
+                  passageId: args.passageId as string | undefined,
+                });
+                toast.success(`已推送 ${questions.length} 道练习到工作台`);
+              }
+            }
+
+            // 回传 Client Tool 结果（当前无服务端等待，静默 ACK）
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+              const ack: WsEnvelope = {
+                version: '1.0',
+                id: generateId('msg'),
+                sessionId: sessionIdRef.current ?? 'active_session',
+                type: WsEventTypes.CLIENT_TOOL_RESULT,
+                payload: {
+                  callId: p?.callId,
+                  toolName,
+                  ok: true,
+                },
+                timestamp: Date.now(),
+              };
+              wsRef.current.send(JSON.stringify(ack));
             }
           } else if (envelope.type === WsEventTypes.GATEWAY_PONG) {
             if (pingSentTimeRef.current > 0) {

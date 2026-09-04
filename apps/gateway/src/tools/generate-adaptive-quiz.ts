@@ -113,7 +113,7 @@ export class GenerateAdaptiveQuizTool
 {
   public readonly name = 'quiz.generateAdaptive';
   public readonly description =
-    '基于学习者当前最薄弱的知识点或指定语法标签，靶向生成贴合其语言等级的自适应测试题';
+    '【兼容别名】靶向出题；Agent/新路径请优先 learning.content（action=generate_quiz）。本工具保留 HTTP/WS 旧输入形态。';
   public readonly location = ToolLocations.SERVER;
   public readonly permission = ToolPermissions.READ;
   public readonly schema = GenerateAdaptiveQuizInputSchema;

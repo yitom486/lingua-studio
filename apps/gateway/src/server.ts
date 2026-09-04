@@ -19,6 +19,7 @@ import {
 import {
   type LearnerRepository,
   createMistakeEntry,
+  recordSkillAttempt,
   scheduleNextReview,
 } from '@study-studio/learner-core';
 import { DrizzleLearnerRepository } from './repository/drizzle-learner-repository.js';
@@ -26,6 +27,10 @@ import { GenerateAdaptiveQuizTool } from './tools/generate-adaptive-quiz.js';
 import { GradeSubjectiveQuizTool } from './tools/grade-subjective-quiz.js';
 import { LearningContentTool, type LearningContentOutput } from './tools/learning-content-tool.js';
 import { LearningAssessTool } from './tools/learning-assess-tool.js';
+import { LearningProgressTool } from './tools/learning-progress-tool.js';
+import { LearningCurriculumTool } from './tools/learning-curriculum-tool.js';
+import { LearningLibraryTool } from './tools/learning-library-tool.js';
+import { UiNavigateTool, UiPresentTool } from './tools/ui-command-tools.js';
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -38,11 +43,48 @@ export class GatewayServer {
 
   constructor(learnerRepo?: LearnerRepository) {
     this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
-    // 注册 M4 与 D4 阶段核心自适应、参数化内容与智能诊断工具
+    const drizzle =
+      this.learnerRepo instanceof DrizzleLearnerRepository
+        ? this.learnerRepo
+        : new DrizzleLearnerRepository(':memory:');
+
     this.toolRegistry.register(new GenerateAdaptiveQuizTool(this.learnerRepo));
     this.toolRegistry.register(new GradeSubjectiveQuizTool(this.learnerRepo));
     this.toolRegistry.register(new LearningContentTool(this.learnerRepo));
     this.toolRegistry.register(new LearningAssessTool(this.learnerRepo));
+    this.toolRegistry.register(new LearningProgressTool(this.learnerRepo));
+    this.toolRegistry.register(new LearningCurriculumTool(drizzle));
+    this.toolRegistry.register(new LearningLibraryTool(drizzle));
+    this.toolRegistry.register(new UiNavigateTool());
+    this.toolRegistry.register(new UiPresentTool());
+  }
+
+  /** 下发 Client Tool 调用（前端执行，Gateway 只做参数校验） */
+  private async emitClientTool(
+    emit: ((env: WsEnvelope) => void) | undefined,
+    sessionId: string,
+    toolName: string,
+    args: Record<string, unknown>
+  ): Promise<void> {
+    const tool = this.toolRegistry.get(toolName);
+    if (!tool || !emit) return;
+    const res = await tool.execute(args, {
+      userId: 'system',
+      sessionId,
+    });
+    if (!isOk(res)) return;
+    emit({
+      version: '1.0',
+      id: generateId('tool'),
+      sessionId,
+      type: WsEventTypes.AGENT_TOOL_CALL,
+      payload: {
+        callId: generateId('call'),
+        toolName,
+        args: res.value,
+      },
+      timestamp: Date.now(),
+    });
   }
 
   /**
@@ -108,7 +150,7 @@ export class GatewayServer {
         };
 
         // 1. 持久化单次做题记录
-        await this.learnerRepo.recordQuizAttempt({
+        const attemptRes = await this.learnerRepo.recordQuizAttempt({
           id: generateId('att'),
           userId: payload.userId,
           questionId: payload.questionId,
@@ -119,8 +161,24 @@ export class GatewayServer {
           testedSkillId: payload.testedSkillId,
           createdAt: nowIso(),
         });
+        if (!isOk(attemptRes)) return err(attemptRes.error);
 
-        // 2. 如果答错，自动将该题归入 SQLite 错题本
+        // 2. 将本次正误立即合并进 SQLite 学习画像，而不是仅依赖前端缓存。
+        const snapshotRes = await this.learnerRepo.getProfileSnapshot(payload.userId);
+        if (isOk(snapshotRes)) {
+          const previous = snapshotRes.value.allMetrics.find(
+            (metric) => metric.id === payload.testedSkillId
+          );
+          if (previous) {
+            const metricRes = await this.learnerRepo.saveSkillMetric(
+              payload.userId,
+              recordSkillAttempt(previous, payload.isCorrect)
+            );
+            if (!isOk(metricRes)) return err(metricRes.error);
+          }
+        }
+
+        // 3. 如果答错，自动将该题归入 SQLite 错题本
         if (!payload.isCorrect) {
           const mistake = createMistakeEntry(
             payload.userId,
@@ -145,7 +203,8 @@ export class GatewayServer {
               mistakeRecorded: true,
             }
           );
-          await this.learnerRepo.saveMistake(mistake);
+          const mistakeRes = await this.learnerRepo.saveMistake(mistake);
+          if (!isOk(mistakeRes)) return err(mistakeRes.error);
         }
 
         return ok({
@@ -182,6 +241,17 @@ export class GatewayServer {
         };
 
         const nextFsrs = scheduleNextReview(currentFsrs, payload.rating);
+
+        // 真正将卡片最新 FSRS 状态持久化回写至 SQLite
+        const cardsRes = await this.learnerRepo.getDueCards(payload.userId, 200);
+        if (isOk(cardsRes)) {
+          const targetCard = cardsRes.value.find((c) => c.id === payload.cardId);
+          if (targetCard) {
+            targetCard.fsrs = nextFsrs;
+            const saveRes = await this.learnerRepo.saveCard(targetCard);
+            if (!isOk(saveRes)) return err(saveRes.error);
+          }
+        }
 
         // 自动累计每日卡片复习足迹
         await this.learnerRepo.recordDailyActivity(payload.userId, { cards: 1 });
@@ -278,22 +348,72 @@ export class GatewayServer {
       }
 
       case WsEventTypes.CLIENT_QUIZ_GENERATE: {
-        const tool = this.toolRegistry.get('quiz.generateAdaptive');
-        if (!tool) {
-          return err(new BusinessError('E_TOOL_NOT_FOUND', '自适应出题工具未注册', 'AGENT_RUNTIME'));
-        }
+        // C5：优先 learning.content；旧 quiz.generateAdaptive 仅作兼容回退
+        const contentTool = this.toolRegistry.get('learning.content');
+        const legacyTool = this.toolRegistry.get('quiz.generateAdaptive');
         const rawPayload = (envelope.payload ?? {}) as Record<string, any>;
-        const normalizedInput = {
-          targetLanguage: rawPayload.targetLanguage ?? 'ja',
-          targetLevel: rawPayload.targetLevel ?? 'JLPT N3',
-          weaknessSkillId: rawPayload.weaknessSkillId,
-          count: typeof rawPayload.count === 'number' ? rawPayload.count : 1,
-        };
-        const toolRes = await tool.execute(normalizedInput, {
-          userId: rawPayload.userId ?? 'student_web_01',
-          sessionId: envelope.sessionId,
-        });
+        const userId = rawPayload.userId ?? 'student_web_01';
+        const count = typeof rawPayload.count === 'number' ? rawPayload.count : 1;
+
+        let toolRes: Result<unknown, BusinessError>;
+        if (contentTool) {
+          toolRes = await contentTool.execute(
+            {
+              action: 'generate_quiz',
+              count,
+              skillIds: rawPayload.weaknessSkillId
+                ? [String(rawPayload.weaknessSkillId)]
+                : undefined,
+              language: rawPayload.targetLanguage === 'en' ? 'en' : 'ja',
+              collect: true,
+            },
+            { userId, sessionId: envelope.sessionId }
+          );
+          if (isOk(toolRes)) {
+            const out = toolRes.value as {
+              questions?: unknown[];
+              message?: string;
+            };
+            toolRes = ok({
+              targetSkillId: rawPayload.weaknessSkillId ?? 'adaptive',
+              targetSkillName: 'learning.content 自适应组卷',
+              adaptationReason: out.message ?? '经 learning.content 生成',
+              questions: out.questions ?? [],
+            });
+          }
+        } else if (legacyTool) {
+          toolRes = await legacyTool.execute(
+            {
+              targetLanguage: rawPayload.targetLanguage ?? 'ja',
+              targetLevel: rawPayload.targetLevel ?? 'JLPT N3',
+              weaknessSkillId: rawPayload.weaknessSkillId,
+              count,
+            },
+            { userId, sessionId: envelope.sessionId }
+          );
+        } else {
+          return err(new BusinessError('E_TOOL_NOT_FOUND', '出题工具未注册', 'AGENT_RUNTIME'));
+        }
         if (!isOk(toolRes)) return err(toolRes.error);
+
+        // 动态生成的题目属于学习资产；在发送给客户端前先写入 SQLite，刷新后仍可恢复。
+        if (this.learnerRepo instanceof DrizzleLearnerRepository) {
+          const generatedOutput = toolRes.value as { questions?: unknown[]; targetSkillName?: string };
+          const questions = (generatedOutput.questions ?? []).map(
+            (question) => {
+              const generated = question as Record<string, unknown>;
+              return {
+              ...generated,
+              userId,
+              // GeneratedQuestion 是工具协议，quiz_questions 则是可直接渲染的题库模型。
+              category: generated.category ?? generatedOutput.targetSkillName ?? 'AI 靶向练习',
+              difficulty: generated.difficulty ?? generated.difficultyTier ?? 3,
+              };
+            }
+          );
+          const saveRes = await this.learnerRepo.saveQuestions(questions);
+          if (!isOk(saveRes)) return err(saveRes.error);
+        }
 
         return ok({
           version: '1.0',
@@ -425,16 +545,25 @@ export class GatewayServer {
           } else if (
             userPrompt.includes('考我') ||
             userPrompt.includes('出题') ||
-            userPrompt.includes('练一练')
+            userPrompt.includes('练一练') ||
+            intent === 'GENERATE_QUIZ'
           ) {
             const tool = this.toolRegistry.get('learning.content');
             if (tool) {
+              const skillIds = snapshot.focus?.skillTag
+                ? [snapshot.focus.skillTag]
+                : snapshot.learnerDigest?.topWeaknesses?.[0]?.skillId
+                  ? [snapshot.learnerDigest.topWeaknesses[0].skillId]
+                  : ['jp.particle.ni_vs_de'];
               const res = await tool.execute(
                 {
                   action: 'generate_quiz',
-                  count: 1,
+                  count: Math.min(3, snapshot.constraints?.maxQuestions ?? 3),
                   difficulty: 2,
                   language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                  skillIds,
+                  collect: true,
+                  collectionTitle: '导师即时练习',
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -444,10 +573,25 @@ export class GatewayServer {
                   const q = content.questions[0];
                   toolResults = content;
                   reply =
-                    `为你量身定制了一道自适应诊断题，检验你对该考点的掌握：\n\n` +
-                    `❓ **题目**：${q.content}\n` +
-                    (q.options ?? []).map((opt: string, i: number) => `${String.fromCharCode(65 + i)}. ${opt}`).join('\n') +
-                    `\n\n想好答案后可以直接告诉我，或在做题工作台作答！`;
+                    `为你量身定制了 ${content.questions.length} 道自适应诊断题` +
+                    (content.collectionId ? `（已收入练习队列 ${content.collectionId}）` : '') +
+                    `：\n\n` +
+                    `❓ **首题**：${q.content}\n` +
+                    (q.options ?? [])
+                      .map((opt: string, i: number) => `${String.fromCharCode(65 + i)}. ${opt}`)
+                      .join('\n') +
+                    `\n\n已通过 ui.present 推送到做题工作台，可直接作答！`;
+
+                  await this.emitClientTool(emit, envelope.sessionId, 'ui.navigate', {
+                    target: 'QUIZ',
+                  });
+                  await this.emitClientTool(emit, envelope.sessionId, 'ui.present', {
+                    surface: 'quiz',
+                    layout: 'SINGLE_COLUMN',
+                    collectionId: content.collectionId,
+                    questions: content.questions,
+                    stepIndex: 0,
+                  });
                 }
               }
             }

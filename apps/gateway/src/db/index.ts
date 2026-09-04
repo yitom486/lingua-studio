@@ -3,10 +3,23 @@ import { drizzle, type BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema.js';
 import { KANA_SEEDS } from './seeds/kana-seed.js';
 import { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
+import {
+  INITIAL_CARD_SEEDS,
+  INITIAL_QUESTION_SEEDS,
+  INITIAL_MISTAKE_SEEDS,
+  INITIAL_SKILL_METRIC_SEEDS,
+} from './seeds/learning-seed.js';
 
 export * from './schema.js';
 export { KANA_SEEDS } from './seeds/kana-seed.js';
 export { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
+export {
+  INITIAL_CARD_SEEDS,
+  INITIAL_QUESTION_SEEDS,
+  INITIAL_MISTAKE_SEEDS,
+  INITIAL_SKILL_METRIC_SEEDS,
+} from './seeds/learning-seed.js';
+
 
 export type DrizzleDb = BunSQLiteDatabase<typeof schema>;
 
@@ -177,9 +190,54 @@ export function initSchema(sqlite: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_kana_type ON curriculum_kana(type, sort_order);
+
+    CREATE TABLE IF NOT EXISTS quiz_questions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT 'default_user',
+      type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      content TEXT NOT NULL,
+      options TEXT,
+      chunks TEXT,
+      correct_answer TEXT NOT NULL,
+      explanation TEXT NOT NULL,
+      tested_skill_id TEXT NOT NULL,
+      difficulty INTEGER NOT NULL DEFAULT 3,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_quiz_questions_user ON quiz_questions(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS practice_collections (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      intent TEXT NOT NULL DEFAULT 'GENERATE_QUIZ',
+      layout_hint TEXT,
+      source_ref TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_practice_collections_user ON practice_collections(user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS practice_items (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      question_json TEXT NOT NULL,
+      skill_ids TEXT,
+      source_ref TEXT,
+      passage_document_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      collected_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_practice_items_collection ON practice_items(collection_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_practice_items_user ON practice_items(user_id, collected_at);
   `);
 
-    // 自动填充五十音权威种子数据（若空）
+    // 1. 自动填充五十音权威种子数据（若空）
     try {
       const countRow = sqlite
         .query<{ count: number }, []>('SELECT COUNT(*) as count FROM curriculum_kana')
@@ -208,7 +266,7 @@ export function initSchema(sqlite: Database): void {
       console.warn('[initSchema] Failed to auto-seed curriculum_kana:', e);
     }
 
-    // 自动填充双源阅读篇目（若空）
+    // 2. 自动填充双源阅读篇目（若空）
     try {
       const readingCountRow = sqlite
         .query<{ count: number }, []>(
@@ -243,6 +301,156 @@ export function initSchema(sqlite: Database): void {
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed reading passages:', e);
     }
+
+    // 3. 自动填充 FSRS 闪卡初始种子（若空）
+    try {
+      const cardCountRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM flashcards')
+        .get();
+      if (!cardCountRow || cardCountRow.count === 0) {
+        const now = new Date().toISOString();
+        const insertCardStmt = sqlite.prepare(`
+          INSERT INTO flashcards (id, user_id, type, front, back, phonetic, audio_url, tags, fsrs)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const c of INITIAL_CARD_SEEDS) {
+          const fsrsObj = {
+            stability: c.stability,
+            difficulty: 5.0,
+            reps: c.reps,
+            lapses: 0,
+            dueAt: now,
+            state: c.reps > 0 ? 'REVIEW' : 'NEW',
+          };
+          const tags = [...c.tags];
+          if (c.exampleJp) tags.push(c.exampleJp);
+          if (c.exampleZh) tags.push(c.exampleZh);
+
+          insertCardStmt.run(
+            c.id,
+            'student_web_01',
+            c.type,
+            c.front,
+            c.back,
+            c.phonetic ?? null,
+            c.audioUrl ?? null,
+            JSON.stringify(tags),
+            JSON.stringify(fsrsObj)
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed flashcards:', e);
+    }
+
+    // 4. 自动填充初始测评与自适应题库（若空）
+    try {
+      const qCountRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM quiz_questions')
+        .get();
+      if (!qCountRow || qCountRow.count === 0) {
+        const now = new Date().toISOString();
+        const insertQStmt = sqlite.prepare(`
+          INSERT INTO quiz_questions (id, user_id, type, category, prompt, content, options, chunks, correct_answer, explanation, tested_skill_id, difficulty, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const q of INITIAL_QUESTION_SEEDS) {
+          insertQStmt.run(
+            q.id,
+            'default_user',
+            q.type,
+            q.category,
+            q.prompt,
+            q.content,
+            q.options ? JSON.stringify(q.options) : null,
+            q.chunks ? JSON.stringify(q.chunks) : null,
+            q.correctAnswer,
+            q.explanation,
+            q.testedSkillId,
+            q.difficulty,
+            now
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed quiz_questions:', e);
+    }
+
+    // 5. 自动填充初始错题记录（若空）
+    try {
+      const mistCountRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM mistakes')
+        .get();
+      if (!mistCountRow || mistCountRow.count === 0) {
+        const now = new Date().toISOString();
+        const insertMistStmt = sqlite.prepare(`
+          INSERT INTO mistakes (id, user_id, question_id, question, last_user_submission, last_grading, recorded_at, last_retried_at, retry_count, consecutive_correct, is_resolved)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const m of INITIAL_MISTAKE_SEEDS) {
+          const questionObj = {
+            id: m.questionId,
+            type: 'CHOICE',
+            category: m.categoryTag,
+            prompt: m.prompt,
+            content: m.sentence,
+            correctAnswer: m.correctAnswer,
+            explanation: m.reviewNote,
+            testedSkillId: m.testedSkillId,
+          };
+          const gradingObj = {
+            isCorrect: false,
+            score: 0,
+            correctAnswer: m.correctAnswer,
+            userSubmission: m.userWrongAnswer,
+            explanation: m.reviewNote,
+          };
+          insertMistStmt.run(
+            m.id,
+            'student_web_01',
+            m.questionId,
+            JSON.stringify(questionObj),
+            m.userWrongAnswer,
+            JSON.stringify(gradingObj),
+            now,
+            null,
+            1,
+            m.consecutiveCorrect,
+            m.isResolved ? 1 : 0
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed mistakes:', e);
+    }
+
+    // 6. 自动填充技能画像指标（若空）
+    try {
+      const smCountRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM skill_metrics')
+        .get();
+      if (!smCountRow || smCountRow.count === 0) {
+        const now = new Date().toISOString();
+        const insertSmStmt = sqlite.prepare(`
+          INSERT INTO skill_metrics (user_id, skill_id, dimension, name, proficiency, total_attempts, correct_attempts, consecutive_errors, status, last_practiced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const sm of INITIAL_SKILL_METRIC_SEEDS) {
+          insertSmStmt.run(
+            'student_web_01',
+            sm.skillId,
+            sm.dimension,
+            sm.name,
+            sm.proficiency,
+            sm.totalAttempts,
+            sm.correctAttempts,
+            sm.consecutiveErrors,
+            sm.status,
+            now
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed skill_metrics:', e);
+    }
   }
-
-

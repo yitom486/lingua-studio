@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff } from 'lucide-react';
+import type { ContextSnapshot } from '@study-studio/agent-core';
 import { sound } from '../utils/audio.js';
 import type { useGateway } from '../hooks/useGateway.js';
+import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import {
   Sheet,
   SheetContent,
@@ -36,29 +39,158 @@ interface AiTutorDrawerProps {
   gateway?: ReturnType<typeof useGateway>;
 }
 
+function buildTutorClientSnapshot(
+  ctx: AiTutorContext,
+  activeTab: string,
+  profile: { targetLanguage: 'ja' | 'en'; overallLevel: string }
+): Partial<ContextSnapshot> {
+  return {
+    targetLanguage: profile.targetLanguage === 'en' ? 'en' : 'ja',
+    learnerLevel: profile.overallLevel,
+    locale: 'zh-CN',
+    ui: {
+      activeTab,
+      openTutor: true,
+    },
+    focus: {
+      kind: 'QUESTION',
+      surface: ctx.questionText,
+      correctAnswer: ctx.correctAnswer,
+      userAnswer: ctx.userAnswer,
+      explanation: ctx.explanation,
+      skillTag: ctx.skillTag,
+    },
+    userIntentHint: 'EXPLAIN',
+  };
+}
+
 export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDrawerProps) {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeStreamMsgIdRef = useRef<string | null>(null);
+  const bootstrappedRef = useRef<string | null>(null);
+
+  const activeTab = useStudySessionStore((s) => s.activeTab);
+  const profile = useUserProfileStore((s) => s.profile);
+
+  const buildSnapshot = useCallback((): Partial<ContextSnapshot> | undefined => {
+    if (!context) return undefined;
+    return buildTutorClientSnapshot(context, activeTab, {
+      targetLanguage: profile.targetLanguage === 'en' ? 'en' : 'ja',
+      overallLevel: profile.overallLevel,
+    });
+  }, [context, activeTab, profile.targetLanguage, profile.overallLevel]);
+
+  const attachStreamToMessage = useCallback(
+    (aiMsgId: string, input: string, intent: 'EXPLAIN' | 'FREE_COACH' = 'EXPLAIN') => {
+      if (!gateway?.isConnected) return false;
+
+      return gateway.sendTurnStream({
+        input,
+        intent,
+        contextSnapshot: buildSnapshot(),
+        onDelta: (_delta, accumulated) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulated } : m))
+          );
+        },
+        onComplete: (data) => {
+          sound.playCorrect();
+          setIsTyping(false);
+          activeStreamMsgIdRef.current = null;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId
+                ? {
+                    ...m,
+                    text: data.finalOutput || m.text,
+                    isStreaming: false,
+                  }
+                : m
+            )
+          );
+        },
+        onError: () => {
+          setIsTyping(false);
+          activeStreamMsgIdRef.current = null;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId
+                ? {
+                    ...m,
+                    text:
+                      m.text ||
+                      '抱歉，导师连接遇到网络异常，请确认网关已启动后重试。',
+                    isStreaming: false,
+                  }
+                : m
+            )
+          );
+        },
+      });
+    },
+    [gateway, buildSnapshot]
+  );
 
   useEffect(() => {
-    if (isOpen && context) {
-      sound.playClick();
+    if (!isOpen || !context) {
+      bootstrappedRef.current = null;
+      return;
+    }
+
+    const sessionKey = `${context.skillTag}|${context.questionText}`;
+    if (bootstrappedRef.current === sessionKey) return;
+    bootstrappedRef.current = sessionKey;
+
+    sound.playClick();
+    setInputText('');
+    setIsTyping(false);
+    activeStreamMsgIdRef.current = null;
+
+    if (gateway?.isConnected) {
+      const aiMsgId = `ai-boot-${Date.now()}`;
+      activeStreamMsgIdRef.current = aiMsgId;
       setMessages([
         {
-          id: 'msg-init',
+          id: aiMsgId,
           sender: 'ai',
-          text: `你好！我是你的专属 AI 导师。针对刚刚在「${context.skillTag}」中的题目：\n\n📌 **题目**：\n${context.questionText}\n\n💡 **标准解析**：\n${context.explanation}\n\n你可以直接点击下方快捷追问，或输入你的疑问（如辨析近义词、造句练习等）！`,
+          text: '',
           timestamp: '刚刚',
+          isStreaming: true,
         },
       ]);
-      setInputText('');
-      setIsTyping(false);
-      activeStreamMsgIdRef.current = null;
+      setIsTyping(true);
+      const prompt =
+        `请根据当前题目做简短导入讲解（3–6 句），点明考点「${context.skillTag}」，` +
+        `并邀请我继续追问。题干：${context.questionText}。` +
+        (context.userAnswer ? `我的作答：${context.userAnswer}。` : '') +
+        `参考解析：${context.explanation}`;
+      const sent = attachStreamToMessage(aiMsgId, prompt, 'EXPLAIN');
+      if (!sent) {
+        setMessages([
+          {
+            id: 'msg-init-offline',
+            sender: 'ai',
+            text: `你好！我是你的专属 AI 导师。针对「${context.skillTag}」：\n\n📌 ${context.questionText}\n\n💡 ${context.explanation}\n\n（Gateway 未连通，可先离线追问。）`,
+            timestamp: '刚刚',
+          },
+        ]);
+        setIsTyping(false);
+      }
+      return;
     }
-  }, [isOpen, context]);
+
+    setMessages([
+      {
+        id: 'msg-init',
+        sender: 'ai',
+        text: `你好！我是你的专属 AI 导师。针对刚刚在「${context.skillTag}」中的题目：\n\n📌 **题目**：\n${context.questionText}\n\n💡 **标准解析**：\n${context.explanation}\n\n你可以直接点击下方快捷追问，或输入你的疑问！`,
+        timestamp: '刚刚',
+      },
+    ]);
+  }, [isOpen, context, gateway?.isConnected, attachStreamToMessage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -115,81 +247,22 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
     setIsTyping(true);
 
     if (gateway && gateway.isConnected) {
-      // 真实 Gateway WebSocket 流式对话
-      const sent = gateway.sendTurnStream({
-        input: content,
-        intent: 'EXPLAIN',
-        contextSnapshot: context
-          ? {
-              targetLanguage: 'ja',
-              learnerLevel: 'N3',
-              focus: {
-                kind: 'QUESTION',
-                surface: context.questionText,
-                correctAnswer: context.correctAnswer,
-                userAnswer: context.userAnswer,
-                explanation: context.explanation,
-                skillTag: context.skillTag,
-              },
-              userIntentHint: 'EXPLAIN',
-            }
-          : undefined,
-        onDelta: (_delta, accumulated) => {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulated } : m))
-          );
-        },
-        onComplete: (data) => {
-          sound.playCorrect();
-          setIsTyping(false);
-          activeStreamMsgIdRef.current = null;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === aiMsgId
-                ? {
-                    ...m,
-                    text: data.finalOutput || m.text,
-                    isStreaming: false,
-                  }
-                : m
-            )
-          );
-        },
-        onError: () => {
-          setIsTyping(false);
-          activeStreamMsgIdRef.current = null;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === aiMsgId
-                ? {
-                    ...m,
-                    text:
-                      m.text ||
-                      '抱歉，导师连接遇到网络异常，请确认网关已启动后重试。',
-                    isStreaming: false,
-                  }
-                : m
-            )
-          );
-        },
-      });
-
+      const sent = attachStreamToMessage(aiMsgId, content, 'EXPLAIN');
       if (sent) return;
     }
 
-    // 离线备用演练模拟
     setTimeout(() => {
       let replyText = '';
       if (content.includes('例句') || content.includes('造句')) {
-        replyText = `为你提供 3 个地道生活化例句：\n1. **日曜日、図書館へ行きます。** (星期天去图书馆。——「へ」表示移动方向)\n2. **友達とカフェで勉強します。** (和朋友在咖啡馆学习。——「で」表示动作场所)\n3. **明日の朝、会議に参加します。** (明天早晨参加会议。——「に」表示归着点)`;
+        replyText = `为你提供 3 个地道生活化例句：\n1. **日曜日、図書館へ行きます。**\n2. **友達とカフェで勉強します。**\n3. **明日の朝、会議に参加します。**`;
       } else if (
         content.includes('为什么') ||
         content.includes('辨析') ||
         content.includes('区分')
       ) {
-        replyText = `这是最容易混淆的痛点！\n- **「で」的核心逻辑**：是【动作发生的作用力场所】或【手段/工具】，例如「ナイフで切る」(用刀切)。\n- **「に」的核心逻辑**：是【静态存在的落脚点/归着点】，例如「机の上に本がある」(桌上有书)。\n在表示“移动前往”时，虽然口语中常用「に」，但在强调“朝向该方向”时，格助词「へ」读作「え」，更加书面且正式。`;
+        replyText = `这是最容易混淆的痛点！\n- **「で」**：动作发生场所或手段。\n- **「に」**：静态存在/归着点。\n移动方向也可用「へ」(读え)。`;
       } else {
-        replyText = `收到你的追问！关于「${content}」：\n在外语学习中，避免死记硬背中文对译，而是去感知动作的“矢量方向”与“状态属性”。建议把这道题加入你的专项弱项复习池，明天艾宾浩斯曲线拐点时系统会为你自动推送巩固练习！`;
+        replyText = `收到你的追问！关于「${content}」：建议结合当前考点「${context?.skillTag ?? ''}」做对照练习，并把易错点加入错题本。`;
       }
 
       sound.playCorrect();

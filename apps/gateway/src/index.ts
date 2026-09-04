@@ -130,7 +130,7 @@ export const app = new Hono()
   })
   .post(
     '/api/cards/:userId',
-    validator('json', (value) => value as Record<string, unknown>[]),
+    validator('json', (value) => value as Record<string, unknown> | Record<string, unknown>[]),
     async (c) => {
       try {
         const body = c.req.valid('json');
@@ -171,9 +171,28 @@ export const app = new Hono()
     if (isOk(res)) return c.json({ success: true, mistakeId });
     return formatBusinessErrorResponse(c, res.error);
   })
-  // 5. AI 自适应靶向弱项出题
+  // 5. AI 自适应靶向弱项出题与题库持久化
   .get('/api/questions/:userId', async (c) => {
     const userId = c.req.param('userId');
+    // 优先从 SQLite quiz_questions 获取持久化的题目列表
+    const existingRes = await drizzleRepo.getQuestions(userId);
+    if (isOk(existingRes) && existingRes.value.length > 0) {
+      return c.json(existingRes.value);
+    }
+    // C5：优先 learning.content；旧 quiz.generateAdaptive 仅兼容回退
+    const contentTool = gatewayServer.toolRegistry.get('learning.content');
+    if (contentTool) {
+      const toolRes = await contentTool.execute(
+        { action: 'generate_quiz', count: 6, language: 'ja', collect: true },
+        { userId, sessionId: 'http_req' }
+      );
+      if (isOk(toolRes)) {
+        const generated = ((toolRes.value as { questions?: unknown[] }).questions ?? []) as any[];
+        await drizzleRepo.saveQuestions(generated);
+        return c.json(generated);
+      }
+      return formatBusinessErrorResponse(c, toolRes.error);
+    }
     const tool = gatewayServer.toolRegistry.get('quiz.generateAdaptive');
     if (tool) {
       const toolRes = await tool.execute(
@@ -181,12 +200,29 @@ export const app = new Hono()
         { userId, sessionId: 'http_req' }
       );
       if (isOk(toolRes)) {
-        return c.json(((toolRes.value as any).questions ?? []) as any[]);
+        const generated = ((toolRes.value as any).questions ?? []) as any[];
+        await drizzleRepo.saveQuestions(generated);
+        return c.json(generated);
       }
       return formatBusinessErrorResponse(c, toolRes.error);
     }
     return c.json([]);
   })
+  .post(
+    '/api/questions/:userId',
+    validator('json', (value) => value as Record<string, unknown> | Record<string, unknown>[]),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const questionsToSave = Array.isArray(body) ? body : [body];
+        const res = await drizzleRepo.saveQuestions(questionsToSave);
+        if (isOk(res)) return c.json({ success: true, count: questionsToSave.length });
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'saveQuestions');
+      }
+    }
+  )
   // 6. 文档与教材 (Documents)
   .get('/api/documents/:userId', async (c) => {
     const userId = c.req.param('userId');
@@ -650,6 +686,51 @@ Language acquisition follows much the same cadence. By celebrating steady, incre
         return formatBusinessErrorResponse(c, res.error);
       } catch (e: any) {
         return formatBusinessErrorResponse(c, e, 'recordReadingPractice');
+      }
+    }
+  )
+  // 10. 参数化学习内容引擎 (learning.content)
+  .post(
+    '/api/learning/content/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as Record<string, unknown>;
+        const tool = gatewayServer.toolRegistry.get('learning.content');
+        if (!tool) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_TOOL_MISSING', 'learning.content 未注册', 'TOOL_EXECUTION')
+          );
+        }
+        const res = await tool.execute(body, { userId, sessionId: 'http_content' });
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'learningContent');
+      }
+    }
+  )
+  .post(
+    '/api/learning/assess/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as Record<string, unknown>;
+        const tool = gatewayServer.toolRegistry.get('learning.assess');
+        if (!tool) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_TOOL_MISSING', 'learning.assess 未注册', 'TOOL_EXECUTION')
+          );
+        }
+        const res = await tool.execute(body, { userId, sessionId: 'http_assess' });
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'learningAssess');
       }
     }
   );

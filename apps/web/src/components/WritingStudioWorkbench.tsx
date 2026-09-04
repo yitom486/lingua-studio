@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { PenLine, Sparkles } from 'lucide-react';
+import { PenLine, Sparkles, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound } from '../utils/audio.js';
 import { SubjectiveWritingWorkbench } from './SubjectiveWritingWorkbench.js';
@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from './ui/select.js';
 import type { QuizGradingResult } from '@study-studio/protocol';
+import type { SubjectiveExercise } from '../data/subjective-demo-data.js';
+import { useGenerateWritingPromptsMutation } from '../queries/useLearnerQueries.js';
 
 interface WritingStudioWorkbenchProps {
   onGradeSubjective: (data: {
@@ -25,13 +27,37 @@ interface WritingStudioWorkbenchProps {
   }) => Promise<QuizGradingResult>;
 }
 
-/**
- * 写作工作室外壳：难度 / 体裁偏好 + 复用主观批改工作台。
- * 后续接 learning.content generate_writing_prompt。
- */
 export function WritingStudioWorkbench({ onGradeSubjective }: WritingStudioWorkbenchProps) {
   const [genre, setGenre] = useState('translation');
   const [difficulty, setDifficulty] = useState('3');
+  const [exercises, setExercises] = useState<SubjectiveExercise[] | undefined>(undefined);
+  const generateMutation = useGenerateWritingPromptsMutation();
+
+  const handleGenerate = async () => {
+    sound.playClick();
+    try {
+      const prompts = await generateMutation.mutateAsync({
+        genre,
+        difficulty: Number(difficulty) || 3,
+        count: 3,
+        collect: true,
+      });
+      setExercises(
+        prompts.map((p) => ({
+          id: p.id,
+          category: p.category,
+          chinesePrompt: p.chinesePrompt,
+          contextHint: p.contextHint,
+          testedSkillId: p.testedSkillId,
+          standardAnswer: p.standardAnswer,
+          grammarFocus: p.grammarFocus,
+        }))
+      );
+      toast.success('题干已由 learning.content 生成');
+    } catch {
+      toast.error('生成失败，可在下方工作台使用本地演示题或重试');
+    }
+  };
 
   return (
     <motion.div
@@ -50,11 +76,11 @@ export function WritingStudioWorkbench({ onGradeSubjective }: WritingStudioWorkb
                 写作与翻译工作室
               </h2>
               <Badge variant="amber" className="text-[10px]">
-                流式批改就绪
+                learning.content
               </Badge>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              可调体裁与难度 · 提交后多维诊断 · 后续支持读后续写
+              体裁与难度驱动出题 · 提交走 Gateway 批改
             </p>
           </div>
         </div>
@@ -87,20 +113,26 @@ export function WritingStudioWorkbench({ onGradeSubjective }: WritingStudioWorkb
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              sound.playClick();
-              toast.info(
-                `演示：将按「${genre} · 难度 ${difficulty}」生成新题干（待接 learning.content）`
-              );
-            }}
+            onClick={handleGenerate}
+            disabled={generateMutation.isPending}
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            {generateMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
             生成题干
           </Button>
         </div>
       </div>
 
-      <SubjectiveWritingWorkbench onGradeSubjective={onGradeSubjective} />
+      <SubjectiveWritingWorkbench
+        onGradeSubjective={onGradeSubjective}
+        exercises={exercises}
+        onExercisesChange={setExercises}
+        genre={genre}
+        difficulty={Number(difficulty) || 3}
+      />
     </motion.div>
   );
 }

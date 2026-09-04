@@ -2,13 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { SkillMetric } from '@study-studio/learner-core';
 import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
+import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
 import {
-  SKILL_METRICS_JP,
-  INITIAL_MISTAKES,
-  INITIAL_QUESTIONS,
-  INITIAL_CARDS,
   type MistakeNotebookItem,
   type QuizQuestionItem,
   type StudyCardItem,
@@ -55,11 +52,7 @@ export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
               }
             }
             if (dynamicBooks.length > 0) {
-              const existingIds = new Set(dynamicBooks.map((b) => b.id));
-              return [
-                ...dynamicBooks,
-                ...TEXTBOOK_BOOKS.filter((tb) => !existingIds.has(tb.id)),
-              ];
+              return dynamicBooks;
             }
           }
         }
@@ -88,9 +81,9 @@ export function useLearnerProfileQuery(userId = DEFAULT_USER_ID) {
           }
         }
       } catch (e) {
-        console.warn('[useLearnerProfileQuery] Hono RPC fallback to local snapshot', e);
+        console.warn('[useLearnerProfileQuery] Hono RPC failed to load profile', e);
       }
-      return SKILL_METRICS_JP;
+      return [];
     },
     staleTime: 1000 * 60 * 2,
   });
@@ -107,7 +100,7 @@ export function useMistakesQuery(userId = DEFAULT_USER_ID) {
         const res = await apiClient.api.mistakes[':userId'].$get({ param: { userId } });
         if (res.ok) {
           const list = await res.json();
-          if (Array.isArray(list) && list.length > 0) {
+          if (Array.isArray(list)) {
             return list.map((m: any) => ({
               id: m.id,
               categoryTag: m.question?.category || '薄弱项攻坚',
@@ -123,9 +116,9 @@ export function useMistakesQuery(userId = DEFAULT_USER_ID) {
           }
         }
       } catch (e) {
-        console.warn('[useMistakesQuery] Hono RPC fallback to local snapshot', e);
+        console.warn('[useMistakesQuery] Hono RPC failed to load mistakes', e);
       }
-      return INITIAL_MISTAKES;
+      return [];
     },
     staleTime: 1000 * 60 * 1,
   });
@@ -142,10 +135,10 @@ export function useQuestionsQuery(userId = DEFAULT_USER_ID) {
         const res = await apiClient.api.questions[':userId'].$get({ param: { userId } });
         if (res.ok) {
           const dynamicQuestions = await res.json();
-          if (Array.isArray(dynamicQuestions) && dynamicQuestions.length > 0) {
-            const mapped: QuizQuestionItem[] = dynamicQuestions.map((q: any) => ({
+          if (Array.isArray(dynamicQuestions)) {
+            return dynamicQuestions.map((q: any) => ({
               id: q.id,
-              type: (q.type === 'FILL_IN_BLANK' ? 'FILL_BLANK' : 'CHOICE') as any,
+              type: toUiQuizType(String(q.type ?? 'MULTIPLE_CHOICE')),
               category: q.category || 'AI 靶向攻坚',
               prompt: q.prompt || '选择最恰当的选项：',
               content: q.content,
@@ -156,20 +149,17 @@ export function useQuestionsQuery(userId = DEFAULT_USER_ID) {
                       : opt
                   )
                 : undefined,
+              chunks: Array.isArray(q.chunks) ? q.chunks : undefined,
               correctAnswer: q.correctAnswer,
               explanation: q.explanation,
-              testedSkill: q.testedSkillId || 'adaptive_skill',
+              testedSkill: q.testedSkillId || q.testedSkill || 'adaptive_skill',
             }));
-            return [
-              ...mapped,
-              ...INITIAL_QUESTIONS.filter((iq) => !mapped.some((m) => m.id === iq.id)),
-            ];
           }
         }
       } catch (e) {
-        console.warn('[useQuestionsQuery] Hono RPC fallback to local snapshot', e);
+        console.warn('[useQuestionsQuery] Hono RPC failed to load questions', e);
       }
-      return INITIAL_QUESTIONS;
+      return [];
     },
     staleTime: 1000 * 60 * 5,
   });
@@ -186,38 +176,62 @@ export function useCardsQuery(userId = DEFAULT_USER_ID) {
         const res = await apiClient.api.cards[':userId'].$get({ param: { userId } });
         if (res.ok) {
           const list = await res.json();
-          if (Array.isArray(list) && list.length > 0) {
+          if (Array.isArray(list)) {
             return list.map((c: any) => ({
               id: c.id,
-              type: (c.type === 'GRAMMAR' ? 'GRAMMAR' : 'VOCAB') as any,
+              type: (c.type === 'GRAMMAR' ? 'GRAMMAR' : c.type === 'CONFUSION' ? 'CONFUSION' : 'VOCAB') as any,
               frontWord: c.front,
               reading: c.phonetic || '',
               tag: Array.isArray(c.tags) ? c.tags[0] || '核心词汇' : '核心词汇',
               pos: Array.isArray(c.tags) ? c.tags[1] || '词汇' : '词汇',
               backMeaning: c.back,
-              exampleJp: c.exampleJp || '',
+              exampleJp: (Array.isArray(c.tags) && c.tags[2]) || c.exampleJp || '',
               exampleHighlight: c.exampleHighlight || c.front,
-              exampleZh: c.exampleZh || '',
+              exampleZh: (Array.isArray(c.tags) && c.tags[3]) || c.exampleZh || '',
               stability: c.fsrs?.stability ?? 1.0,
               reps: c.fsrs?.reps ?? 0,
+              dueAt: c.fsrs?.dueAt,
             }));
           }
         }
       } catch (e) {
-        console.warn('[useCardsQuery] Hono RPC fallback to local snapshot', e);
+        console.warn('[useCardsQuery] Hono RPC failed to load cards', e);
       }
-      return INITIAL_CARDS;
+      return [];
     },
     staleTime: 1000 * 60 * 5,
   });
 }
 
-/** 前置插入自适应题目并重置题序 */
+/** 前置插入自适应题目并经由 Hono RPC 持久化到 SQLite */
 export function usePrependQuestionMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (question: QuizQuestionItem) => question,
+    mutationFn: async (question: QuizQuestionItem) => {
+      const response = await apiClient.api.questions[':userId'].$post({
+          param: { userId },
+          json: {
+            id: question.id,
+            userId,
+            type: question.type,
+            category: question.category,
+            prompt: question.prompt,
+            content: question.content,
+            options: question.options,
+            chunks: question.chunks,
+            correctAnswer: question.correctAnswer,
+            explanation: question.explanation,
+            testedSkillId: question.testedSkill,
+            difficulty: 3,
+            createdAt: new Date().toISOString(),
+          } as any,
+        });
+      if (!response.ok) {
+        throw new Error('保存自适应题目失败');
+      }
+      return question;
+    },
     onSuccess: (question) => {
       queryClient.setQueryData<QuizQuestionItem[]>([...QUERY_KEYS.QUESTIONS, userId], (prev = []) => [
         question,
@@ -271,19 +285,46 @@ export function useAddCardsMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
-/** 更新单张卡片 FSRS 状态并累计足迹 (Hono RPC) */
+/** 更新单张卡片 FSRS 状态并累计足迹 (Hono RPC 持久化至 SQLite) */
 export function useUpdateCardMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (patch: Pick<StudyCardItem, 'id' | 'stability' | 'reps'>) => {
-      try {
-        await apiClient.api.task.activity[':userId'].$post({
+      // 1. 同步累计每日打卡足迹
+      const activityResponse = await apiClient.api.task.activity[':userId'].$post({
           param: { userId },
           json: { cards: 1 },
-        });
-      } catch (e) {
-        console.warn('[useUpdateCardMutation] Hono RPC failed to record card review activity', e);
+      });
+      if (!activityResponse.ok) throw new Error('记录卡片复习足迹失败');
+
+      // 2. 将卡片最新 FSRS 进度持久化写入 SQLite flashcards 表
+      const existingCards = queryClient.getQueryData<StudyCardItem[]>([...QUERY_KEYS.CARDS, userId]) || [];
+      const target = existingCards.find((c) => c.id === patch.id);
+      if (target) {
+          const payload = {
+            id: target.id,
+            userId,
+            type: target.type,
+            front: target.frontWord,
+            back: target.backMeaning,
+            phonetic: target.reading || null,
+            audioUrl: null,
+            tags: [target.tag, target.pos, target.exampleJp, target.exampleZh].filter(Boolean),
+            fsrs: {
+              stability: patch.stability,
+              difficulty: 5.0,
+              reps: patch.reps,
+              lapses: 0,
+              dueAt: new Date().toISOString(),
+              state: 'REVIEW',
+            },
+          };
+          const cardResponse = await apiClient.api.cards[':userId'].$post({
+            param: { userId },
+            json: [payload] as any,
+          });
+          if (!cardResponse.ok) throw new Error('保存闪卡复习状态失败');
       }
       return patch;
     },
@@ -725,3 +766,99 @@ export function useSubmitReadingPracticeMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+export type WritingPromptItem = {
+  id: string;
+  category: string;
+  chinesePrompt: string;
+  contextHint: string;
+  testedSkillId: string;
+  standardAnswer: string;
+  grammarFocus: string;
+};
+
+export type DictationChallengeItem = {
+  id: string;
+  sourceLesson: string;
+  speaker: string;
+  fullJapanese: string;
+  chinese: string;
+  blankPrompt: string;
+  clozeDisplay: string;
+  targetWord: string;
+  furiganaHint: string;
+  categoryTag: string;
+  testedSkillId: string;
+  grammarExplanation: string;
+};
+
+/** 调用 Gateway learning.content 生成写作题干 */
+export function useGenerateWritingPromptsMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (payload: {
+      genre?: string;
+      difficulty?: number;
+      count?: number;
+      skillIds?: string[];
+      collect?: boolean;
+    }) => {
+      const res = await apiClient.api.learning.content[':userId'].$post({
+        param: { userId },
+        json: {
+          action: 'generate_writing_prompt',
+          genre: payload.genre || 'translation',
+          difficulty: payload.difficulty || 3,
+          count: payload.count || 3,
+          skillIds: payload.skillIds,
+          collect: payload.collect ?? true,
+          language: 'ja',
+        },
+      });
+      if (!res.ok) throw new Error('生成写作题干失败');
+      const data = (await res.json()) as {
+        writingPrompts?: WritingPromptItem[];
+        questions?: Array<{
+          id: string;
+          prompt: string;
+          content: string;
+          correctAnswer: string;
+          explanation: string;
+          testedSkillId: string;
+        }>;
+        collectionId?: string;
+      };
+      if (data.writingPrompts?.length) return data.writingPrompts;
+      return (data.questions ?? []).map((q) => ({
+        id: q.id,
+        category: 'AI 写作题干',
+        chinesePrompt: q.prompt || q.content,
+        contextHint: q.explanation,
+        testedSkillId: q.testedSkillId,
+        standardAnswer: q.correctAnswer,
+        grammarFocus: q.explanation,
+      }));
+    },
+  });
+}
+
+/** 调用 Gateway learning.content 生成挖词听写 */
+export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (payload?: { count?: number; skillIds?: string[] }) => {
+      const res = await apiClient.api.learning.content[':userId'].$post({
+        param: { userId },
+        json: {
+          action: 'generate_quiz',
+          format: 'LISTENING_DICTATION',
+          count: payload?.count || 4,
+          skillIds: payload?.skillIds,
+          collect: true,
+          language: 'ja',
+        },
+      });
+      if (!res.ok) throw new Error('生成听写题失败');
+      const data = (await res.json()) as { dictationItems?: DictationChallengeItem[] };
+      if (!data.dictationItems?.length) throw new Error('听写题为空');
+      return data.dictationItems;
+    },
+  });
+}

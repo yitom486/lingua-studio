@@ -9,6 +9,47 @@ export const QuizQuestionTypeSchema = z.enum([
 ]);
 export type QuizQuestionType = z.infer<typeof QuizQuestionTypeSchema>;
 
+/** 前端做题台历史题型枚举（与 protocol 并存，经映射表互通） */
+export const UiQuizQuestionTypeSchema = z.enum(['CHOICE', 'FILL_BLANK', 'REORDER']);
+export type UiQuizQuestionType = z.infer<typeof UiQuizQuestionTypeSchema>;
+
+/**
+ * Protocol ↔ UI 题型双向映射。
+ * 协议侧：MULTIPLE_CHOICE / FILL_IN_BLANK / SENTENCE_REORDER
+ * UI 侧：CHOICE / FILL_BLANK / REORDER
+ */
+export function toUiQuizType(type: string): UiQuizQuestionType {
+  switch (type) {
+    case 'FILL_IN_BLANK':
+    case 'FILL_BLANK':
+      return 'FILL_BLANK';
+    case 'SENTENCE_REORDER':
+    case 'REORDER':
+      return 'REORDER';
+    case 'MULTIPLE_CHOICE':
+    case 'CHOICE':
+    default:
+      return 'CHOICE';
+  }
+}
+
+export function toProtocolQuizType(
+  type: string
+): Extract<QuizQuestionType, 'MULTIPLE_CHOICE' | 'FILL_IN_BLANK' | 'SENTENCE_REORDER'> {
+  switch (type) {
+    case 'FILL_BLANK':
+    case 'FILL_IN_BLANK':
+      return 'FILL_IN_BLANK';
+    case 'REORDER':
+    case 'SENTENCE_REORDER':
+      return 'SENTENCE_REORDER';
+    case 'CHOICE':
+    case 'MULTIPLE_CHOICE':
+    default:
+      return 'MULTIPLE_CHOICE';
+  }
+}
+
 export const GeneratedQuestionSchema = z.object({
   id: z.string(),
   type: QuizQuestionTypeSchema,

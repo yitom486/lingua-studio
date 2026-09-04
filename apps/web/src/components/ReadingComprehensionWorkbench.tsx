@@ -76,18 +76,14 @@ export function ReadingComprehensionWorkbench({
   const addAnnotationMutation = useAddAnnotationMutation();
   const addCardsMutation = useAddCardsMutation();
 
-  // 合并数据库与兜底种子篇目
+  // 有库数据时不再 merge 前端 DEMO；仅空库/失败时兜底
   const combinedSets: ReadingPassageSet[] = useMemo(() => {
-    const list = [...dbReadingSets];
-    const existingIds = new Set(list.map((s) => s.id));
-    for (const demo of DEMO_READING_SETS) {
-      if (!existingIds.has(demo.id)) {
-        if (origin && demo.origin !== origin) continue;
-        if (langFilter !== 'ALL' && demo.language !== langFilter) continue;
-        list.push(demo);
-      }
-    }
-    return list;
+    if (dbReadingSets.length > 0) return dbReadingSets;
+    return DEMO_READING_SETS.filter((demo) => {
+      if (origin && demo.origin !== origin) return false;
+      if (langFilter !== 'ALL' && demo.language !== langFilter) return false;
+      return true;
+    });
   }, [dbReadingSets, origin, langFilter]);
 
   const [activeSetId, setActiveSetId] = useState<string>('');

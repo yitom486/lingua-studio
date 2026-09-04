@@ -19,12 +19,12 @@ import {
 import { sound } from '../utils/audio.js';
 import { toast } from 'sonner';
 import { type TextbookLesson, type TextbookSentence } from '../data/textbook-data.js';
-import { DICTATION_CHALLENGES } from '../data/dictation-demo-data.js';
+import { DICTATION_CHALLENGES, type DictationItem } from '../data/dictation-demo-data.js';
+import { useGenerateDictationMutation, useTextbooksQuery } from '../queries/useLearnerQueries.js';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 import { useTts } from '../hooks/useTts.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
-import { useTextbooksQuery } from '../queries/useLearnerQueries.js';
 import {
   Select,
   SelectContent,
@@ -95,13 +95,15 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
   const [shadowStep, setShadowStep] = useState<'IDLE' | 'LISTENING' | 'SHADOWING'>('IDLE');
 
   // 挖词听写状态
+  const [dictationPool, setDictationPool] = useState<DictationItem[]>(DICTATION_CHALLENGES);
   const [dictationIndex, setDictationIndex] = useState<number>(0);
   const [userInput, setUserInput] = useState<string>('');
   const [hasChecked, setHasChecked] = useState<boolean>(false);
   const [isDictationCorrect, setIsDictationCorrect] = useState<boolean | null>(null);
+  const generateDictation = useGenerateDictationMutation();
 
   const activeSentence: TextbookSentence | undefined = activeLesson?.dialogues[sentenceIndex];
-  const activeDictation = DICTATION_CHALLENGES[dictationIndex]!;
+  const activeDictation = dictationPool[dictationIndex] ?? dictationPool[0]!;
 
   // 播放当前句子并驱动影子跟读流程
   const playActiveSentence = () => {
@@ -212,10 +214,26 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
     setHasChecked(false);
     setIsDictationCorrect(null);
     setShadowStep('IDLE');
-    if (dictationIndex < DICTATION_CHALLENGES.length - 1) {
+    if (dictationIndex < dictationPool.length - 1) {
       setDictationIndex((prev) => prev + 1);
     } else {
       setDictationIndex(0);
+    }
+  };
+
+  const handleRefreshDictation = async () => {
+    sound.playClick();
+    try {
+      const items = await generateDictation.mutateAsync({ count: 4 });
+      setDictationPool(items);
+      setDictationIndex(0);
+      setUserInput('');
+      setHasChecked(false);
+      setIsDictationCorrect(null);
+      toast.success('已从 learning.content 刷新听写题池');
+    } catch {
+      toast.message('网关不可用，继续使用本地听写题池');
+      setDictationPool(DICTATION_CHALLENGES);
     }
   };
 
@@ -257,7 +275,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
               🎙️ 对话短句影子跟读
             </TabsTrigger>
             <TabsTrigger value="DICTATION" className="px-3 py-1.5 text-xs">
-              ✍️ 考点挖词精听听写 ({DICTATION_CHALLENGES.length})
+              ✍️ 考点挖词精听听写 ({dictationPool.length})
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -585,10 +603,21 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
               <div className="flex items-center gap-2">
                 <Badge variant="amber">{activeDictation.categoryTag}</Badge>
                 <span className="text-xs text-stone-500">
-                  第 {dictationIndex + 1} 题 / 共 {DICTATION_CHALLENGES.length} 题
+                  第 {dictationIndex + 1} 题 / 共 {dictationPool.length} 题
                 </span>
               </div>
 
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRefreshDictation}
+                  disabled={generateDictation.isPending}
+                  className="gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {generateDictation.isPending ? '生成中…' : '刷新题池'}
+                </Button>
               {/* 播放原声语音按钮 (统一 TTS 组件) */}
               <UnifiedTtsPlayer
                 variant="button"
@@ -596,6 +625,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                 lang="JA"
                 label="播报录音原声"
               />
+              </div>
             </div>
 
             {/* 听力挖空展示 */}

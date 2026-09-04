@@ -39,7 +39,7 @@ export class GradeSubjectiveQuizTool
 {
   public readonly name = 'quiz.gradeSubjective';
   public readonly description =
-    '针对主观翻译、自由造句及语法运用题进行多维度 AI 智能深度批改与母语负迁移诊断';
+    '【兼容别名】主观题批改与错题入库；Agent/新路径请优先 learning.assess。本工具保留 QuizGradingResult 输出形态。';
   public readonly location = ToolLocations.SERVER;
   public readonly permission = ToolPermissions.WRITE;
   public readonly schema = GradeSubjectiveQuizInputSchema;

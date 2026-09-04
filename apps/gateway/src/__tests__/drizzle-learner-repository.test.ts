@@ -157,4 +157,96 @@ describe('DrizzleLearnerRepository', () => {
     expect(snapshotRes.value.dailyTask).toBeDefined();
     expect(snapshotRes.value.dailyTask?.isGoalCompleted).toBe(true);
   });
+
+  it('should auto-seed initial learning data (cards, questions, mistakes) into SQLite', async () => {
+    // 1. 验证卡片自动灌库与读取
+    const cardsRes = await repo.getDueCards('student_web_01');
+    expect(isOk(cardsRes)).toBe(true);
+    if (!isOk(cardsRes)) return;
+    expect(cardsRes.value.length).toBeGreaterThanOrEqual(4);
+    expect(cardsRes.value[0]?.front).toBeDefined();
+
+    // 2. 验证题库自动灌库与读取
+    const questionsRes = await repo.getQuestions('default_user');
+    expect(isOk(questionsRes)).toBe(true);
+    if (!isOk(questionsRes)) return;
+    expect(questionsRes.value.length).toBeGreaterThanOrEqual(6);
+    expect(questionsRes.value.some((q) => q.id === 'q_01')).toBe(true);
+
+    // 3. 验证错题本自动灌库与读取
+    const mistakesRes = await repo.getMistakes('student_web_01');
+    expect(isOk(mistakesRes)).toBe(true);
+    if (!isOk(mistakesRes)) return;
+    expect(mistakesRes.value.length).toBeGreaterThanOrEqual(2);
+    expect(mistakesRes.value.some((m) => m.id === 'mst_01')).toBe(true);
+  });
+
+  it('should persist updated FSRS review state for flashcards in SQLite', async () => {
+    const cardsRes = await repo.getDueCards('student_web_01');
+    expect(isOk(cardsRes)).toBe(true);
+    if (!isOk(cardsRes)) return;
+
+    const targetCard = { ...cardsRes.value[0]! };
+    targetCard.fsrs = {
+      ...targetCard.fsrs,
+      stability: 12.5,
+      reps: 5,
+      dueAt: '2026-09-20T00:00:00.000Z',
+    };
+
+    // 保存更新
+    const saveRes = await repo.saveCard(targetCard);
+    expect(isOk(saveRes)).toBe(true);
+
+    // 再次从 SQLite 重新读取，验证最新状态被持久化
+    const reloadedRes = await repo.getDueCards('student_web_01', 50);
+    expect(isOk(reloadedRes)).toBe(true);
+    if (!isOk(reloadedRes)) return;
+
+    const reloadedCard = reloadedRes.value.find((c) => c.id === targetCard.id);
+    expect(reloadedCard).toBeDefined();
+    expect(reloadedCard?.fsrs.stability).toBe(12.5);
+    expect(reloadedCard?.fsrs.reps).toBe(5);
+    expect(reloadedCard?.fsrs.dueAt).toBe('2026-09-20T00:00:00.000Z');
+  });
+
+  it('should persist dynamically generated questions and resolve mistakes cleanly', async () => {
+    // 1. 保存一道由 AI 生成的新题目
+    const newQuestion = {
+      id: 'q_ai_dynamized_01',
+      userId: 'student_web_01',
+      type: 'CHOICE',
+      category: 'AI 弱项专攻',
+      prompt: '请选择正确的助词：',
+      content: '公園（　）散歩します。',
+      options: [
+        { key: 'A', text: 'を', note: '经过的场所' },
+        { key: 'B', text: 'に', note: '静态存在场所' },
+      ],
+      correctAnswer: 'A',
+      explanation: '「散歩する」搭配移动经过的场所使用助词「を」。',
+      testedSkillId: 'jp.particle.traversal_o',
+      difficulty: 3,
+    };
+
+    const saveQRes = await repo.saveQuestion(newQuestion);
+    expect(isOk(saveQRes)).toBe(true);
+
+    const qListRes = await repo.getQuestions('student_web_01');
+    expect(isOk(qListRes)).toBe(true);
+    if (!isOk(qListRes)) return;
+    expect(qListRes.value.some((q) => q.id === 'q_ai_dynamized_01')).toBe(true);
+
+    // 2. 攻克错题并验证 isResolved 被持久化
+    const resolveRes = await repo.resolveMistake('mst_01');
+    expect(isOk(resolveRes)).toBe(true);
+
+    const mistakesRes = await repo.getMistakes('student_web_01');
+    expect(isOk(mistakesRes)).toBe(true);
+    if (!isOk(mistakesRes)) return;
+
+    const resolvedMistake = mistakesRes.value.find((m) => m.id === 'mst_01');
+    expect(resolvedMistake?.isResolved).toBe(true);
+    expect(resolvedMistake?.consecutiveCorrect).toBeGreaterThanOrEqual(1);
+  });
 });

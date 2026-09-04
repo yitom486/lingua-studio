@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { GeneratedQuestion } from '@study-studio/protocol';
 import type { AiTutorContext } from '../components/AiTutorDrawer.js';
 
 export type NavigationTab =
@@ -14,6 +15,16 @@ export type NavigationTab =
   | 'RADAR'
   | 'STATS';
 
+export interface PresentedQuizPackage {
+  surface: 'quiz' | 'cards' | 'kana_drill' | 'reading_quiz' | 'writing';
+  layout?: 'SPLIT_PASSAGE_QUESTIONS' | 'SINGLE_COLUMN' | undefined;
+  collectionId?: string | undefined;
+  questions: GeneratedQuestion[];
+  stepIndex: number;
+  passageId?: string | undefined;
+  presentedAt: string;
+}
+
 export interface StudySessionState {
   activeTab: NavigationTab;
   isCommandOpen: boolean;
@@ -21,6 +32,8 @@ export interface StudySessionState {
   questionIndex: number;
   isTutorOpen: boolean;
   tutorContext: AiTutorContext | null;
+  /** Agent ui.present 灌入的临时题包（优先于静态/RPC 队列展示） */
+  presentedQuiz: PresentedQuizPackage | null;
 
   setActiveTab: (tab: NavigationTab) => void;
   setIsCommandOpen: (open: boolean) => void;
@@ -29,7 +42,24 @@ export interface StudySessionState {
   setQuestionIndex: (index: number) => void;
   openTutor: (ctx: AiTutorContext) => void;
   closeTutor: () => void;
+  presentQuiz: (pkg: Omit<PresentedQuizPackage, 'presentedAt'> & { presentedAt?: string }) => void;
+  clearPresentedQuiz: () => void;
+  applyUiNavigate: (target: string, openTutor?: boolean) => void;
 }
+
+const TAB_SET = new Set<string>([
+  'QUIZ',
+  'CARDS',
+  'KANA',
+  'TEXTBOOK',
+  'READING',
+  'WRITING',
+  'SHADOWING',
+  'PITCH',
+  'MISTAKES',
+  'RADAR',
+  'STATS',
+]);
 
 export const useStudySessionStore = create<StudySessionState>((set) => ({
   activeTab: 'SHADOWING',
@@ -38,6 +68,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   questionIndex: 0,
   isTutorOpen: false,
   tutorContext: null,
+  presentedQuiz: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
   setIsCommandOpen: (isCommandOpen) => set({ isCommandOpen }),
@@ -46,4 +77,31 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   setQuestionIndex: (questionIndex) => set({ questionIndex }),
   openTutor: (tutorContext) => set({ isTutorOpen: true, tutorContext }),
   closeTutor: () => set({ isTutorOpen: false }),
+  presentQuiz: (pkg) =>
+    set({
+      presentedQuiz: {
+        ...pkg,
+        presentedAt: pkg.presentedAt ?? new Date().toISOString(),
+        stepIndex: pkg.stepIndex ?? 0,
+      },
+      questionIndex: pkg.stepIndex ?? 0,
+      activeTab:
+        pkg.surface === 'reading_quiz'
+          ? 'READING'
+          : pkg.surface === 'writing'
+            ? 'WRITING'
+            : pkg.surface === 'kana_drill'
+              ? 'KANA'
+              : 'QUIZ',
+    }),
+  clearPresentedQuiz: () => set({ presentedQuiz: null }),
+  applyUiNavigate: (target, openTutor) => {
+    if (target === 'TUTOR' || openTutor) {
+      set({ isTutorOpen: true });
+      return;
+    }
+    if (TAB_SET.has(target)) {
+      set({ activeTab: target as NavigationTab });
+    }
+  },
 }));

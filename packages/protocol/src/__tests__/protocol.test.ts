@@ -6,6 +6,8 @@ import {
   QuizGradingResultSchema,
   parseTextbookAST,
   TextbookASTSchema,
+  toUiQuizType,
+  toProtocolQuizType,
 } from '../index.js';
 
 
@@ -23,6 +25,15 @@ describe('Protocol Package Schemas', () => {
 
     const parsed = WsEnvelopeSchema.safeParse(rawEnvelope);
     expect(parsed.success).toBe(true);
+  });
+
+  it('should map FILL_IN_BLANK ↔ FILL_BLANK and CHOICE ↔ MULTIPLE_CHOICE', () => {
+    expect(toUiQuizType('FILL_IN_BLANK')).toBe('FILL_BLANK');
+    expect(toUiQuizType('FILL_BLANK')).toBe('FILL_BLANK');
+    expect(toProtocolQuizType('FILL_BLANK')).toBe('FILL_IN_BLANK');
+    expect(toProtocolQuizType('CHOICE')).toBe('MULTIPLE_CHOICE');
+    expect(toUiQuizType('SENTENCE_REORDER')).toBe('REORDER');
+    expect(toProtocolQuizType('REORDER')).toBe('SENTENCE_REORDER');
   });
 
   it('should validate generated question schema', () => {

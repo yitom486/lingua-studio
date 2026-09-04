@@ -7,3 +7,4 @@ export * from './schemas/profile.js';
 export * from './schemas/document.js';
 export * from './schemas/kana.js';
 export * from './schemas/reading.js';
+export * from './schemas/practice.js';

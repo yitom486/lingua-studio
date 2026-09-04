@@ -16,8 +16,10 @@ import {
   BusinessError,
   generateId,
   isOk,
+  nowIso,
 } from '@study-studio/shared';
 import type { LearnerRepository } from '@study-studio/learner-core';
+import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
 
 export const LearningContentInputSchema = z.object({
   action: z.enum([
@@ -36,12 +38,20 @@ export const LearningContentInputSchema = z.object({
       'SENTENCE_REORDER',
       'KANA_READ',
       'READING_MCQ',
+      'TRANSLATION',
+      'LISTENING_DICTATION',
+      'WRITING_PROMPT',
     ])
     .optional(),
   skillIds: z.array(z.string()).optional(),
   difficulty: z.number().int().min(1).max(5).optional(),
   language: z.enum(['ja', 'en']).optional(),
   topic: z.string().optional(),
+  /** 写作体裁：translation | email | essay | diary | news_response */
+  genre: z.string().optional(),
+  /** 是否将生成题写入 practice_collections / practice_items */
+  collect: z.boolean().optional(),
+  collectionTitle: z.string().optional(),
 });
 
 export type LearningContentInput = z.infer<typeof LearningContentInputSchema>;
@@ -63,6 +73,30 @@ export interface LearningContentOutput {
     body: string;
     topic: string;
   } | undefined;
+  writingPrompts?: Array<{
+    id: string;
+    category: string;
+    chinesePrompt: string;
+    contextHint: string;
+    testedSkillId: string;
+    standardAnswer: string;
+    grammarFocus: string;
+  }> | undefined;
+  dictationItems?: Array<{
+    id: string;
+    sourceLesson: string;
+    speaker: string;
+    fullJapanese: string;
+    chinese: string;
+    blankPrompt: string;
+    clozeDisplay: string;
+    targetWord: string;
+    furiganaHint: string;
+    categoryTag: string;
+    testedSkillId: string;
+    grammarExplanation: string;
+  }> | undefined;
+  collectionId?: string | undefined;
 }
 
 export class LearningContentTool
@@ -77,6 +111,51 @@ export class LearningContentTool
 
   constructor(private readonly learnerRepo: LearnerRepository) {}
 
+  private async maybeCollect(
+    context: ToolExecutionContext,
+    input: LearningContentInput,
+    questions: GeneratedQuestion[] | undefined,
+    summary: string,
+    extras?: Partial<LearningContentOutput>
+  ): Promise<Result<LearningContentOutput, BusinessError>> {
+    const base: LearningContentOutput = {
+      action: input.action,
+      language: input.language ?? 'ja',
+      summary,
+      questions,
+      ...extras,
+    };
+
+    if (!input.collect || !questions?.length) {
+      return ok(base);
+    }
+
+    if (!(this.learnerRepo instanceof DrizzleLearnerRepository)) {
+      return ok({
+        ...base,
+        summary: `${summary}（当前仓储不支持练习队列 collect，已跳过入库）`,
+      });
+    }
+
+    const collected = await this.learnerRepo.collectPracticeQuestions({
+      userId: context.userId,
+      title: input.collectionTitle || `练习 · ${input.action} · ${nowIso().slice(0, 10)}`,
+      intent: 'GENERATE_QUIZ',
+      questions,
+      sourceRef: input.skillIds?.[0],
+    });
+
+    if (!isOk(collected)) {
+      return collected;
+    }
+
+    return ok({
+      ...base,
+      summary: `${summary} 已写入练习队列「${collected.value.collection.title}」。`,
+      collectionId: collected.value.collection.id,
+    });
+  }
+
   public async execute(
     input: LearningContentInput,
     context: ToolExecutionContext
@@ -90,6 +169,72 @@ export class LearningContentTool
 
       switch (action) {
         case 'generate_quiz': {
+          if (input.format === 'LISTENING_DICTATION') {
+            const dictationItems = [
+              {
+                id: generateId('dict'),
+                sourceLesson: '自适应听写 · 终助词',
+                speaker: '小野',
+                fullJapanese: '李さんは中国人ですか。',
+                chinese: '小李是中国人吗？',
+                blankPrompt: '听录音，填入句尾疑问助词：',
+                clozeDisplay: '李さんは中国人です（　）。',
+                targetWord: 'か',
+                furiganaHint: 'ka',
+                categoryTag: '疑问终助词',
+                testedSkillId: input.skillIds?.[0] || 'jp.particle.ka',
+                grammarExplanation: '终助词「か」附在句尾表示疑问。',
+              },
+              {
+                id: generateId('dict'),
+                sourceLesson: '自适应听写 · 场所格',
+                speaker: '王',
+                fullJapanese: '昨日の夜、静かなカフェで本を読みました。',
+                chinese: '昨天晚上，我在安静的咖啡馆读了书。',
+                blankPrompt: '听录音，填入动作发生场所格助词：',
+                clozeDisplay: '昨日の夜、静かなカフェ（　）本を読みました。',
+                targetWord: 'で',
+                furiganaHint: 'de',
+                categoryTag: '场所格助词辨析',
+                testedSkillId: input.skillIds?.[0] || 'jp.particle.ni_vs_de',
+                grammarExplanation: '动态动作发生场所用「で」。',
+              },
+              {
+                id: generateId('dict'),
+                sourceLesson: '自适应听写 · 所属格',
+                speaker: '李',
+                fullJapanese: 'これは日本語の教科書です。',
+                chinese: '这是日语教科书。',
+                blankPrompt: '听录音，填入名词之间的所属格助词：',
+                clozeDisplay: 'これは日本語（　）教科書です。',
+                targetWord: 'の',
+                furiganaHint: 'no',
+                categoryTag: '连体格助词',
+                testedSkillId: 'jp.particle.no',
+                grammarExplanation: '格助词「の」连接两个名词表示所属。',
+              },
+            ].slice(0, count);
+
+            const questions: GeneratedQuestion[] = dictationItems.map((d) => ({
+              id: d.id,
+              type: 'LISTENING_DICTATION' as const,
+              prompt: d.blankPrompt,
+              content: d.clozeDisplay,
+              correctAnswer: d.targetWord,
+              explanation: d.grammarExplanation,
+              testedSkillId: d.testedSkillId,
+              difficultyTier: difficulty,
+            }));
+
+            return this.maybeCollect(
+              context,
+              input,
+              questions,
+              `已生成 ${dictationItems.length} 道挖词听写题。`,
+              { dictationItems }
+            );
+          }
+
           const skillId = input.skillIds?.[0] || 'jp.particle.ni_vs_de';
           const questions: GeneratedQuestion[] = [];
 
@@ -128,12 +273,12 @@ export class LearningContentTool
             }
           }
 
-          return ok({
-            action,
-            language,
-            summary: `已按难度 Lv.${difficulty} 成功生成 ${questions.length} 道针对【${skillId}】的测试题。`,
+          return this.maybeCollect(
+            context,
+            input,
             questions,
-          });
+            `已按难度 Lv.${difficulty} 成功生成 ${questions.length} 道针对【${skillId}】的测试题。`
+          );
         }
 
         case 'example_set': {
@@ -213,15 +358,166 @@ export class LearningContentTool
             },
           ];
 
+          return this.maybeCollect(context, input, questions, '已生成假名认读与听写练习。');
+        }
+
+        case 'generate_writing_prompt': {
+          const genre = input.genre || 'translation';
+          const skillId = input.skillIds?.[0] || 'jp.particle.ni_vs_de';
+          const bank = [
+            {
+              category: '日文长句翻译 · 动作场所',
+              chinesePrompt: '昨天下午，我和朋友在咖啡馆读了日语书。',
+              contextHint: '考查点：伴随助词「と」、动作场所助词「で」、宾格助词「を」及过去时态',
+              testedSkillId: 'jp.particle.ni_vs_de',
+              standardAnswer: '昨日、友達とカフェで日本語の本を読みました。',
+              grammarFocus: '区分动作发生场所「で」与静态存在场所「に」',
+            },
+            {
+              category: '日文句型运用 · 条件假定',
+              chinesePrompt: '明天要是下雨的话，我们就不去公园了。',
+              contextHint: '考查点：动词过去式接「ら」构成假定「降ったら」，否定形式「行かない」',
+              testedSkillId: 'jp.grammar.conditional_tara',
+              standardAnswer: '明日雨が降ったら、公園へ行きません。',
+              grammarFocus: '动词假定形「～たら」的自然运用',
+            },
+            {
+              category: '商务日文会话 · 敬语身份',
+              chinesePrompt: '初次见面，我是 JC 策划的员工小野，请多关照。',
+              contextHint: '考查点：初次会面寒暄、所属助词「の」与郑重敬语',
+              testedSkillId: 'jp.keigo.self_introduction',
+              standardAnswer: '初めまして、JC企画の社員の小野です。よろしくお願いします。',
+              grammarFocus: '初次会面身份介绍与敬语寒暄',
+            },
+            {
+              category: '读后续写 · 观点表达',
+              chinesePrompt: '请用日语简要说明：你为什么坚持每天复习闪卡？',
+              contextHint: '考查点：理由表达「～から／～ので」、简体与敬体选择',
+              testedSkillId: 'jp.grammar.reason_kara',
+              standardAnswer: '毎日フラッシュカードを復習すると、忘れにくくなるからです。',
+              grammarFocus: '因果连接与自然收束',
+            },
+          ];
+
+          const picked = bank.slice(0, Math.min(count, bank.length)).map((b, i) => ({
+            ...b,
+            id: generateId('write'),
+            category:
+              genre === 'email'
+                ? `邮件写作 · Lv.${difficulty}`
+                : genre === 'diary'
+                  ? `日记体 · Lv.${difficulty}`
+                  : genre === 'news_response'
+                    ? `读后续写 · Lv.${difficulty}`
+                    : b.category,
+            testedSkillId: i === 0 ? skillId : b.testedSkillId,
+          }));
+
+          const questions: GeneratedQuestion[] = picked.map((p) => ({
+            id: p.id,
+            type: 'TRANSLATION' as const,
+            prompt: p.chinesePrompt,
+            content: p.chinesePrompt,
+            correctAnswer: p.standardAnswer,
+            explanation: p.grammarFocus,
+            testedSkillId: p.testedSkillId,
+            difficultyTier: difficulty,
+          }));
+
+          return this.maybeCollect(
+            context,
+            input,
+            questions,
+            `已按体裁「${genre}」生成 ${picked.length} 道写作/翻译题干。`,
+            { writingPrompts: picked }
+          );
+        }
+
+        case 'generate_passage': {
+          const topicLabel = topic || '日常生活';
           return ok({
             action,
             language,
-            summary: '已生成假名认读与听写练习。',
-            questions,
+            summary: `已生成主题「${topicLabel}」的分级短文草稿。`,
+            passage: {
+              title: language === 'en' ? `A Short Passage on ${topicLabel}` : `「${topicLabel}」に関する短い文章`,
+              body:
+                language === 'en'
+                  ? `This is a level-${difficulty} practice passage about ${topicLabel}. Students should focus on main ideas and key vocabulary.`
+                  : `これは難度 Lv.${difficulty} の「${topicLabel}」に関する練習用短文です。キーワードと助詞の使い方に注目してください。`,
+              topic: topicLabel,
+            },
           });
         }
 
         default: {
+          // LISTENING_DICTATION via format on generate-like requests
+          if (input.format === 'LISTENING_DICTATION') {
+            const dictationItems = [
+              {
+                id: generateId('dict'),
+                sourceLesson: '自适应听写 · 终助词',
+                speaker: '小野',
+                fullJapanese: '李さんは中国人ですか。',
+                chinese: '小李是中国人吗？',
+                blankPrompt: '听录音，填入句尾疑问助词：',
+                clozeDisplay: '李さんは中国人です（　）。',
+                targetWord: 'か',
+                furiganaHint: 'ka',
+                categoryTag: '疑问终助词',
+                testedSkillId: input.skillIds?.[0] || 'jp.particle.ka',
+                grammarExplanation: '终助词「か」附在句尾表示疑问。',
+              },
+              {
+                id: generateId('dict'),
+                sourceLesson: '自适应听写 · 场所格',
+                speaker: '王',
+                fullJapanese: '昨日の夜、静かなカフェで本を読みました。',
+                chinese: '昨天晚上，我在安静的咖啡馆读了书。',
+                blankPrompt: '听录音，填入动作发生场所格助词：',
+                clozeDisplay: '昨日の夜、静かなカフェ（　）本を読みました。',
+                targetWord: 'で',
+                furiganaHint: 'de',
+                categoryTag: '场所格助词辨析',
+                testedSkillId: input.skillIds?.[0] || 'jp.particle.ni_vs_de',
+                grammarExplanation: '动态动作发生场所用「で」。',
+              },
+              {
+                id: generateId('dict'),
+                sourceLesson: '自适应听写 · 所属格',
+                speaker: '李',
+                fullJapanese: 'これは日本語の教科書です。',
+                chinese: '这是日语教科书。',
+                blankPrompt: '听录音，填入名词之间的所属格助词：',
+                clozeDisplay: 'これは日本語（　）教科書です。',
+                targetWord: 'の',
+                furiganaHint: 'no',
+                categoryTag: '连体格助词',
+                testedSkillId: 'jp.particle.no',
+                grammarExplanation: '格助词「の」连接两个名词表示所属。',
+              },
+            ].slice(0, count);
+
+            const questions: GeneratedQuestion[] = dictationItems.map((d) => ({
+              id: d.id,
+              type: 'LISTENING_DICTATION' as const,
+              prompt: d.blankPrompt,
+              content: d.clozeDisplay,
+              correctAnswer: d.targetWord,
+              explanation: d.grammarExplanation,
+              testedSkillId: d.testedSkillId,
+              difficultyTier: difficulty,
+            }));
+
+            return this.maybeCollect(
+              context,
+              input,
+              questions,
+              `已生成 ${dictationItems.length} 道挖词听写题。`,
+              { dictationItems }
+            );
+          }
+
           return ok({
             action,
             language,

@@ -8,9 +8,8 @@ import {
   RotateCcw,
   Send,
   Lightbulb,
-  Award,
-  Globe,
   Bot,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound } from '../utils/audio.js';
@@ -18,7 +17,15 @@ import { ShimmerButton, fireSuccessConfetti } from './magicui/index.js';
 import type { QuizGradingResult } from '@study-studio/protocol';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
-import { INITIAL_SUBJECTIVE_EXERCISES } from '../data/subjective-demo-data.js';
+import { Button } from './ui/button.js';
+import {
+  INITIAL_SUBJECTIVE_EXERCISES,
+  type SubjectiveExercise,
+} from '../data/subjective-demo-data.js';
+import {
+  useGenerateWritingPromptsMutation,
+  type WritingPromptItem,
+} from '../queries/useLearnerQueries.js';
 
 interface SubjectiveWritingWorkbenchProps {
   onGradeSubjective: (data: {
@@ -28,21 +35,75 @@ interface SubjectiveWritingWorkbenchProps {
     userSubmission: string;
     testedSkillId: string;
   }) => Promise<QuizGradingResult>;
+  /** 外部注入的题干（写作工作室生成后传入） */
+  exercises?: SubjectiveExercise[] | undefined;
+  onExercisesChange?: ((exercises: SubjectiveExercise[]) => void) | undefined;
+  genre?: string | undefined;
+  difficulty?: number | undefined;
 }
 
-export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWritingWorkbenchProps) {
+function toExercise(p: WritingPromptItem): SubjectiveExercise {
+  return {
+    id: p.id,
+    category: p.category,
+    chinesePrompt: p.chinesePrompt,
+    contextHint: p.contextHint,
+    testedSkillId: p.testedSkillId,
+    standardAnswer: p.standardAnswer,
+    grammarFocus: p.grammarFocus,
+  };
+}
+
+export function SubjectiveWritingWorkbench({
+  onGradeSubjective,
+  exercises: controlledExercises,
+  onExercisesChange,
+  genre = 'translation',
+  difficulty = 3,
+}: SubjectiveWritingWorkbenchProps) {
+  const [localExercises, setLocalExercises] = useState<SubjectiveExercise[]>(
+    INITIAL_SUBJECTIVE_EXERCISES
+  );
+  const exercises = controlledExercises ?? localExercises;
+  const setExercises = (next: SubjectiveExercise[]) => {
+    if (onExercisesChange) onExercisesChange(next);
+    else setLocalExercises(next);
+  };
+
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [inputSubmission, setInputSubmission] = useState('');
   const [isGrading, setIsGrading] = useState(false);
   const [gradingResult, setGradingResult] = useState<QuizGradingResult | null>(null);
+  const generateMutation = useGenerateWritingPromptsMutation();
 
-  const currentExercise = INITIAL_SUBJECTIVE_EXERCISES[exerciseIndex] ?? INITIAL_SUBJECTIVE_EXERCISES[0]!;
+  const currentExercise = exercises[exerciseIndex] ?? exercises[0] ?? INITIAL_SUBJECTIVE_EXERCISES[0]!;
 
   const handleSwitchExercise = (idx: number) => {
     sound.playClick();
     setExerciseIndex(idx);
     setInputSubmission('');
     setGradingResult(null);
+  };
+
+  const handleGenerate = async () => {
+    sound.playClick();
+    try {
+      const prompts = await generateMutation.mutateAsync({
+        genre,
+        difficulty,
+        count: 3,
+        collect: true,
+      });
+      const mapped = prompts.map(toExercise);
+      setExercises(mapped);
+      setExerciseIndex(0);
+      setInputSubmission('');
+      setGradingResult(null);
+      toast.success(`已生成 ${mapped.length} 道写作题干并写入练习队列`);
+    } catch {
+      toast.message('网关暂不可用，继续使用本地演示题干');
+      setExercises(INITIAL_SUBJECTIVE_EXERCISES);
+    }
   };
 
   const handleGradeSubmit = async () => {
@@ -69,10 +130,11 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
         toast.success(`批改完成：综合评分 ${result.score} 分！表达严谨地道！`);
       } else {
         sound.playMistake();
-        toast.error(`批改完成：发现 ${result.errorDiagnosis?.category ?? '语法'} 偏差，已自动录入错题本！`);
+        toast.error(
+          `批改完成：发现 ${result.errorDiagnosis?.category ?? '语法'} 偏差，已自动录入错题本！`
+        );
       }
     } catch {
-      // 离线启发式批改备选
       setTimeout(() => {
         const isExact = inputSubmission.trim() === currentExercise.standardAnswer;
         const fakeResult: QuizGradingResult = {
@@ -81,13 +143,16 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
           score: isExact ? 100 : 70,
           correctAnswer: currentExercise.standardAnswer,
           userSubmission: inputSubmission.trim(),
-          explanation: isExact ? '完美无瑕的地道日文表达！' : '助词使用存在偏差，请注意区分「で」与「に」的功能。',
+          explanation: isExact
+            ? '完美无瑕的地道日文表达！'
+            : '助词使用存在偏差，请注意区分「で」与「に」的功能。',
           errorDiagnosis: isExact
             ? undefined
             : {
                 category: 'PARTICLE',
                 description: '格助词缺失或功能混淆',
-                motherTongueInterference: '中文直译容易漏掉日语动作发生场所必须的格助词「で」。',
+                motherTongueInterference:
+                  '中文直译容易漏掉日语动作发生场所必须的格助词「で」。',
               },
           refinementSuggestion: currentExercise.standardAnswer,
           followUpTip: '日语句子中的名词必须借由助词与谓语动词紧密连接。',
@@ -108,13 +173,12 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
 
   return (
     <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">
-      {/* 头部与题目切换 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-stone-200 dark:border-stone-800">
         <div>
           <div className="flex items-center gap-2">
             <Badge variant="amber">AI 深度主观题批改</Badge>
             <span className="text-xs text-stone-500 dark:text-stone-400">
-              多维语法句法分析 · 母语负迁移深度诊断
+              learning.content 出题 · learning.assess 批改
             </span>
           </div>
           <h3 className="text-lg font-bold text-stone-900 dark:text-stone-100 mt-1 font-serif">
@@ -122,26 +186,39 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
           </h3>
         </div>
 
-        {/* 练习快速切换 */}
-        <Tabs
-          value={String(exerciseIndex)}
-          onValueChange={(val) => {
-            if (val == null) return;
-            handleSwitchExercise(Number(val));
-          }}
-        >
-          <TabsList className="bg-stone-200/60 dark:bg-stone-900">
-            <TabsIndicator />
-            {INITIAL_SUBJECTIVE_EXERCISES.map((ex, idx) => (
-              <TabsTrigger key={ex.id} value={String(idx)} className="px-3 py-1.5 text-xs">
-                题目 {idx + 1}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleGenerate}
+            disabled={generateMutation.isPending}
+          >
+            {generateMutation.isPending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            生成新题干
+          </Button>
+          <Tabs
+            value={String(Math.min(exerciseIndex, exercises.length - 1))}
+            onValueChange={(val) => {
+              if (val == null) return;
+              handleSwitchExercise(Number(val));
+            }}
+          >
+            <TabsList className="bg-stone-200/60 dark:bg-stone-900">
+              <TabsIndicator />
+              {exercises.map((ex, idx) => (
+                <TabsTrigger key={ex.id} value={String(idx)} className="px-3 py-1.5 text-xs">
+                  题目 {idx + 1}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
-      {/* 题面核心内容 */}
       <div className="space-y-3">
         <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-stone-900/60 border border-amber-900/10 dark:border-amber-500/15 space-y-2">
           <span className="text-xs font-bold text-amber-900 dark:text-amber-300 uppercase tracking-wider">
@@ -155,11 +232,10 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
           </p>
         </div>
 
-        {/* 用户输入框 */}
         <div className="space-y-2">
           <label className="text-xs font-semibold text-stone-600 dark:text-stone-400 flex items-center gap-1.5">
             <PenTool className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-            在此键入你的日文长句作答（支持罗马字自动假名或直接键入）：
+            在此键入你的日文长句作答：
           </label>
           <textarea
             rows={3}
@@ -170,7 +246,6 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
           />
         </div>
 
-        {/* 提交按钮 */}
         <div className="flex justify-end pt-1">
           <ShimmerButton
             onClick={handleGradeSubmit}
@@ -179,104 +254,71 @@ export function SubjectiveWritingWorkbench({ onGradeSubjective }: SubjectiveWrit
           >
             {isGrading ? (
               <>
-                <Bot className="w-4 h-4 animate-spin" />
-                <span>AI 正在剖析句法与母语负迁移...</span>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                批改中…
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4" />
-                <span>提交 AI 深度多维诊断批改</span>
+                <Send className="w-3.5 h-3.5" />
+                提交批改
               </>
             )}
           </ShimmerButton>
         </div>
       </div>
 
-      {/* 批改结果多维报告卡片 */}
-      {gradingResult && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-6 rounded-2xl border bg-amber-50/40 dark:bg-stone-900/50 border-amber-900/15 dark:border-amber-500/20 space-y-4"
-        >
-          {/* 得分与正误总览 */}
-          <div className="flex items-baseline justify-between pb-3 border-b border-stone-200 dark:border-stone-800">
-            <div className="flex items-center gap-2.5">
-              {gradingResult.isCorrect ? (
-                <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                  <CheckCircle2 className="w-5 h-5" />
-                </div>
-              ) : (
-                <div className="p-2 rounded-xl bg-rose-500/20 text-rose-700 dark:text-rose-300">
-                  <AlertTriangle className="w-5 h-5" />
-                </div>
-              )}
-              <div>
-                <span className="font-bold text-sm text-stone-900 dark:text-stone-100">
-                  {gradingResult.isCorrect ? '解答合格！' : '存在语法/用词偏差，已自动沉淀入错题本'}
+      <AnimatePresence>
+        {gradingResult && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            className="space-y-3"
+          >
+            <div
+              className={`p-4 rounded-2xl border ${
+                gradingResult.isCorrect
+                  ? 'bg-emerald-50/80 border-emerald-500/30 dark:bg-emerald-950/20'
+                  : 'bg-rose-50/80 border-rose-500/30 dark:bg-rose-950/20'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                {gradingResult.isCorrect ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="w-4 h-4 text-rose-600" />
+                )}
+                <span className="text-sm font-bold">
+                  综合评分 {gradingResult.score}
                 </span>
-                <p className="text-xs text-stone-500 dark:text-stone-400">
-                  考点归属：{currentExercise.grammarFocus}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-baseline gap-1">
-              <span className="text-3xl font-mono font-bold text-amber-600 dark:text-amber-400">
-                {gradingResult.score}
-              </span>
-              <span className="text-xs text-stone-400 font-mono">/ 100 分</span>
-            </div>
-          </div>
-
-          {/* 核心批改解析 */}
-          <div className="space-y-1">
-            <span className="text-xs font-bold text-stone-700 dark:text-stone-300">
-              💡 总体语法剖析：
-            </span>
-            <p className="text-xs sm:text-sm text-stone-800 dark:text-stone-200 leading-relaxed font-serif">
-              {gradingResult.explanation}
-            </p>
-          </div>
-
-          {/* 母语负迁移深度归因 (特色功能) */}
-          {gradingResult.errorDiagnosis && (
-            <div className="p-4 rounded-xl bg-rose-500/10 dark:bg-rose-950/20 border border-rose-500/20 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Badge variant="destructive" className="rounded font-mono text-xs">
-                  {gradingResult.errorDiagnosis.category} 偏误
+                <Badge variant="secondary" className="text-[10px]">
+                  {gradingResult.isCorrect ? '通过' : '需巩固'}
                 </Badge>
-                <span className="text-xs font-bold text-rose-900 dark:text-rose-200">
-                  🇨🇳 母语负迁移深度归因
-                </span>
               </div>
-              <p className="text-xs text-rose-800 dark:text-rose-300 leading-relaxed font-serif">
-                {gradingResult.errorDiagnosis.motherTongueInterference}
+              <p className="text-sm text-stone-700 dark:text-stone-300">
+                {gradingResult.explanation}
               </p>
+              {gradingResult.refinementSuggestion && (
+                <p className="text-xs mt-2 text-stone-500 flex items-start gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  范例：{gradingResult.refinementSuggestion}
+                </p>
+              )}
             </div>
-          )}
-
-          {/* 原生地道表达润色 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
-            <div className="p-3 rounded-xl bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 space-y-1">
-              <span className="text-stone-500 font-semibold">你的提交作答：</span>
-              <p className="font-medium text-stone-900 dark:text-stone-100">{gradingResult.userSubmission}</p>
-            </div>
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/25 space-y-1">
-              <span className="text-emerald-800 dark:text-emerald-300 font-semibold">原生母语者标准推荐：</span>
-              <p className="font-medium text-emerald-950 dark:text-emerald-100">{gradingResult.correctAnswer}</p>
-            </div>
-          </div>
-
-          {/* 避坑口诀 */}
-          {gradingResult.followUpTip && (
-            <div className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs text-amber-950 dark:text-amber-200 flex items-start gap-2">
-              <Lightbulb className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <span><strong className="font-bold">避坑口诀：</strong>{gradingResult.followUpTip}</span>
-            </div>
-          )}
-        </motion.div>
-      )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setInputSubmission('');
+                setGradingResult(null);
+              }}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              再练一题
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

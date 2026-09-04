@@ -19,6 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import type { QuizQuestionItem } from '../data/learning-data.js';
+import { toUiQuizType } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import {
@@ -57,10 +58,11 @@ export function AdaptiveQuizWorkbench({
   isGatewayConnected,
   onGenerateAdaptiveQuizApi,
 }: AdaptiveQuizWorkbenchProps) {
-  const { data: questions = [] } = useQuestionsQuery();
+  const { data: questionsFromQuery = [] } = useQuestionsQuery();
   const prependQuestion = usePrependQuestionMutation();
   const questionIndex = useStudySessionStore((s) => s.questionIndex);
   const setQuestionIndex = useStudySessionStore((s) => s.setQuestionIndex);
+  const presentedQuiz = useStudySessionStore((s) => s.presentedQuiz);
 
   const [quizSubMode, setQuizSubMode] = useState<'OBJECTIVE' | 'SUBJECTIVE'>('OBJECTIVE');
   const [isGeneratingAdaptive, setIsGeneratingAdaptive] = useState(false);
@@ -70,6 +72,29 @@ export function AdaptiveQuizWorkbench({
   const [quizSubmitted, setQuizSubmitted] = useState(false);
   const [isCurrentAnswerCorrect, setIsCurrentAnswerCorrect] = useState(false);
   const [sessionScore, setSessionScore] = useState(0);
+
+  const presentedAsItems: QuizQuestionItem[] = (presentedQuiz?.questions ?? []).map((q) => {
+    const item: QuizQuestionItem = {
+      id: q.id,
+      type: toUiQuizType(q.type),
+      category: `导师推送 · ${q.testedSkillId}`,
+      prompt: q.prompt,
+      content: q.content,
+      correctAnswer: q.correctAnswer,
+      explanation: q.explanation,
+      testedSkill: q.testedSkillId,
+    };
+    if (q.options?.length) {
+      item.options = q.options.map((text, i) => ({
+        key: String.fromCharCode(65 + i),
+        text,
+      }));
+    }
+    return item;
+  });
+
+  const questions =
+    presentedAsItems.length > 0 ? presentedAsItems : questionsFromQuery;
 
   const currentQ: QuizQuestionItem | undefined = questions[questionIndex] ?? questions[0];
   if (!currentQ) {
@@ -89,7 +114,7 @@ export function AdaptiveQuizWorkbench({
           const newQRaw = reply.questions[0];
           const newQ: QuizQuestionItem = {
             id: newQRaw.id,
-            type: newQRaw.type === 'FILL_IN_BLANK' ? 'FILL_BLANK' : 'CHOICE',
+            type: toUiQuizType(String(newQRaw.type ?? 'MULTIPLE_CHOICE')),
             category: `AI 靶向弱项 · ${reply.targetSkillName ?? '核心语法'}`,
             prompt: newQRaw.prompt,
             content: newQRaw.content,
