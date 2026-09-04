@@ -15,6 +15,7 @@ import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
 import { ReadingComprehensionWorkbench } from './components/ReadingComprehensionWorkbench.js';
 import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
+import { KanaStudioWorkbench } from './components/KanaStudioWorkbench.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useGateway } from './hooks/useGateway.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
@@ -204,6 +205,21 @@ export function App() {
                 transition={{ duration: 0.25 }}
               >
                 <PitchAccentCoach />
+              </motion.div>
+            )}
+
+            {activeTab === 'KANA' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <KanaStudioWorkbench
+                  onOpenTutor={(ctx) => {
+                    sound.playClick();
+                    openTutor(ctx);
+                  }}
+                />
               </motion.div>
             )}
 

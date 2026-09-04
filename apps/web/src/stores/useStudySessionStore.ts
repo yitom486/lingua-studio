@@ -4,6 +4,7 @@ import type { AiTutorContext } from '../components/AiTutorDrawer.js';
 export type NavigationTab =
   | 'QUIZ'
   | 'CARDS'
+  | 'KANA'
   | 'TEXTBOOK'
   | 'READING'
   | 'WRITING'

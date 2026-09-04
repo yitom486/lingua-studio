@@ -1,8 +1,10 @@
 import { Database } from 'bun:sqlite';
 import { drizzle, type BunSQLiteDatabase } from 'drizzle-orm/bun-sqlite';
 import * as schema from './schema.js';
+import { KANA_SEEDS } from './seeds/kana-seed.js';
 
 export * from './schema.js';
+export { KANA_SEEDS } from './seeds/kana-seed.js';
 
 export type DrizzleDb = BunSQLiteDatabase<typeof schema>;
 
@@ -158,6 +160,51 @@ export function initSchema(sqlite: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_annotations_doc_user ON annotations(document_id, user_id);
+
+    CREATE TABLE IF NOT EXISTS curriculum_kana (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      hiragana TEXT NOT NULL,
+      katakana TEXT NOT NULL,
+      romaji TEXT NOT NULL,
+      row TEXT NOT NULL,
+      col TEXT NOT NULL,
+      mnemonic TEXT,
+      audio_text TEXT NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_kana_type ON curriculum_kana(type, sort_order);
   `);
+
+  // 自动填充五十音权威种子数据（若空）
+  try {
+    const countRow = sqlite
+      .query<{ count: number }, []>('SELECT COUNT(*) as count FROM curriculum_kana')
+      .get();
+    if (!countRow || countRow.count === 0) {
+      const insertStmt = sqlite.prepare(`
+        INSERT INTO curriculum_kana (id, type, hiragana, katakana, romaji, row, col, mnemonic, audio_text, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const k of KANA_SEEDS) {
+        insertStmt.run(
+          k.id,
+          k.type,
+          k.hiragana,
+          k.katakana,
+          k.romaji,
+          k.row,
+          k.col,
+          k.mnemonic ?? null,
+          k.audioText,
+          k.sortOrder
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('[initSchema] Failed to auto-seed curriculum_kana:', e);
+  }
 }
+
 

@@ -30,7 +30,8 @@ export type SidebarIconKey =
   | 'Target'
   | 'Library'
   | 'User'
-  | 'Flame';
+  | 'Flame'
+  | 'Sparkles';
 
 export interface SidebarNavItemDef {
   id: NavigationTab;
@@ -84,9 +85,10 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
   },
   {
     id: 'memory',
-    label: '记忆与教材',
+    label: '课程与记忆',
     defaultOpen: true,
     items: [
+      { id: 'KANA', label: '五十音工作室', icon: 'Sparkles', badge: { kind: 'static', value: '假名' } },
       { id: 'CARDS', label: 'FSRS 闪卡', icon: 'Layers', badge: { kind: 'cardCount' } },
       { id: 'TEXTBOOK', label: '教材精读', icon: 'BookOpen', badge: { kind: 'static', value: 'AST' } },
     ],

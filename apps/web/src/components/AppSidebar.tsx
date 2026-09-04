@@ -18,6 +18,7 @@ import {
   FolderTree,
   Target,
   Library,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { NumberTicker } from './magicui/index.js';
@@ -69,6 +70,7 @@ const SIDEBAR_ICONS: Record<SidebarIconKey, LucideIcon> = {
   Library,
   User,
   Flame,
+  Sparkles,
 };
 
 type ResolvedNavItem = {

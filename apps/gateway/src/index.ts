@@ -328,6 +328,31 @@ export const app = new Hono()
         return formatBusinessErrorResponse(c, e, 'convertAnnotationToCard');
       }
     }
+  )
+  // 8. 五十音与假名课程底座 (Curriculum Kana)
+  .get('/api/curriculum/kana', async (c) => {
+    const type = c.req.query('type');
+    const res = await drizzleRepo.getCurriculumKana(type);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .post(
+    '/api/curriculum/kana/practice/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as any;
+        const kanaId = String(body.kanaId || '');
+        const isCorrect = Boolean(body.isCorrect);
+        const scriptType = (body.scriptType || 'HIRAGANA') as 'HIRAGANA' | 'KATAKANA' | 'ROMAJI';
+        const res = await drizzleRepo.recordKanaPractice(userId, kanaId, isCorrect, scriptType);
+        if (isOk(res)) return c.json({ success: true, ...res.value });
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'recordKanaPractice');
+      }
+    }
   );
 
 export type GatewayAppType = typeof app;

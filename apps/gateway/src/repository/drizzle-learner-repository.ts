@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { eq, and, desc, lte } from 'drizzle-orm';
+import { eq, and, desc, asc, lte } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -19,7 +19,7 @@ import type {
   DailyTaskProgress,
   MistakeEntry,
 } from '@study-studio/learner-core';
-import type { Flashcard, DocumentItem, AnnotationItem } from '@study-studio/protocol';
+import type { Flashcard, DocumentItem, AnnotationItem, KanaItem } from '@study-studio/protocol';
 import {
   createDrizzleDb,
   type DrizzleDb,
@@ -31,6 +31,7 @@ import {
   mistakes,
   documents,
   annotations,
+  curriculumKana,
 } from '../db/index.js';
 
 function getTodayString(): string {
@@ -1224,5 +1225,123 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       );
     }
   }
+
+  // ==================== 五十音课程底座 (Curriculum Kana) ====================
+
+  /**
+   * 获取五十音课程底座数据，支持按类型过滤
+   */
+  public async getCurriculumKana(
+    type?: string
+  ): Promise<Result<KanaItem[], BusinessError>> {
+    try {
+      let rows;
+      if (type) {
+        rows = await this.db
+          .select()
+          .from(curriculumKana)
+          .where(eq(curriculumKana.type, type))
+          .orderBy(asc(curriculumKana.sortOrder));
+      } else {
+        rows = await this.db
+          .select()
+          .from(curriculumKana)
+          .orderBy(asc(curriculumKana.sortOrder));
+      }
+
+      const items: KanaItem[] = rows.map((r) => ({
+        id: r.id,
+        type: r.type as any,
+        hiragana: r.hiragana,
+        katakana: r.katakana,
+        romaji: r.romaji,
+        row: r.row,
+        col: r.col,
+        mnemonic: r.mnemonic ?? undefined,
+        audioText: r.audioText,
+        sortOrder: r.sortOrder,
+      }));
+
+      return ok(items);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'getCurriculumKana',
+          entityId: type ?? 'ALL',
+        })
+      );
+    }
+  }
+
+  /**
+   * 记录假名练习结果并回写学习者熟练度与每日打卡活动
+   */
+  public async recordKanaPractice(
+    userId: string,
+    kanaId: string,
+    isCorrect: boolean,
+    scriptType: 'HIRAGANA' | 'KATAKANA' | 'ROMAJI' = 'HIRAGANA'
+  ): Promise<Result<{ proficiency: number }, BusinessError>> {
+    try {
+      const skillId = scriptType === 'KATAKANA' ? 'jp.kana.katakana' : 'jp.kana.hiragana';
+      const skillName = scriptType === 'KATAKANA' ? '片假名认读与听写' : '平假名认读与听写';
+
+      const existingRows = await this.db
+        .select()
+        .from(skillMetrics)
+        .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.skillId, skillId)))
+        .limit(1);
+
+      let totalAttempts = 1;
+      let correctAttempts = isCorrect ? 1 : 0;
+      let consecutiveErrors = isCorrect ? 0 : 1;
+
+      if (existingRows.length > 0) {
+        const row = existingRows[0]!;
+        totalAttempts = row.totalAttempts + 1;
+        correctAttempts = row.correctAttempts + (isCorrect ? 1 : 0);
+        consecutiveErrors = isCorrect ? 0 : row.consecutiveErrors + 1;
+      }
+
+      const proficiency = Math.min(
+        1.0,
+        Math.max(0.05, Number((correctAttempts / totalAttempts).toFixed(2)))
+      );
+
+      const status =
+        consecutiveErrors >= 2
+          ? 'WEAKNESS'
+          : proficiency >= 0.85 && totalAttempts >= 5
+          ? 'STRENGTH'
+          : 'NORMAL';
+
+      await this.saveSkillMetric(userId, {
+        id: skillId,
+        dimension: 'VOCABULARY',
+        name: skillName,
+        proficiency,
+        totalAttempts,
+        correctAttempts,
+        consecutiveErrors,
+        status,
+        lastPracticedAt: nowIso(),
+      });
+
+      // 累计当日学习足迹
+      await this.recordDailyActivity(userId, { quizzes: 1 });
+
+      return ok({ proficiency });
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'recordKanaPractice',
+          entityId: kanaId,
+        })
+      );
+    }
+  }
 }
+
 

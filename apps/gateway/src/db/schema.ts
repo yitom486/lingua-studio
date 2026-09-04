@@ -148,3 +148,20 @@ export const annotations = sqliteTable('annotations', {
   createdAt: text('created_at').notNull(),
 });
 
+/**
+ * 五十音/假名课程底座表 (Curriculum Kana)
+ */
+export const curriculumKana = sqliteTable('curriculum_kana', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(), // 'SEION' | 'DAKUON' | 'HANDAKUON' | 'YOON' | 'SPECIAL'
+  hiragana: text('hiragana').notNull(),
+  katakana: text('katakana').notNull(),
+  romaji: text('romaji').notNull(),
+  row: text('row').notNull(),
+  col: text('col').notNull(),
+  mnemonic: text('mnemonic'),
+  audioText: text('audio_text').notNull(),
+  sortOrder: integer('sort_order').notNull(),
+});
+
+

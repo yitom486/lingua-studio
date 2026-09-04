@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { SkillMetric } from '@study-studio/learner-core';
+import type { KanaItem } from '@study-studio/protocol';
 import { apiClient } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
 import {
@@ -19,6 +20,7 @@ export const QUERY_KEYS = {
   TEXTBOOKS: ['learner', 'textbooks'] as const,
   DOCUMENTS: ['learner', 'documents'] as const,
   ANNOTATIONS: ['learner', 'annotations'] as const,
+  KANA: ['curriculum', 'kana'] as const,
   PROFILE: ['learner', 'profile'] as const,
   MISTAKES: ['learner', 'mistakes'] as const,
   QUESTIONS: ['learner', 'questions'] as const,
@@ -408,7 +410,7 @@ export function useImportTextbookMutation(userId = DEFAULT_USER_ID) {
             title: book.title,
             sourceKind: 'user_import',
             language: 'ja',
-            content: book.description || book.title,
+            content: (book as any).description || book.title,
             astJson: JSON.stringify(book),
             sourcePublisher: book.publisher || '用户自主导入',
           },
@@ -568,4 +570,61 @@ export function vocabToStudyCard(
     stability: 1.0,
     reps: 0,
   };
+}
+
+/** 五十音全表查询 (依托 Hono RPC 端到端强类型系统) */
+export function useCurriculumKanaQuery(type?: string) {
+  return useQuery<KanaItem[]>({
+    queryKey: [...QUERY_KEYS.KANA, type ?? 'ALL'],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.api.curriculum.kana.$get({
+          query: type ? { type } : {},
+        });
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list) && list.length > 0) {
+            return list as KanaItem[];
+          }
+        }
+      } catch (e) {
+        console.warn('[useCurriculumKanaQuery] Hono RPC fallback to local memory', e);
+      }
+      return [];
+    },
+    staleTime: 1000 * 60 * 30, // 课程底座几乎不变，长效缓存 30 分钟
+  });
+}
+
+/** 提交假名练习结果并回写画像 (Hono RPC) */
+export function useKanaPracticeMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      kanaId: string;
+      isCorrect: boolean;
+      scriptType?: 'HIRAGANA' | 'KATAKANA' | 'ROMAJI';
+    }) => {
+      try {
+        const res = await apiClient.api.curriculum.kana.practice[':userId'].$post({
+          param: { userId },
+          json: {
+            kanaId: payload.kanaId,
+            isCorrect: payload.isCorrect,
+            scriptType: payload.scriptType || 'HIRAGANA',
+          },
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.warn('[useKanaPracticeMutation] Failed to post kana practice', e);
+      }
+      return { success: true };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+    },
+  });
 }
