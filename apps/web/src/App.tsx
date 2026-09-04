@@ -1,51 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
 import {
   BookOpen,
-  CheckCircle2,
-  XCircle,
-  TrendingUp,
-  AlertTriangle,
-  Award,
-  Layers,
-  ChevronRight,
-  ChevronLeft,
-  Sun,
-  Moon,
-  Sparkles,
-  GraduationCap,
-  Clock,
-  ArrowRight,
-  Bookmark,
-  RotateCcw,
-  Check,
-  Filter,
-  CheckCheck,
-  Undo2,
-  Mic,
-  Command,
-  Flame,
   Zap,
-  Bot,
-  HelpCircle,
+  Layers,
   Headphones,
+  Mic,
+  AlertTriangle,
+  TrendingUp,
+  Flame,
+  Moon,
+  Sun,
 } from 'lucide-react';
-import {
-  initFsrsState,
-  scheduleNextReview,
-  type SkillMetric,
-} from '@study-studio/learner-core';
-import type { CardReviewRating } from '@study-studio/protocol';
 import { generateId } from '@study-studio/shared';
-import {
-  DotPattern,
-  NumberTicker,
-  ShimmerButton,
-  fireSuccessConfetti,
-  BentoGrid,
-  BentoCard,
-} from './components/magicui/index.js';
+import type { SkillMetric } from '@study-studio/learner-core';
+import { DotPattern } from './components/magicui/index.js';
 import { sound } from './utils/audio.js';
 import {
   INITIAL_QUESTIONS,
@@ -57,19 +27,19 @@ import {
   type MistakeNotebookItem,
 } from './data/learning-data.js';
 import { CommandPalette, type CommandAction } from './components/CommandPalette.js';
-import { TextbookCurriculum } from './components/TextbookCurriculum.js';
-import { PitchAccentCoach } from './components/PitchAccentCoach.js';
-import { StudyStreakHeatmap } from './components/StudyStreakHeatmap.js';
 import { AiTutorDrawer, type AiTutorContext } from './components/AiTutorDrawer.js';
-import { SubjectiveWritingWorkbench } from './components/SubjectiveWritingWorkbench.js';
+import { AppHeader } from './components/AppHeader.js';
+import { NavigationTabs } from './components/NavigationTabs.js';
+import { AdaptiveQuizWorkbench } from './components/AdaptiveQuizWorkbench.js';
+import { FsrsCardWorkbench } from './components/FsrsCardWorkbench.js';
+import { TextbookCurriculum } from './components/TextbookCurriculum.js';
 import { ListeningShadowingWorkbench } from './components/ListeningShadowingWorkbench.js';
+import { PitchAccentCoach } from './components/PitchAccentCoach.js';
 import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
-import { VoiceSettingsPopover } from './components/VoiceSettingsPopover.js';
-import { UnifiedTtsPlayer } from './components/UnifiedTtsPlayer.js';
+import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
 import { useGateway } from './hooks/useGateway.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
 import { useStudySessionStore } from './stores/useStudySessionStore.js';
-
 
 export function App() {
   // 网关实时双向通讯与数据库持久化钩子
@@ -82,125 +52,19 @@ export function App() {
   const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
   const isCommandOpen = useStudySessionStore((s) => s.isCommandOpen);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
-  const toggleCommandOpen = useStudySessionStore((s) => s.toggleCommandOpen);
 
   // AI 导师抽屉状态
   const [isTutorOpen, setIsTutorOpen] = useState(false);
   const [tutorContext, setTutorContext] = useState<AiTutorContext | null>(null);
 
-  // --- 1. 做题系统状态 ---
+  // 1. 核心领域数据源 (自适应题目/FSRS卡片/错题本/多维能力画像)
   const [questions, setQuestions] = useState<QuizQuestionItem[]>(INITIAL_QUESTIONS);
-  const [quizSubMode, setQuizSubMode] = useState<'OBJECTIVE' | 'SUBJECTIVE'>('OBJECTIVE');
-  const [isGeneratingAdaptive, setIsGeneratingAdaptive] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
-  const [fillBlankInput, setFillBlankInput] = useState('');
-  const [reorderSelectedChunks, setReorderSelectedChunks] = useState<string[]>([]);
-  const [quizSubmitted, setQuizSubmitted] = useState(false);
-  const [isCurrentAnswerCorrect, setIsCurrentAnswerCorrect] = useState(false);
-  const [sessionScore, setSessionScore] = useState(0);
-
-  const currentQ: QuizQuestionItem = questions[questionIndex] ?? questions[0]!;
-
-  // 1.1 AI 针对画像弱项一键出题 (动态组卷)
-  const handleGenerateAdaptiveQuiz = async () => {
-    sound.playClick();
-    setIsGeneratingAdaptive(true);
-    try {
-      if (gateway.isConnected) {
-        const reply = await gateway.generateAdaptiveQuiz();
-        if (reply && reply.questions && reply.questions.length > 0) {
-          const newQRaw = reply.questions[0];
-          const newQ: QuizQuestionItem = {
-            id: newQRaw.id,
-            type: newQRaw.type === 'FILL_IN_BLANK' ? 'FILL_BLANK' : 'CHOICE',
-            category: `AI 靶向弱项 · ${reply.targetSkillName ?? '核心语法'}`,
-            prompt: newQRaw.prompt,
-            content: newQRaw.content,
-            options: newQRaw.options?.map((text: string, i: number) => ({
-              key: String.fromCharCode(65 + i),
-              text,
-            })),
-            correctAnswer: newQRaw.correctAnswer,
-            explanation: newQRaw.explanation,
-            testedSkill: newQRaw.testedSkillId,
-          };
-          setQuestions((prev) => [newQ, ...prev]);
-          setQuestionIndex(0);
-          setSelectedChoice(null);
-          setFillBlankInput('');
-          setReorderSelectedChunks([]);
-          setQuizSubmitted(false);
-          sound.playSuccess();
-          fireSuccessConfetti();
-          toast.success('🎯 AI 已根据您的学情画像生成专属靶向弱项测评！');
-          return;
-        }
-      }
-
-      // 离线环境备选动态题
-      setTimeout(() => {
-        const fallbackQ: QuizQuestionItem = {
-          id: `q_ai_${Date.now()}`,
-          type: 'CHOICE',
-          category: 'AI 靶向弱项 · 助词「で」与「に」',
-          prompt: '根据动作属性选择正确的场所助词：',
-          content: '昨夜、友達と一緒に図書館（　）勉強しました。',
-          options: [
-            { key: 'A', text: 'で', note: '动作发生的场所' },
-            { key: 'B', text: 'に', note: '静态存在场所或目的地' },
-            { key: 'C', text: 'を', note: '宾格助词' },
-            { key: 'D', text: 'へ', note: '移动方向' },
-          ],
-          correctAnswer: 'A',
-          explanation: '「勉強する」为具体动态动作，动作发生场所固定使用「で」。',
-          testedSkill: 'jp.particle.ni_vs_de',
-        };
-        setQuestions((prev) => [fallbackQ, ...prev]);
-        setQuestionIndex(0);
-        setSelectedChoice(null);
-        setQuizSubmitted(false);
-        sound.playSuccess();
-        fireSuccessConfetti();
-        toast.success('🎯 AI 已根据您的学情画像生成专属靶向弱项测评！');
-      }, 500);
-    } catch {
-      toast.error('AI 动态出题请求超时');
-    } finally {
-      setIsGeneratingAdaptive(false);
-    }
-  };
-
-  // 1.2 主观题智能批改联动
-  const handleGradeSubjective = async (data: {
-    questionId: string;
-    prompt: string;
-    standardAnswer: string;
-    userSubmission: string;
-    testedSkillId: string;
-  }) => {
-    return gateway.gradeSubjectiveQuiz(data);
-  };
-
-  // --- 2. 卡片系统状态 ---
   const [cards, setCards] = useState<StudyCardItem[]>(INITIAL_CARDS);
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [cardFlipped, setCardFlipped] = useState(false);
-  const cardFilter = useStudySessionStore((s) => s.cardFilter);
-  const setCardFilter = useStudySessionStore((s) => s.setCardFilter);
-
-  const filteredCards = cards.filter((c) => cardFilter === 'ALL' || c.type === cardFilter);
-  const activeCard: StudyCardItem | undefined = filteredCards[currentCardIndex] || filteredCards[0];
-
-  // --- 3. 错题本状态 ---
   const [mistakes, setMistakes] = useState<MistakeNotebookItem[]>(INITIAL_MISTAKES);
-  const [mistakeFilter, setMistakeFilter] = useState<'ALL' | 'UNRESOLVED' | 'RESOLVED'>('ALL');
+  const [metrics] = useState<SkillMetric[]>(SKILL_METRICS_JP);
 
-  // --- 4. 技能画像状态 ---
-  const [metrics, setMetrics] = useState<SkillMetric[]>(SKILL_METRICS_JP);
-  const [metricDimension, setMetricDimension] = useState<string>('ALL');
-
-  // 打开 AI 导师抽屉
+  // 2. 跨模块联动事件处理
   const handleOpenTutor = (ctx: AiTutorContext) => {
     sound.playClick();
     setTutorContext(ctx);
@@ -211,20 +75,16 @@ export function App() {
   const handleStartLessonQuiz = (lessonId: string, lessonTitle: string) => {
     setActiveTab('QUIZ');
     if (lessonId === 'biaori-l1') {
-      setQuestionIndex(4); // q_05 (第1课)
+      setQuestionIndex(4); // 第 1 课针对题
     } else if (lessonId === 'biaori-l2') {
-      setQuestionIndex(5); // q_06 (第2课)
+      setQuestionIndex(5); // 第 2 课针对题
     } else {
       setQuestionIndex(0);
     }
-    setSelectedChoice(null);
-    setFillBlankInput('');
-    setReorderSelectedChunks([]);
-    setQuizSubmitted(false);
     toast.success(`已为您载入《${lessonTitle}》专属测评题！`);
   };
 
-  // 教材课程联动：加入今日生词卡
+  // 教材课程联动：加入单张生词卡
   const handleAddCardFromTextbook = (vocab: { front: string; back: string; category: string; prompt: string }) => {
     const newCard: StudyCardItem = {
       id: `card_tb_${Date.now()}`,
@@ -272,142 +132,6 @@ export function App() {
     });
   };
 
-
-  // 提交做题答题
-  const handleQuizSubmit = () => {
-    sound.playClick();
-    let correct = false;
-
-
-    if (currentQ.type === 'CHOICE') {
-      correct = selectedChoice === currentQ.correctAnswer;
-    } else if (currentQ.type === 'FILL_BLANK') {
-      correct = fillBlankInput.trim().toLowerCase() === currentQ.correctAnswer.toLowerCase();
-    } else if (currentQ.type === 'REORDER') {
-      correct = reorderSelectedChunks.join(' ') === currentQ.correctAnswer;
-    }
-
-    setIsCurrentAnswerCorrect(correct);
-    setQuizSubmitted(true);
-
-    // 同步将做题结果与错题上报网关，由 SQLite 统一持久化
-    gateway.submitQuizToGateway({
-      questionId: currentQ.id,
-      userAnswer:
-        currentQ.type === 'CHOICE'
-          ? selectedChoice ?? ''
-          : currentQ.type === 'FILL_BLANK'
-          ? fillBlankInput
-          : reorderSelectedChunks.join(' '),
-      isCorrect: correct,
-      score: correct ? 1 : 0,
-      timeSpentMs: 2800,
-      testedSkillId: currentQ.testedSkill,
-      questionContent: currentQ.content,
-      correctAnswer: currentQ.correctAnswer,
-      explanation: currentQ.explanation,
-    });
-
-    if (correct) {
-      sound.playSuccess();
-      fireSuccessConfetti();
-      setSessionScore((prev) => prev + 1);
-      toast.success('回答正确！知识点掌握度提升 ＋5%');
-    } else {
-      sound.playMistake();
-      toast.error('回答有误，系统已为您自动归入错题本并标注考点。');
-    }
-  };
-
-  // 下一题处理
-  const handleNextQuestion = () => {
-    sound.playClick();
-    setSelectedChoice(null);
-    setFillBlankInput('');
-    setReorderSelectedChunks([]);
-    setQuizSubmitted(false);
-
-    if (questionIndex < INITIAL_QUESTIONS.length - 1) {
-      setQuestionIndex((prev) => prev + 1);
-    } else {
-      toast.success(`恭喜完成本轮专项练习！总得分 ${sessionScore + (isCurrentAnswerCorrect ? 1 : 0)} / ${INITIAL_QUESTIONS.length}`);
-      setQuestionIndex(0);
-      setSessionScore(0);
-    }
-  };
-
-  // FSRS 卡片自评打分
-  const handleCardReview = (rating: CardReviewRating) => {
-    sound.playClick();
-    if (!activeCard) return;
-
-    const fsrsCurrent = {
-      stability: activeCard.stability,
-      difficulty: 5.0,
-      reps: activeCard.reps,
-      lapses: 0,
-      dueAt: new Date().toISOString(),
-      state: 'REVIEW' as const,
-    };
-    const nextFsrs = scheduleNextReview(fsrsCurrent, rating);
-
-    setCards((prev) =>
-      prev.map((c) =>
-        c.id === activeCard.id
-          ? { ...c, stability: nextFsrs.stability, reps: nextFsrs.reps }
-          : c
-      )
-    );
-
-    // 上报网关同步持久化
-    gateway.reviewCardToGateway({
-      cardId: activeCard.id,
-      rating,
-      currentStability: activeCard.stability,
-      currentReps: activeCard.reps,
-    });
-
-    setCardFlipped(false);
-
-    if (rating === 'GOOD' || rating === 'EASY') {
-      sound.playSuccess();
-      fireSuccessConfetti();
-      toast.success(`评级成功：下次复习将在 ${Math.round(nextFsrs.stability)} 天后`);
-    } else {
-      sound.playMistake();
-      toast('已加入今日重练队列，稍后将再次强化。');
-    }
-
-    if (currentCardIndex < filteredCards.length - 1) {
-      setCurrentCardIndex((prev) => prev + 1);
-    } else {
-      setCurrentCardIndex(0);
-    }
-  };
-
-  // 针对错题发起即时攻克重做
-  const handleResolveMistakeRetry = (mistakeId: string) => {
-    sound.playSuccess();
-    fireSuccessConfetti();
-    setMistakes((prev) =>
-      prev.map((m) => {
-        if (m.id !== mistakeId) return m;
-        const newCount = m.consecutiveCorrect + 1;
-        const isResolved = newCount >= 2;
-        if (isResolved) {
-          toast.success('太棒了！该错题连续订正正确 2 次，已成功攻克！');
-        } else {
-          toast('订正正确 1 次，再接再厉连续答对 1 次即可攻克！');
-        }
-        return {
-          ...m,
-          consecutiveCorrect: newCount,
-          isResolved,
-        };
-      })
-    );
-  };
-
   // 错题攻克结果更新 (两连对攻克)
   const handleUpdateMistakeStatus = (mistakeId: string, isCorrect: boolean) => {
     setMistakes((prev) =>
@@ -449,51 +173,7 @@ export function App() {
     setMistakes((prev) => [newEntry, ...prev]);
   };
 
-  // 全局快捷键绑定 (Cmd+K 全局指令, 1-4 选选项/评分, 空格翻卡)
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // 忽略输入框内部按键
-      const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-
-      // Cmd+K 或 Ctrl+K 唤出指令面板
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        toggleCommandOpen();
-        return;
-      }
-
-      // 卡片模式快捷键
-      if (activeTab === 'CARDS') {
-        if (e.code === 'Space') {
-          e.preventDefault();
-          sound.playClick();
-          setCardFlipped((prev) => !prev);
-        } else if (cardFlipped) {
-          if (e.key === '1') handleCardReview('AGAIN');
-          if (e.key === '2') handleCardReview('HARD');
-          if (e.key === '3') handleCardReview('GOOD');
-          if (e.key === '4') handleCardReview('EASY');
-        }
-      }
-
-      // 做题模式快捷键
-      if (activeTab === 'QUIZ' && currentQ.type === 'CHOICE' && !quizSubmitted) {
-        if (e.key === '1' && currentQ.options?.[0]) setSelectedChoice(currentQ.options[0].key);
-        if (e.key === '2' && currentQ.options?.[1]) setSelectedChoice(currentQ.options[1].key);
-        if (e.key === '3' && currentQ.options?.[2]) setSelectedChoice(currentQ.options[2].key);
-        if (e.key === '4' && currentQ.options?.[3]) setSelectedChoice(currentQ.options[3].key);
-        if (e.key === 'Enter' && selectedChoice) handleQuizSubmit();
-      } else if (activeTab === 'QUIZ' && quizSubmitted && e.key === 'Enter') {
-        handleNextQuestion();
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [activeTab, cardFlipped, quizSubmitted, selectedChoice, currentQ]);
-
-  // 指令面板动作配置
+  // 3. 全局 Cmd+K 快捷指令菜单定义
   const commandActions: CommandAction[] = [
     {
       id: 'nav-quiz',
@@ -597,20 +277,7 @@ export function App() {
     },
   ];
 
-  const tabs: {
-    id: 'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'SHADOWING' | 'PITCH' | 'MISTAKES' | 'RADAR';
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    count?: string;
-  }[] = [
-    { id: 'QUIZ', label: '自适应做题', icon: Zap, count: `${questionIndex + 1}/${INITIAL_QUESTIONS.length}` },
-    { id: 'CARDS', label: 'FSRS 闪卡', icon: Layers, count: `${filteredCards.length}` },
-    { id: 'TEXTBOOK', label: '教材精读', icon: BookOpen, count: '标日/大家的日语' },
-    { id: 'SHADOWING', label: '听力跟读', icon: Headphones, count: '原声' },
-    { id: 'PITCH', label: '声调纠音', icon: Mic, count: 'AI' },
-    { id: 'MISTAKES', label: '错题攻坚', icon: AlertTriangle, count: `${mistakes.filter((m) => !m.isResolved).length}` },
-    { id: 'RADAR', label: '学情画像', icon: TrendingUp },
-  ];
+  const unresolvedMistakesCount = mistakes.filter((m) => !m.isResolved).length;
 
   return (
     <div
@@ -630,7 +297,7 @@ export function App() {
         className="opacity-45 dark:opacity-15"
       />
 
-      {/* 全局指令面板 */}
+      {/* 全局指令面板 (Cmd+K) */}
       <CommandPalette
         isOpen={isCommandOpen}
         onClose={() => setIsCommandOpen(false)}
@@ -645,592 +312,42 @@ export function App() {
       />
 
       {/* 顶部导航栏 */}
-      <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <motion.div
-              whileHover={{ scale: 1.05, rotate: 2 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => sound.playClick()}
-              className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold flex items-center justify-center shadow-sm cursor-pointer"
-            >
-              <GraduationCap className="w-5 h-5 text-stone-950" />
-            </motion.div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif">
-                  Study Studio
-                </span>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
-                  多语种自适应架构 · 日英双通
-                </span>
-              </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语自学与靶向攻坚工作台</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* 网关实时联通状态指示 */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium transition-colors border border-amber-900/10 dark:border-amber-500/15 bg-stone-100/70 dark:bg-stone-900/60">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  gateway.isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
-                }`}
-              />
-              <span className="hidden sm:inline text-stone-600 dark:text-stone-300">
-                {gateway.isConnected
-                  ? `网关联通${gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}`
-                  : '离线模式'}
-              </span>
-            </div>
-
-            {/* TTS 音色切换浮动面板 (一男一女与小外挂配置) */}
-            <VoiceSettingsPopover currentLanguage="JA" />
-
-            {/* 快捷指令按钮 (Cmd+K) */}
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.96 }}
-              onClick={() => setIsCommandOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-100/70 dark:bg-stone-900/60 hover:border-amber-500/40 text-stone-600 dark:text-stone-300 text-xs font-medium transition-all"
-            >
-              <Command className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span className="hidden sm:inline">快捷指令</span>
-              <kbd className="text-[10px] font-mono px-1 py-0.5 rounded bg-stone-200 dark:bg-stone-800 text-stone-500">
-                ⌘K
-              </kbd>
-            </motion.button>
-
-
-            {/* 连续打卡天数指示徽章 */}
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 text-amber-900 dark:text-amber-200 text-xs font-semibold">
-              <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
-              <span>连续打卡 <NumberTicker value={12} className="inline-block font-mono font-bold" /> 天</span>
-            </div>
-
-            <div className="h-5 w-px bg-stone-200 dark:bg-stone-800 hidden sm:block" />
-
-            {/* 明暗模式切换 */}
-            <motion.button
-              whileTap={{ scale: 0.92 }}
-              onClick={toggleTheme}
-              aria-label="切换明暗主题"
-              className="p-2.5 rounded-xl border border-stone-200/80 dark:border-stone-800 bg-white dark:bg-[#211f1d] hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 shadow-2xs transition-all cursor-pointer"
-            >
-              {theme === 'light' ? (
-                <div className="flex items-center gap-1.5 text-xs font-medium">
-                  <Moon className="w-4 h-4 text-amber-600" />
-                  <span className="hidden md:inline">深色</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 text-xs font-medium">
-                  <Sun className="w-4 h-4 text-amber-400" />
-                  <span className="hidden md:inline">暖亮</span>
-                </div>
-              )}
-            </motion.button>
-          </div>
-        </div>
-      </header>
+      <AppHeader gateway={gateway} />
 
       {/* 主工作区 */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6 relative z-10">
         {/* 滑动指示标签栏 */}
-        <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-[#1f1d1b] rounded-2xl border border-stone-200/80 dark:border-stone-800 w-fit backdrop-blur-xs overflow-x-auto max-w-full">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
+        <NavigationTabs
+          quizProgress={`${questionIndex + 1}/${questions.length}`}
+          cardCount={cards.length}
+          unresolvedMistakeCount={unresolvedMistakesCount}
+        />
 
-            return (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  sound.playClick();
-                  setActiveTab(tab.id);
-                }}
-                className={`relative px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-colors duration-200 flex items-center gap-2 cursor-pointer shrink-0 ${
-                  isActive
-                    ? 'text-amber-950 dark:text-amber-300 font-semibold'
-                    : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                }`}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="active-pill"
-                    className="absolute inset-0 rounded-xl bg-white dark:bg-[#282522] shadow-xs"
-                    transition={{ type: 'spring', stiffness: 450, damping: 35 }}
-                  />
-                )}
-                <span className="relative z-10 flex items-center gap-1.5">
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                  {tab.count && (
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                        isActive
-                          ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300'
-                          : 'bg-stone-200 dark:bg-stone-800 text-stone-500'
-                      }`}
-                    >
-                      {tab.count}
-                    </span>
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ========================================================================= */}
-        {/* 1. 多题型做题练习模块 (CHOICE / FILL_BLANK / REORDER)                     */}
-        {/* ========================================================================= */}
+        {/* 1. 自适应做题评测工作台 */}
         {activeTab === 'QUIZ' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-            className="flex flex-col gap-5 max-w-3xl"
-          >
-            {/* 做题顶部子模式切换与 AI 靶向弱项组卷按钮 */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#faf9f6] dark:bg-[#1a1816] p-3 rounded-2xl border border-amber-900/10 dark:border-amber-500/15 shadow-xs">
-              {/* 子模式切换 */}
-              <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-                <button
-                  onClick={() => {
-                    sound.playClick();
-                    setQuizSubMode('OBJECTIVE');
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    quizSubMode === 'OBJECTIVE'
-                      ? 'bg-amber-500 text-stone-950 shadow-sm'
-                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                  }`}
-                >
-                  ⚡ 客观快速秒测 ({questions.length}题)
-                </button>
-                <button
-                  onClick={() => {
-                    sound.playClick();
-                    setQuizSubMode('SUBJECTIVE');
-                  }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    quizSubMode === 'SUBJECTIVE'
-                      ? 'bg-amber-500 text-stone-950 shadow-sm'
-                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
-                  }`}
-                >
-                  ✍️ AI 深度主观造句/翻译批改
-                </button>
-              </div>
-
-              {/* 针对画像弱项一键出题 */}
-              <ShimmerButton
-                onClick={handleGenerateAdaptiveQuiz}
-                disabled={isGeneratingAdaptive}
-                className="px-4 py-1.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{isGeneratingAdaptive ? 'AI 正在分析弱项组卷...' : '🎯 AI 针对弱项出题'}</span>
-              </ShimmerButton>
-            </div>
-
-            {quizSubMode === 'SUBJECTIVE' ? (
-              <SubjectiveWritingWorkbench onGradeSubjective={handleGradeSubjective} />
-            ) : (
-              <>
-                {/* 顶部进度指示 */}
-                <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 px-1">
-                  <span className="flex items-center gap-1.5 font-medium">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    第 {questionIndex + 1} 题 / 共 {questions.length} 题 · {currentQ.category}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <span className="hidden sm:inline text-[11px] text-stone-400 font-mono">
-                      快捷键: 1-4 选选项 / Enter 提交
-                    </span>
-                    <span className="font-semibold text-amber-700 dark:text-amber-400 font-mono">
-                      当前得分: <NumberTicker value={sessionScore} className="inline-block" />
-                    </span>
-                  </div>
-                </div>
-
-                {/* 题目主卡片 */}
-                <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                    {currentQ.type === 'CHOICE' ? '单项选择题' : currentQ.type === 'FILL_BLANK' ? '填空变形题' : '连词成句题'}
-                  </span>
-                  <span className="text-xs text-stone-400 font-mono">
-                    考查点: {currentQ.testedSkill}
-                  </span>
-                </div>
-                <h3 className="text-sm font-medium text-stone-500 dark:text-stone-400">
-                  {currentQ.prompt}
-                </h3>
-                <div className="text-lg sm:text-xl font-medium text-stone-900 dark:text-stone-100 pt-2 tracking-wide font-serif">
-                  {currentQ.content}
-                </div>
-              </div>
-
-              {/* 题型 1: CHOICE (单选) */}
-              {currentQ.type === 'CHOICE' && currentQ.options && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  {currentQ.options.map((opt, optIdx) => {
-                    const isSelected = selectedChoice === opt.key;
-                    const showCorrect = quizSubmitted && opt.key === currentQ.correctAnswer;
-                    const showWrong = quizSubmitted && isSelected && !isCurrentAnswerCorrect;
-
-                    return (
-                      <motion.button
-                        key={opt.key}
-                        whileHover={!quizSubmitted ? { scale: 1.01 } : {}}
-                        whileTap={!quizSubmitted ? { scale: 0.99 } : {}}
-                        disabled={quizSubmitted}
-                        onClick={() => {
-                          sound.playClick();
-                          setSelectedChoice(opt.key);
-                        }}
-                        className={`p-4 rounded-2xl border text-left transition-all relative flex flex-col justify-between cursor-pointer ${
-                          showCorrect
-                            ? 'bg-emerald-500/15 border-emerald-500 text-emerald-950 dark:text-emerald-200'
-                            : showWrong
-                            ? 'bg-rose-500/15 border-rose-500 text-rose-950 dark:text-rose-200'
-                            : isSelected
-                            ? 'bg-amber-500/15 border-amber-500 text-amber-950 dark:text-amber-100 ring-2 ring-amber-500/30'
-                            : 'bg-stone-100/70 dark:bg-stone-900/50 border-stone-200/80 dark:border-stone-800 text-stone-800 dark:text-stone-200 hover:border-amber-500/40'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-stone-200/80 dark:bg-stone-800">
-                            {opt.key} ({optIdx + 1})
-                          </span>
-                          {showCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                          {showWrong && <XCircle className="w-4 h-4 text-rose-600" />}
-                        </div>
-                        <div className="text-base font-semibold pt-1">{opt.text}</div>
-                        {opt.note && (
-                          <div className="text-xs text-stone-400 mt-1">{opt.note}</div>
-                        )}
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* 题型 2: FILL_BLANK (真实输入验证) */}
-              {currentQ.type === 'FILL_BLANK' && (
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      disabled={quizSubmitted}
-                      value={fillBlankInput}
-                      onChange={(e) => setFillBlankInput(e.target.value)}
-                      placeholder="在此键入日文变形形式..."
-                      className="flex-1 py-3 px-4 rounded-xl bg-stone-100/90 dark:bg-stone-900/80 text-stone-900 dark:text-stone-100 border border-stone-300 dark:border-stone-700 outline-none focus:border-amber-500 text-base"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* 题型 3: REORDER (连词成句) */}
-              {currentQ.type === 'REORDER' && currentQ.chunks && (
-                <div className="space-y-4 pt-2">
-                  <div className="min-h-14 p-3 rounded-2xl border-2 border-dashed border-amber-500/30 bg-amber-50/40 dark:bg-stone-900/40 flex flex-wrap gap-2 items-center">
-                    {reorderSelectedChunks.length === 0 ? (
-                      <span className="text-xs text-stone-400">
-                        点击下方词块按正确语序填入此处...
-                      </span>
-                    ) : (
-                      reorderSelectedChunks.map((chunk, idx) => (
-                        <button
-                          key={idx}
-                          disabled={quizSubmitted}
-                          onClick={() => {
-                            sound.playClick();
-                            setReorderSelectedChunks((prev) => prev.filter((_, i) => i !== idx));
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-semibold shadow-sm flex items-center gap-1"
-                        >
-                          <span>{chunk}</span>
-                          <span className="text-[10px] opacity-75">✕</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {currentQ.chunks.map((chunk, cIdx) => {
-                      const isUsed = reorderSelectedChunks.includes(chunk);
-                      return (
-                        <button
-                          key={cIdx}
-                          disabled={isUsed || quizSubmitted}
-                          onClick={() => {
-                            sound.playClick();
-                            setReorderSelectedChunks((prev) => [...prev, chunk]);
-                          }}
-                          className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                            isUsed
-                              ? 'opacity-30 border-stone-200 dark:border-stone-800 cursor-not-allowed'
-                              : 'bg-stone-100 dark:bg-stone-900 border-stone-300 dark:border-stone-700 hover:border-amber-500 text-stone-800 dark:text-stone-200'
-                          }`}
-                        >
-                          {chunk}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* 提交 / 下一题控制条 */}
-              <div className="flex items-center justify-between pt-4 border-t border-stone-200 dark:border-stone-800">
-                {!quizSubmitted ? (
-                  <ShimmerButton
-                    onClick={handleQuizSubmit}
-                    disabled={
-                      (currentQ.type === 'CHOICE' && !selectedChoice) ||
-                      (currentQ.type === 'FILL_BLANK' && !fillBlankInput.trim()) ||
-                      (currentQ.type === 'REORDER' && reorderSelectedChunks.length === 0)
-                    }
-                    className="px-6 py-2.5 text-xs font-bold"
-                  >
-                    立即提交判定 (0ms 本地秒判)
-                  </ShimmerButton>
-                ) : (
-                  <button
-                    onClick={handleNextQuestion}
-                    className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs shadow-sm transition-all flex items-center gap-2"
-                  >
-                    <span>下一题练习</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-
-              {/* 答题反馈与解析抽屉入口 */}
-              {quizSubmitted && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`p-4 rounded-2xl border space-y-3 ${
-                    isCurrentAnswerCorrect
-                      ? 'bg-emerald-500/10 border-emerald-500/30'
-                      : 'bg-rose-500/10 border-rose-500/30'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      {isCurrentAnswerCorrect ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                      ) : (
-                        <XCircle className="w-5 h-5 text-rose-600" />
-                      )}
-                      <span className="font-bold text-sm">
-                        {isCurrentAnswerCorrect ? '解答正确！' : `解答有误，标准答案：${currentQ.correctAnswer}`}
-                      </span>
-                    </div>
-
-                    {/* AI 导师深度追问入口按钮 */}
-                    <button
-                      onClick={() =>
-                        handleOpenTutor({
-                          questionText: currentQ.content,
-                          userAnswer:
-                            currentQ.type === 'CHOICE'
-                              ? selectedChoice ?? undefined
-                              : currentQ.type === 'FILL_BLANK'
-                              ? fillBlankInput
-                              : reorderSelectedChunks.join(' '),
-                          correctAnswer: currentQ.correctAnswer,
-                          skillTag: currentQ.category,
-                          explanation: currentQ.explanation,
-                        })
-                      }
-                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-500 text-stone-950 hover:bg-amber-600 shadow-sm transition-all shrink-0"
-                    >
-                      <Bot className="w-3.5 h-3.5" />
-                      <span>AI 导师深度剖析与追问</span>
-                    </button>
-                  </div>
-
-                  <p className="text-xs sm:text-sm text-stone-700 dark:text-stone-300 leading-relaxed font-serif">
-                    {currentQ.explanation}
-                  </p>
-                </motion.div>
-              )}
-            </div>
-          </>
+          <AdaptiveQuizWorkbench
+            questions={questions}
+            setQuestions={setQuestions}
+            questionIndex={questionIndex}
+            setQuestionIndex={setQuestionIndex}
+            onOpenTutor={handleOpenTutor}
+            onGradeSubjective={gateway.gradeSubjectiveQuiz}
+            onSubmitQuizToGateway={gateway.submitQuizToGateway}
+            isGatewayConnected={gateway.isConnected}
+            onGenerateAdaptiveQuizApi={gateway.generateAdaptiveQuiz}
+          />
         )}
-      </motion.div>
-    )}
 
-        {/* ========================================================================= */}
-        {/* 2. FSRS 闪卡记忆工坊                                                      */}
-        {/* ========================================================================= */}
+        {/* 2. FSRS 闪卡记忆工坊 */}
         {activeTab === 'CARDS' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col gap-5 max-w-2xl"
-          >
-            <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
-              <span>
-                当前卡片: {currentCardIndex + 1} / {filteredCards.length}
-              </span>
-              <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-900 p-1 rounded-xl">
-                {(['ALL', 'VOCAB', 'GRAMMAR', 'CONFUSION'] as const).map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => {
-                      sound.playClick();
-                      setCardFilter(cat);
-                      setCurrentCardIndex(0);
-                      setCardFlipped(false);
-                    }}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                      cardFilter === cat
-                        ? 'bg-[#faf9f6] dark:bg-amber-600 text-stone-900 dark:text-white shadow-sm font-semibold'
-                        : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
-                    }`}
-                  >
-                    {cat === 'ALL' ? '全部' : cat === 'VOCAB' ? '生词' : cat === 'GRAMMAR' ? '文法' : '混淆'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 3D 翻转卡片 */}
-            {activeCard && (
-              <div
-                onClick={() => {
-                  sound.playClick();
-                  setCardFlipped((prev) => !prev);
-                }}
-                className="perspective-1000 min-h-[340px] cursor-pointer"
-              >
-                <motion.div
-                  animate={{ rotateY: cardFlipped ? 180 : 0 }}
-                  transition={{ duration: 0.45, ease: 'easeOut' }}
-                  className="relative w-full h-full min-h-[340px] rounded-3xl p-8 bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm transform-style-3d flex flex-col justify-between"
-                >
-                  {/* 正面 */}
-                  {!cardFlipped ? (
-                    <div className="flex flex-col justify-between h-full space-y-6">
-                      <div className="flex items-center justify-between">
-                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                          {activeCard.tag} · {activeCard.pos}
-                        </span>
-                        <span className="text-xs text-stone-400 font-mono">
-                          FSRS 稳定性: {activeCard.stability}d · 复习 {activeCard.reps} 次
-                        </span>
-                      </div>
-                      <div className="text-center py-8 flex flex-col items-center">
-                        <h2 className="text-4xl sm:text-5xl font-bold font-serif text-stone-900 dark:text-stone-100 tracking-wide">
-                          {activeCard.frontWord}
-                        </h2>
-                        {activeCard.reading && (
-                          <p className="text-sm text-amber-700 dark:text-amber-400 font-mono mt-2">
-                            {activeCard.reading}
-                          </p>
-                        )}
-                        <div className="mt-4" onClick={(e) => e.stopPropagation()}>
-                          <UnifiedTtsPlayer
-                            variant="button"
-                            text={activeCard.frontWord}
-                            lang="JA"
-                            label="听发音"
-                          />
-                        </div>
-                      </div>
-                      <div className="text-center text-xs text-stone-400">
-                        点击卡片或按 <kbd className="font-mono bg-stone-200 dark:bg-stone-800 px-1.5 py-0.5 rounded">Space</kbd> 翻转查看释义
-                      </div>
-                    </div>
-                  ) : (
-                    /* 背面 */
-                    <div className="flex flex-col justify-between h-full space-y-4 [transform:rotateY(180deg)]">
-                      <div className="space-y-3">
-                        <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-                          中文释义与核心考点
-                        </span>
-                        <h3 className="text-xl sm:text-2xl font-bold font-serif text-stone-900 dark:text-stone-100">
-                          {activeCard.backMeaning}
-                        </h3>
-                        <div className="p-3.5 rounded-xl bg-amber-500/10 dark:bg-stone-900/60 border border-amber-900/5 text-xs space-y-1">
-                          <div className="font-medium text-stone-900 dark:text-stone-100 flex items-center justify-between">
-                            <span>{activeCard.exampleJp}</span>
-                            <span onClick={(e) => e.stopPropagation()}>
-                              <UnifiedTtsPlayer
-                                variant="inline"
-                                text={activeCard.exampleJp}
-                                lang="JA"
-                              />
-                            </span>
-                          </div>
-                          <p className="text-stone-500 dark:text-stone-400 font-serif">
-                            {activeCard.exampleZh}
-                          </p>
-                        </div>
-                        {activeCard.note && (
-                          <p className="text-xs text-amber-800 dark:text-amber-300">
-                            💡 {activeCard.note}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* FSRS 4 档打分按钮 */}
-                      <div className="grid grid-cols-4 gap-2 pt-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCardReview('AGAIN');
-                          }}
-                          className="p-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-rose-500 hover:text-white transition-all"
-                        >
-                          重来 (1)
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCardReview('HARD');
-                          }}
-                          className="p-2.5 rounded-xl bg-stone-200/80 dark:bg-stone-800 text-stone-800 dark:text-stone-200 text-xs font-bold hover:bg-amber-500 hover:text-stone-950 transition-all"
-                        >
-                          困难 (2)
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCardReview('GOOD');
-                          }}
-                          className="p-2.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-600 shadow-sm transition-all"
-                        >
-                          良好 (3)
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleCardReview('EASY');
-                          }}
-                          className="p-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm transition-all"
-                        >
-                          简单 (4)
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </motion.div>
-              </div>
-            )}
-          </motion.div>
+          <FsrsCardWorkbench
+            cards={cards}
+            setCards={setCards}
+            onReviewCardToGateway={gateway.reviewCardToGateway}
+          />
         )}
 
-        {/* ========================================================================= */}
-        {/* 3. 教材结构化知识树与精读导读器 (标日 / 大家的日语)                      */}
-        {/* ========================================================================= */}
+        {/* 3. 教材结构化知识树与精读导读器 */}
         {activeTab === 'TEXTBOOK' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -1243,13 +360,10 @@ export function App() {
               onAddCardsBatch={handleAddCardsBatch}
               onAskAiTutor={handleAskTutorFromTextbook}
             />
-
           </motion.div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 4. 听力精听与影子跟读工作台 (Web Audio 原声短句切片与关键助词听写)         */}
-        {/* ========================================================================= */}
+        {/* 4. 听力精听与影子跟读工作台 */}
         {activeTab === 'SHADOWING' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -1263,9 +377,7 @@ export function App() {
           </motion.div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 5. AI 日语声调走向与口语纠音评测器                                        */}
-        {/* ========================================================================= */}
+        {/* 5. AI 日语声调走向与口语纠音评测器 */}
         {activeTab === 'PITCH' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -1276,9 +388,7 @@ export function App() {
           </motion.div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 6. 错题本智能归因与专项冲刺攻克工作台                                     */}
-        {/* ========================================================================= */}
+        {/* 6. 错题本智能归因与专项冲刺攻克工作台 */}
         {activeTab === 'MISTAKES' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -1293,148 +403,13 @@ export function App() {
           </motion.div>
         )}
 
-        {/* ========================================================================= */}
-        {/* 6. 学情能力画像与连续学习打卡热力图                                       */}
-        {/* ========================================================================= */}
+        {/* 7. 学情能力画像与打卡热力图 */}
         {activeTab === 'RADAR' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6 max-w-4xl"
-          >
-            {/* Magic UI BentoGrid 核心概览指标 */}
-            <BentoGrid className="auto-rows-[9.5rem] md:grid-cols-3">
-              <BentoCard
-                name="综合语言掌握度"
-                Icon={Award}
-                description="自适应做题与 FSRS 记忆曲线动态加权"
-              >
-                <div className="flex items-baseline gap-1 pt-1">
-                  <span className="text-3xl font-bold font-mono text-amber-600 dark:text-amber-400">
-                    <NumberTicker value={82} />%
-                  </span>
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">（进阶稳步上升）</span>
-                </div>
-              </BentoCard>
-
-              <BentoCard
-                name="FSRS 记忆卡片库"
-                Icon={Layers}
-                description="4 级抗遗忘间隔重复智能调度"
-              >
-                <div className="flex items-baseline gap-1 pt-1">
-                  <span className="text-3xl font-bold font-mono text-amber-600 dark:text-amber-400">
-                    <NumberTicker value={filteredCards.length} />
-                  </span>
-                  <span className="text-xs text-stone-500 dark:text-stone-400">张活跃卡片 · 稳固率 94%</span>
-                </div>
-              </BentoCard>
-
-              <BentoCard
-                name="待攻克疑难痛点"
-                Icon={AlertTriangle}
-                description="母语负迁移与助词高频混淆点"
-              >
-                <div className="flex items-baseline gap-1 pt-1">
-                  <span className="text-3xl font-bold font-mono text-rose-600 dark:text-rose-400">
-                    <NumberTicker value={mistakes.filter((m) => !m.isResolved).length} />
-                  </span>
-                  <span className="text-xs text-stone-500 dark:text-stone-400">项弱点待清零</span>
-                </div>
-              </BentoCard>
-            </BentoGrid>
-
-            {/* 连续学习与 28 天热力图组件 */}
-            <StudyStreakHeatmap />
-
-            {/* 掌握度细项雷达 */}
-            <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-5 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-stone-700 dark:text-stone-300 flex items-center gap-2">
-                  <Award className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                  多维技能画像 (Learner Skill Profile)
-                </h3>
-                <div className="flex items-center gap-1 text-xs">
-                  {['ALL', 'GRAMMAR', 'VOCAB', 'LISTENING', 'NUANCE'].map((dim) => (
-                    <button
-                      key={dim}
-                      onClick={() => setMetricDimension(dim)}
-                      className={`px-2.5 py-1 rounded-lg transition-all ${
-                        metricDimension === dim
-                          ? 'bg-amber-500 text-stone-950 font-bold'
-                          : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
-                      }`}
-                    >
-                      {dim === 'ALL' ? '全部' : dim === 'GRAMMAR' ? '文法' : dim === 'VOCAB' ? '词汇' : dim === 'LISTENING' ? '听力' : '语感'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {metrics
-                  .filter((m) => metricDimension === 'ALL' || m.dimension === metricDimension)
-                  .map((metric) => {
-                    const isWeak = metric.proficiency < 0.6;
-                    const isStrong = metric.proficiency >= 0.85;
-
-                    return (
-                      <div
-                        key={metric.id}
-                        className="p-4 rounded-xl bg-stone-100/70 dark:bg-stone-900/50 border border-stone-200/80 dark:border-stone-800 space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-stone-800 dark:text-stone-200">
-                            {metric.name}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded font-mono font-bold ${
-                              isStrong
-                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                : isWeak
-                                ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                                : 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
-                            }`}
-                          >
-                            {Math.round(metric.proficiency * 100)}%
-                          </span>
-                        </div>
-
-                        {/* 进度条 */}
-                        <div className="w-full bg-stone-200 dark:bg-stone-800 h-2 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-500 ${
-                              isStrong
-                                ? 'bg-emerald-500'
-                                : isWeak
-                                ? 'bg-rose-500'
-                                : 'bg-amber-500'
-                            }`}
-                            style={{ width: `${metric.proficiency * 100}%` }}
-                          />
-                        </div>
-
-                        <div className="flex justify-between items-center text-[11px] text-stone-400 pt-1">
-                          <span>总练习 {metric.totalAttempts} 次 · 连续错误 {metric.consecutiveErrors} 次</span>
-                          {isWeak && (
-                            <button
-                              onClick={() => {
-                                sound.playClick();
-                                setActiveTab('QUIZ');
-                                toast.info(`已为您调取针对【${metric.name}】的加练题目！`);
-                              }}
-                              className="text-amber-700 dark:text-amber-400 font-bold hover:underline"
-                            >
-                              靶向加练 →
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          </motion.div>
+          <LearnerRadarDashboard
+            metrics={metrics}
+            activeCardsCount={cards.length}
+            unresolvedMistakesCount={unresolvedMistakesCount}
+          />
         )}
       </main>
     </div>
