@@ -1,13 +1,17 @@
 import { z } from 'zod';
 import { ok, err, Result, BusinessError } from '@study-studio/shared';
 
+export const LanguageCodeSchema = z.enum(['JA', 'EN', 'KO']).default('JA');
+export type LanguageCode = z.infer<typeof LanguageCodeSchema>;
+
 export const TextbookVocabularySchema = z.object({
   id: z.string(),
-  kanji: z.string(),
-  kana: z.string(),
+  kanji: z.string(), // 词面（日文汉字/假名、英语单词、韩文谚文）
+  kana: z.string(), // 注音（日文假名、英语注音/音标、韩文罗马音）
+  phonetic: z.string().optional(), // 国际音标 IPA 或精确发音注记 (如 /ɪkˈskjuːz/)
   romaji: z.string().optional(),
   pos: z.string().default('名词'),
-  pitchAccent: z.string().default('⓪'),
+  pitchAccent: z.string().default('⓪'), // 日语声调或英语重音标识
   chinese: z.string(),
   example: z
     .object({
@@ -17,6 +21,7 @@ export const TextbookVocabularySchema = z.object({
     .optional(),
 });
 export type TextbookVocabulary = z.infer<typeof TextbookVocabularySchema>;
+
 
 export const TextbookGrammarSchema = z.object({
   id: z.string(),
@@ -60,6 +65,7 @@ export type ExerciseItem = z.infer<typeof ExerciseItemSchema>;
 
 export const TextbookLessonSchema = z.object({
   id: z.string(),
+  language: LanguageCodeSchema.optional(),
   lessonNumber: z.number().int().positive(),
   title: z.string(),
   summary: z.string().optional(),
@@ -72,6 +78,7 @@ export type TextbookLesson = z.infer<typeof TextbookLessonSchema>;
 
 export const TextbookASTSchema = z.object({
   id: z.string(),
+  language: LanguageCodeSchema,
   title: z.string(),
   shortTitle: z.string(),
   level: z.string().default('N5'),
@@ -81,6 +88,7 @@ export const TextbookASTSchema = z.object({
   lessons: z.array(TextbookLessonSchema).min(1),
 });
 export type TextbookAST = z.infer<typeof TextbookASTSchema>;
+
 
 /**
  * 安全解析教材 AST 数据，遵循 Result<T, BusinessError> 规范

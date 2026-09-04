@@ -62,7 +62,9 @@ import { AiTutorDrawer, type AiTutorContext } from './components/AiTutorDrawer.j
 import { SubjectiveWritingWorkbench } from './components/SubjectiveWritingWorkbench.js';
 import { ListeningShadowingWorkbench } from './components/ListeningShadowingWorkbench.js';
 import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
+import { VoiceSettingsPopover } from './components/VoiceSettingsPopover.js';
 import { useGateway } from './hooks/useGateway.js';
+
 
 export function App() {
   // 网关实时双向通讯与数据库持久化钩子
@@ -677,10 +679,10 @@ export function App() {
                   Study Studio
                 </span>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30">
-                  日语专项 · N5~N3
+                  多语种自适应架构 · 日英双通
                 </span>
               </div>
-              <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语自学与靶向攻坚系统</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语自学与靶向攻坚工作台</p>
             </div>
           </div>
 
@@ -699,6 +701,9 @@ export function App() {
               </span>
             </div>
 
+            {/* TTS 音色切换浮动面板 (一男一女与小外挂配置) */}
+            <VoiceSettingsPopover currentLanguage="JA" />
+
             {/* 快捷指令按钮 (Cmd+K) */}
             <motion.button
               whileHover={{ scale: 1.02 }}
@@ -712,6 +717,7 @@ export function App() {
                 ⌘K
               </kbd>
             </motion.button>
+
 
             {/* 连续打卡天数指示徽章 */}
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 text-amber-900 dark:text-amber-200 text-xs font-semibold">

@@ -50,9 +50,16 @@ export function TextbookCurriculum({
   const [activeWordCard, setActiveWordCard] = useState<FuriganaWord | null>(null);
   const [addedCardsMap, setAddedCardsMap] = useState<Record<string, boolean>>({});
   const [isImporterOpen, setIsImporterOpen] = useState<boolean>(false);
+  const [languageFilter, setLanguageFilter] = useState<'ALL' | 'JA' | 'EN' | 'KO'>('ALL');
 
-  const currentBook = booksList.find((b) => b.id === selectedBookId) ?? booksList[0]!;
+  const filteredBooks = booksList.filter((b) => {
+    if (languageFilter === 'ALL') return true;
+    return (b.language || 'JA') === languageFilter;
+  });
+
+  const currentBook = booksList.find((b) => b.id === selectedBookId) ?? filteredBooks[0] ?? booksList[0]!;
   const currentLesson = currentBook.lessons.find((l) => l.id === selectedLessonId) ?? currentBook.lessons[0]!;
+
 
 
   const handleWordClick = (word: FuriganaWord) => {
@@ -97,10 +104,44 @@ export function TextbookCurriculum({
             </h2>
           </div>
 
-          {/* 教材快速切换 Tab 与导入入口 */}
+          {/* 语种筛选与教材快速切换 Tab 与导入入口 */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* 语种过滤器 */}
+            <div className="flex items-center gap-1 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
+              {[
+                { id: 'ALL', label: '全部' },
+                { id: 'JA', label: '🇯🇵 日语' },
+                { id: 'EN', label: '🇬🇧 英语' },
+                { id: 'KO', label: '🇰🇷 韩语' },
+              ].map((lang) => (
+                <button
+                  key={lang.id}
+                  onClick={() => {
+                    sound.playClick();
+                    const nextFilter = lang.id as 'ALL' | 'JA' | 'EN' | 'KO';
+                    setLanguageFilter(nextFilter);
+                    const match = booksList.find(
+                      (b) => nextFilter === 'ALL' || (b.language || 'JA') === nextFilter
+                    );
+                    if (match) {
+                      setSelectedBookId(match.id);
+                      setSelectedLessonId(match.lessons[0]!.id);
+                    }
+                  }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                    languageFilter === lang.id
+                      ? 'bg-amber-500 text-stone-950 shadow-2xs font-bold'
+                      : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
+                  }`}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 匹配的书籍列表 */}
             <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
-              {booksList.map((book) => (
+              {filteredBooks.map((book) => (
                 <button
                   key={book.id}
                   onClick={() => {
@@ -114,6 +155,7 @@ export function TextbookCurriculum({
                       : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
                   }`}
                 >
+                  {book.language === 'EN' ? '🇬🇧 ' : book.language === 'KO' ? '🇰🇷 ' : '🇯🇵 '}
                   {book.shortTitle}
                 </button>
               ))}
@@ -132,6 +174,7 @@ export function TextbookCurriculum({
           </div>
         </div>
       </div>
+
 
 
       {/* 主体两栏布局：左侧课次导航树，右侧课文精读/词汇/文法工作台 */}

@@ -58,6 +58,7 @@ export interface TextbookLesson {
 
 export interface TextbookBook {
   id: string;
+  language?: 'JA' | 'EN' | 'KO';
   title: string;
   shortTitle: string;
   publisher: string;
@@ -69,10 +70,12 @@ export interface TextbookBook {
 export const TEXTBOOK_BOOKS: TextbookBook[] = [
   {
     id: 'biaori-primary-1',
+    language: 'JA',
     title: '新版 中日交流标准日本语 (初级上册)',
     shortTitle: '标日初上',
     publisher: '人民教育出版社 / 光村图书出版',
     totalLessons: 24,
+
     level: 'JLPT N5',
     lessons: [
       {
@@ -456,4 +459,144 @@ export const TEXTBOOK_BOOKS: TextbookBook[] = [
       },
     ],
   },
+  {
+    id: 'nce-primary-1',
+    language: 'EN',
+    title: '新概念英语 第一册 (英语初阶 · First Things First)',
+    shortTitle: '新概念1',
+    publisher: '外语教学与研究出版社 / 朗文 (Longman)',
+    totalLessons: 72,
+    level: 'CEFR A1 基础',
+    lessons: [
+      {
+        id: 'nce-l1',
+        bookId: 'nce-primary-1',
+        lessonNumber: 1,
+        title: 'Lesson 1 Excuse me! (对不起，请原谅)',
+        subTitle: '礼貌询问与确认物品归属',
+        targetLevel: 'A1 基础入门',
+        scene: '公共场所拾物与礼貌会话',
+        associatedQuizTag: 'nce.l1',
+        dialogues: [
+          {
+            id: 'nce-s1',
+            speaker: 'Man',
+            japanese: 'Excuse me!',
+            furiganaTokens: [
+              { surface: 'Excuse', reading: '/ɪkˈskjuːz/' },
+              { surface: 'me!', reading: '/miː/' },
+            ],
+            chinese: '对不起，打扰一下！',
+            grammarNotes: ['用于引起他人注意或礼貌搭话'],
+          },
+          {
+            id: 'nce-s2',
+            speaker: 'Woman',
+            japanese: 'Yes?',
+            furiganaTokens: [{ surface: 'Yes?', reading: '/jes/' }],
+            chinese: '什么事？请讲。',
+          },
+          {
+            id: 'nce-s3',
+            speaker: 'Man',
+            japanese: 'Is this your handbag?',
+            furiganaTokens: [
+              { surface: 'Is', reading: '/ɪz/' },
+              { surface: 'this', reading: '/ðɪs/' },
+              { surface: 'your', reading: '/jɔːr/' },
+              { surface: 'handbag?', reading: '/ˈhænd.bæɡ/' },
+            ],
+            chinese: '这是您的手提包吗？',
+            grammarNotes: ['be 动词提前构成一般疑问句'],
+          },
+          {
+            id: 'nce-s4',
+            speaker: 'Woman',
+            japanese: 'Pardon?',
+            furiganaTokens: [{ surface: 'Pardon?', reading: '/ˈpɑːr.dən/' }],
+            chinese: '对不起，请再说一遍？',
+            grammarNotes: ['听不清时用升调表示请对方重复'],
+          },
+          {
+            id: 'nce-s5',
+            speaker: 'Man',
+            japanese: 'Is this your handbag?',
+            furiganaTokens: [
+              { surface: 'Is' },
+              { surface: 'this' },
+              { surface: 'your' },
+              { surface: 'handbag?' },
+            ],
+            chinese: '这是您的手提包吗？',
+          },
+          {
+            id: 'nce-s6',
+            speaker: 'Woman',
+            japanese: 'Yes, it is. Thank you very much!',
+            furiganaTokens: [
+              { surface: 'Yes,' },
+              { surface: 'it' },
+              { surface: 'is.' },
+              { surface: 'Thank' },
+              { surface: 'you' },
+              { surface: 'very' },
+              { surface: 'much!' },
+            ],
+            chinese: '是的，是我的。非常感谢您！',
+          },
+        ],
+        vocabularies: [
+          {
+            id: 'nce-v1',
+            kanji: 'handbag',
+            kana: '/ˈhænd.bæɡ/',
+            romaji: 'handbag',
+            chinese: '（女用）手提包',
+            pos: '名词',
+            pitchAccent: '重音在前',
+            pitchType: '头高型',
+            exampleSentence: 'This is not my handbag.',
+            exampleTranslation: '这不是我的手提包。',
+          },
+          {
+            id: 'nce-v2',
+            kanji: 'pardon',
+            kana: '/ˈpɑːr.dən/',
+            romaji: 'pardon',
+            chinese: '原谅；请再说一遍',
+            pos: '感叹词/动词',
+            pitchAccent: '重音在前',
+            pitchType: '头高型',
+            exampleSentence: 'Pardon? Could you say that again?',
+            exampleTranslation: '请问您能再说一次吗？',
+          },
+          {
+            id: 'nce-v3',
+            kanji: 'excuse',
+            kana: '/ɪkˈskjuːz/',
+            romaji: 'excuse',
+            chinese: '原谅；打扰',
+            pos: '动词',
+            pitchAccent: '第二音节',
+            pitchType: '尾高型',
+            exampleSentence: 'Excuse me, where is the station?',
+            exampleTranslation: '劳驾，请问车站在哪里？',
+          },
+        ],
+        grammarPoints: [
+          {
+            id: 'nce-g1',
+            title: '1. Is this your...? (一般疑问句与所有格确认)',
+            structure: 'Is this your + 单数名词？',
+            explanation: '用于确认某件物品是否归对方所有。肯定回答用：Yes, it is. 否定回答用：No, it isn\'t.',
+            examples: [
+              { ja: 'Is this your pen? - Yes, it is.', zh: '这是你的钢笔吗？- 是的，是我的。' },
+              { ja: 'Is this your coat? - No, it isn\'t.', zh: '这是你的大衣吗？- 不，不是我的。' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
 ];
+

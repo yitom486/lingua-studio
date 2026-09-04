@@ -19,8 +19,9 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { sound } from '../utils/audio.js';
+import { sound, speechStudio } from '../utils/audio.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../data/textbook-data.js';
+
 
 interface InteractivePdfReaderProps {
   book: TextbookBook;
@@ -98,13 +99,7 @@ export function InteractivePdfReader({
 
   const handleSpeak = (text: string) => {
     sound.playClick();
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'ja-JP';
-      utterance.rate = 0.9;
-      window.speechSynthesis.speak(utterance);
-    }
+    speechStudio.speak(text, { lang: book.language || 'JA' });
   };
 
   const handleAddSelectedToCards = () => {
@@ -121,13 +116,17 @@ export function InteractivePdfReader({
 
   const handleAskTutorForSelection = () => {
     sound.playClick();
+    const isEn = book.language === 'EN';
     onAskAiTutor(
       selectedText,
-      `在《${book.title}》${lesson.title} 的课文语境中，请深度剖析这段日文的语法成分、敬体/简体用法以及母语者语感：`
+      isEn
+        ? `在《${book.title}》${lesson.title} 的英文课文语境中，请深度剖析这段英语的句式结构、时态/从句成分以及中式英语(Chinglish)常见易错点：`
+        : `在《${book.title}》${lesson.title} 的课文语境中，请深度剖析这段日文的语法成分、敬体/简体用法以及母语者语感：`
     );
     setSelectionPopupPosition(null);
     toast.info(`已将选句提交给 AI 导师进行深度解析`);
   };
+
 
   return (
     <div className="space-y-4">
@@ -253,7 +252,7 @@ export function InteractivePdfReader({
             {/* 课文主对话区 */}
             <div className="space-y-4">
               <div className="inline-block px-3 py-1 rounded-md bg-amber-500/10 text-amber-800 dark:text-amber-300 text-xs font-bold mb-2">
-                【基本会话 · 基本会話】
+                {book.language === 'EN' ? '【Dialogue · 课文会话】' : '【基本会话 · 基本会話】'}
               </div>
               <div className="space-y-4 leading-relaxed font-serif">
                 {lesson.dialogues.map((dlg) => (
@@ -294,7 +293,7 @@ export function InteractivePdfReader({
               <div className="space-y-4">
                 <div className="font-bold text-xs text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-amber-600"></span>
-                  【重要文法 · 文法ノート】
+                  {book.language === 'EN' ? '【Core Grammar · 核心语法】' : '【重要文法 · 文法ノート】'}
                 </div>
                 <div className="space-y-3">
                   {lesson.grammarPoints.map((gp) => (
@@ -320,8 +319,9 @@ export function InteractivePdfReader({
               <div className="space-y-4">
                 <div className="font-bold text-xs text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                  【新出単語 · 生词表】
+                  {book.language === 'EN' ? '【Vocabulary · 重点词汇】' : '【新出単語 · 生词表】'}
                 </div>
+
                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
                   {lesson.vocabularies.map((v) => (
                     <div

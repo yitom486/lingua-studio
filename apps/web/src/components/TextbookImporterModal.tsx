@@ -29,12 +29,14 @@ interface TextbookImporterModalProps {
 
 const SAMPLE_TEXTBOOK_JSON: TextbookAST = {
   id: 'shinpen-nihongo-1',
+  language: 'JA',
   title: '新编日语 第一册 (精编重排版)',
   shortTitle: '新编日语1',
   level: 'JLPT N5',
   publisher: '上海外语教育出版社',
   description: '经典大学日语专业教材，注重句型操练与系统语法推导。',
   totalLessons: 1,
+
   lessons: [
     {
       id: 'shinpen-l1',
@@ -218,11 +220,13 @@ export function TextbookImporterModal({
     // 转化为客户端 TextbookBook 格式
     const convertedBook: TextbookBook = {
       id: parsedAST.id,
+      language: parsedAST.language,
       title: parsedAST.title,
       shortTitle: parsedAST.shortTitle,
       publisher: parsedAST.publisher || '自定义导入',
       totalLessons: parsedAST.lessons.length,
       level: parsedAST.level,
+
       lessons: parsedAST.lessons.map((l) => ({
         id: l.id,
         bookId: parsedAST.id,
