@@ -12,6 +12,13 @@ import {
 } from '@study-studio/protocol';
 import { isOk, generateId, BusinessError } from '@study-studio/shared';
 import { formatBusinessErrorResponse } from './errors/http-error-handler.js';
+import { generateNewsPassage } from './services/generate-news-passage.js';
+import {
+  buildEnglishAiReadingPrompt,
+  buildKoreanAiReadingPrompt,
+  normalizeContentLanguage,
+  DEFAULT_CONTENT_LANGUAGE,
+} from './services/learning-language-policy.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -22,8 +29,10 @@ export * from './repository/drizzle-learner-repository.js';
 export * from './repository/sqlite-learner-repository.js';
 export * from './errors/http-error-handler.js';
 
-// 持久化存储实例：在生产/开发环境下持久化到本地 study-studio.db，或使用环境变量
-const dbPath = process.env.STUDY_STUDIO_DB || 'study-studio.db';
+// 持久化存储实例：在生产/开发环境下持久化到本地 study-studio.db，或使用环境变量；测试环境下自动隔离使用 :memory: 避免污染真实数据
+const isTestEnv = process.env.NODE_ENV === 'test' || process.env.BUN_ENV === 'test';
+const defaultDbPath = isTestEnv ? ':memory:' : 'study-studio.db';
+const dbPath = process.env.STUDY_STUDIO_DB || defaultDbPath;
 export const drizzleRepo = new DrizzleLearnerRepository(dbPath);
 export const sqliteRepo = drizzleRepo; // 保持向前兼容别名
 export const gatewayServer = new GatewayServer(drizzleRepo);
@@ -98,6 +107,15 @@ export const app = new Hono()
     const userId = c.req.param('userId');
     const date = c.req.query('date') || undefined;
     const res = await drizzleRepo.getDailyTaskProgress(userId, date);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  // 2.5 历史足迹热力图 (查询最近 N 天真实 SQLite 打卡记录)
+  .get('/api/task/history/:userId', async (c) => {
+    const userId = c.req.param('userId');
+    const days = Number(c.req.query('days')) || 28;
+    const lang = c.req.query('lang');
+    const res = await drizzleRepo.getActivityHistory(userId, days, lang);
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error);
   })
@@ -434,233 +452,149 @@ export const app = new Hono()
         const body = c.req.valid('json') as any;
         const origin = (body.origin || 'ai') as 'ai' | 'news';
         const difficulty = (Number(body.difficulty) || 2) as 1 | 2 | 3 | 4 | 5;
-        const language = (body.language === 'EN' ? 'EN' : 'JA') as 'JA' | 'EN';
-        const topic = String(body.topic || (language === 'JA' ? '日常生活' : 'technology'));
+        // 产品初期：默认英语；显式 JA/KO 才切换
+        const language = normalizeContentLanguage(
+          body.language,
+          DEFAULT_CONTENT_LANGUAGE
+        );
+        const topic = String(
+          body.topic ||
+            (language === 'JA' ? '日常生活' : language === 'KO' ? '시사·생활' : 'education and media literacy')
+        );
 
         const newSetId = generateId('read_' + origin);
         const isJa = language === 'JA';
+        const isKo = language === 'KO';
+        // 协议已支持 JA|EN|KO；KO 可持久化真实语种码
+        const persistLanguage: 'JA' | 'EN' | 'KO' =
+          language === 'JA' ? 'JA' : language === 'KO' ? 'KO' : 'EN';
 
         let title = '';
         let bodyText = '';
         let sourceLabel = '';
         let questions: any[] = [];
 
+        let sourceUrl: string | undefined;
         if (origin === 'news') {
-          sourceLabel = isJa
-            ? `合规模板稿 · ${topic}（非实时 RSS；栏目 SSOT 见 /api/reading/news-topics）`
-            : `Curated template · ${topic} (not live RSS; see /api/reading/news-topics)`;
-          title = isJa
-            ? `【快讯】关于${topic}领域的最新发展与社会影响`
-            : `Latest Developments and Industry Trends in ${topic}`;
-          bodyText = isJa
-            ? `近年のグローバルな技術革新と社会の変化に伴い、${topic}分野における新たな取り組みが急速に注目を集めている。国内外の専門機関が発表した最新データによれば、関連する市場規模は過去2年間で約30%拡大したという。
-
-市場の成長とともに、ユーザーの利便性向上や業務効率化が実現される一方で、プライバシーの保護や安全性基準の整備といった制度的課題も指摘されている。
-
-関係者は「持続可能な発展を遂げるためには、技術の進化だけでなく、社会全体の倫理規範との調和が不可欠である」と強調している。今後の法整備や官民連携の行方が注目される。`
-            : `Rapid innovation in the field of ${topic} has captured international attention over recent quarters. According to newly published market assessments from industry observers, investment in core research has risen significantly across leading research clusters.
-
-While early adopters praise the enhanced productivity and seamless workflow integration, regulatory authorities caution that robust safeguards regarding data integrity and security must keep pace with deployment.
-
-Industry leaders emphasized at a recent summit that long-term sustainability depends on maintaining transparent standards while cultivating public trust. Pilot programs scheduled for the upcoming quarter will test these governance frameworks under live operational conditions.`;
-
-          questions = [
-            {
-              id: `${newSetId}_q1`,
-              prompt: isJa
-                ? `本文で言及されている主な動向として適切なものはどれか。`
-                : `What is the primary trend highlighted in the passage regarding ${topic}?`,
-              options: [
-                {
-                  key: 'A',
-                  text: isJa
-                    ? '関連分野の取り組みが急速に注目され市場が拡大している'
-                    : 'Market investment and interest have expanded significantly',
-                },
-                {
-                  key: 'B',
-                  text: isJa
-                    ? '政府が当該分野への投資を全面的に禁止した'
-                    : 'Governments completely banned all related development',
-                },
-                {
-                  key: 'C',
-                  text: isJa
-                    ? '技術の進化が完全に停滞し需要が消滅した'
-                    : 'Innovation halted entirely due to a total lack of consumer interest',
-                },
-                {
-                  key: 'D',
-                  text: isJa
-                    ? 'すべての規制や基準が撤廃された'
-                    : 'All regulatory standards were permanently discarded',
-                },
-              ],
-              correctAnswer: 'A',
-              explanation: isJa
-                ? '第1段落で市場規模の拡大と急速な注目の高まりが述べられている。'
-                : 'Paragraph 1 notes significant rise in attention and market investment.',
-            },
-            {
-              id: `${newSetId}_q2`,
-              prompt: isJa
-                ? `本文で指摘されている課題は何か。`
-                : `What key concern or challenge was raised in the report?`,
-              options: [
-                {
-                  key: 'A',
-                  text: isJa ? '原料の物理的枯渇' : 'Immediate physical resource depletion',
-                },
-                {
-                  key: 'B',
-                  text: isJa
-                    ? '安全性基準の整備やプライバシーの保護'
-                    : 'Security safeguards, data integrity, and regulatory standards',
-                },
-                {
-                  key: 'C',
-                  text: isJa
-                    ? '従事者の完全な不足'
-                    : 'A total absence of qualified technicians',
-                },
-                {
-                  key: 'D',
-                  text: isJa
-                    ? '交通インフラの機能停止'
-                    : 'Urban transit infrastructure collapse',
-                },
-              ],
-              correctAnswer: 'B',
-              explanation: isJa
-                ? '第2段落「プライバシーの保護や安全性基準の整備といった制度的課題」と合致。'
-                : 'Paragraph 2 highlights safeguards regarding data integrity, security, and standards.',
-            },
-            {
-              id: `${newSetId}_q3`,
-              prompt: isJa
-                ? `今後の持続可能な発展に必要な条件として関係者が挙げたものは何か。`
-                : `According to industry stakeholders, what is indispensable for long-term sustainability?`,
-              options: [
-                {
-                  key: 'A',
-                  text: isJa
-                    ? '技術の進化と社会全体の倫理規範・透明性との調和'
-                    : 'Balancing technological innovation with ethical standards and public trust',
-                },
-                {
-                  key: 'B',
-                  text: isJa
-                    ? '競争相手の排除と独占体制の確立'
-                    : 'Eliminating competition to establish complete monopoly',
-                },
-                {
-                  key: 'C',
-                  text: isJa
-                    ? 'すべての法整備の中止'
-                    : 'Halting all future legislative governance',
-                },
-                {
-                  key: 'D',
-                  text: isJa
-                    ? '海外市場からの即時撤退'
-                    : 'Immediate withdrawal from all international markets',
-                },
-              ],
-              correctAnswer: 'A',
-              explanation: isJa
-                ? '第3段落「技術の進化だけでなく、社会全体の倫理規範との調和が不可欠」と対応。'
-                : 'Paragraph 3 emphasizes that sustainability depends on transparent standards and public trust.',
-            },
-          ];
-        } else {
-          sourceLabel = isJa
-            ? `AI 自适应生成 · 难度 Lv.${difficulty} / 主题: ${topic}`
-            : `AI Adaptive Generator · Lv.${difficulty} / Topic: ${topic}`;
-          title = isJa
-            ? `${topic}に関する日々の観察と学び`
-            : `Perspectives and Insights on ${topic}`;
-          bodyText = isJa
-            ? `私たちの生活において、${topic}は常に身近で重要な役割を果たしています。毎日の慌ただしい時間の中でも、少し立ち止まって周囲を見渡すと、新しい気づきや発見がたくさんあります。
+          const news = await generateNewsPassage({
+            setId: newSetId,
+            topic,
+            language,
+          });
+          title = news.title;
+          bodyText = news.body;
+          sourceLabel = news.sourceLabel;
+          sourceUrl = news.sourceUrl;
+          questions = news.questions;
+        } else if (isJa) {
+          sourceLabel = `AI 自适应生成 · 难度 Lv.${difficulty} / 主题: ${topic}`;
+          title = `${topic}に関する日々の観察と学び`;
+          bodyText = `私たちの生活において、${topic}は常に身近で重要な役割を果たしています。毎日の慌ただしい時間の中でも、少し立ち止まって周囲を見渡すと、新しい気づきや発見がたくさんあります。
 
 例えば、昨日出会った出来事について考えてみましょう。最初は些細なことのように見えても、注意深く観察してみると、これまで知らなかった工夫や人々の温かさに気づくことができます。
 
-言葉を学ぶことも、まさにこれと同じです。日々の小さな発見を大切に積み重ねていくことで、表現力や理解力は少しずつ深まっていきます。これからも好奇心を持って、新しい世界を探求していきたいものです。`
-            : `In our everyday lives, ${topic} often plays a far more meaningful role than we initially realize. Amid the rush of daily commitments, taking a moment to observe our surroundings frequently reveals fresh perspectives.
-
-Consider small interactions that seem ordinary at first glance. Upon closer reflection, we often uncover subtle craftsmanship and thoughtful intentionality behind how people navigate daily challenges.
-
-Language acquisition follows much the same cadence. By celebrating steady, incremental insights, learners cultivate nuanced expression and deeper comprehension over time.`;
-
+言葉を学ぶことも、まさにこれと同じです。日々の小さな発見を大切に積み重ねていくことで、表現力や理解力は少しずつ深まっていきます。これからも好奇心を持って、新しい世界を探求していきたいものです。`;
           questions = [
             {
               id: `${newSetId}_q1`,
-              prompt: isJa
-                ? `筆者は${topic}についてどのように述べていますか。`
-                : `What does the author suggest about everyday observations regarding ${topic}?`,
+              prompt: `筆者は${topic}についてどのように述べていますか。`,
               options: [
-                {
-                  key: 'A',
-                  text: isJa
-                    ? '些細に見えることの中にも新しい気づきや工夫がある'
-                    : 'Even seemingly ordinary moments reveal meaningful insights and intentionality',
-                },
-                {
-                  key: 'B',
-                  text: isJa
-                    ? '忙しいときは一切周囲を観察してはならない'
-                    : 'Busy people should strictly avoid paying attention to surroundings',
-                },
-                {
-                  key: 'C',
-                  text: isJa
-                    ? '日常生活には何の学びも存在しない'
-                    : 'Daily routines offer no valuable lessons whatsoever',
-                },
-                {
-                  key: 'D',
-                  text: isJa
-                    ? '過去の経験はすべて忘れるべきである'
-                    : 'Past observations should be disregarded completely',
-                },
+                { key: 'A', text: '些細に見えることの中にも新しい気づきや工夫がある' },
+                { key: 'B', text: '忙しいときは一切周囲を観察してはならない' },
+                { key: 'C', text: '日常生活には何の学びも存在しない' },
+                { key: 'D', text: '過去の経験はすべて忘れるべきである' },
               ],
               correctAnswer: 'A',
-              explanation: isJa
-                ? '第1・第2段落で些細なことの中にある新しい気づきや工夫について述べられている。'
-                : 'Paragraphs 1 and 2 emphasize finding fresh insights in subtle, ordinary moments.',
+              explanation:
+                '第1・第2段落で些細なことの中にある新しい気づきや工夫について述べられている。',
             },
             {
               id: `${newSetId}_q2`,
-              prompt: isJa
-                ? `筆者は言葉の学びを何にたとえていますか。`
-                : `What comparison does the author draw with language learning?`,
+              prompt: `筆者は言葉の学びを何にたとえていますか。`,
+              options: [
+                { key: 'A', text: '一度きりの大勝負' },
+                { key: 'B', text: '日々の小さな発見と積み重ね' },
+                { key: 'C', text: '他者との終わりのない激しい競争' },
+                { key: 'D', text: '完全に自動化された機械の動作' },
+              ],
+              correctAnswer: 'B',
+              explanation: '第3段落「日々の小さな発見を大切に積み重ねていくこと」と合致。',
+            },
+          ];
+        } else if (isKo) {
+          const koPrompt = buildKoreanAiReadingPrompt({ topic, difficulty });
+          title = koPrompt.title;
+          bodyText = koPrompt.body;
+          sourceLabel = koPrompt.sourceLabel;
+          questions = [
+            {
+              id: `${newSetId}_q1`,
+              prompt: 'What reading strategies will the Korean track emphasize once authentic content lands?',
               options: [
                 {
                   key: 'A',
-                  text: isJa ? '一度きりの大勝負' : 'A one-time high-stakes gamble',
+                  text: 'Main idea, connector words, and honorific/formal register awareness',
                 },
+                { key: 'B', text: 'Only memorizing hangul stroke order without meaning' },
+                { key: 'C', text: 'Ignoring discourse markers entirely' },
+                { key: 'D', text: 'Translating every sentence into Japanese first' },
+              ],
+              correctAnswer: 'A',
+              explanation:
+                'The interim scaffold and KOREAN_LEARNING_NOTES highlight TOPIK-style main idea, connectors, and register.',
+            },
+            {
+              id: `${newSetId}_q2`,
+              prompt: `Why is this interim passage still useful while studying “${topic}”?`,
+              options: [
                 {
-                  key: 'B',
-                  text: isJa
-                    ? '日々の小さな発見と積み重ね'
-                    : 'Accumulating steady, incremental everyday insights',
+                  key: 'A',
+                  text: 'It keeps the KO track wired end-to-end before Korean RSS replaces the scaffold',
                 },
+                { key: 'B', text: 'It permanently replaces authentic Korean news' },
+                { key: 'C', text: 'It teaches only English spelling rules' },
+                { key: 'D', text: 'It disables skill metrics for reading practice' },
+              ],
+              correctAnswer: 'A',
+              explanation:
+                'KO language code is persisted; content can later swap to Korean media without rewiring the client.',
+            },
+          ];
+        } else {
+          // EN：CET / 考研向精读骨架
+          const enPrompt = buildEnglishAiReadingPrompt({ topic, difficulty });
+          title = enPrompt.title;
+          bodyText = enPrompt.body;
+          sourceLabel = enPrompt.sourceLabel;
+          questions = [
+            {
+              id: `${newSetId}_q1`,
+              prompt: `What writing habit does the passage urge Chinese learners to avoid when discussing ${topic}?`,
+              options: [
                 {
-                  key: 'C',
-                  text: isJa
-                    ? '他者との終わりのない激しい競争'
-                    : 'Relentless competition against peer learners',
+                  key: 'A',
+                  text: 'Translating Chinese word order directly instead of natural SVO patterns',
                 },
-                {
-                  key: 'D',
-                  text: isJa
-                    ? '完全に自動化された機械の動作'
-                    : 'An entirely mechanized, hands-off routine',
-                },
+                { key: 'B', text: 'Using discourse markers such as however and therefore' },
+                { key: 'C', text: 'Stating a clear claim in the opening paragraph' },
+                { key: 'D', text: 'Checking articles (a/an/the) before finishing' },
+              ],
+              correctAnswer: 'A',
+              explanation:
+                'The first body paragraph warns against Chinglish word order and prefers subject–verb–object.',
+            },
+            {
+              id: `${newSetId}_q2`,
+              prompt: 'Which sentence pattern is recommended for contrasting two viewpoints?',
+              options: [
+                { key: 'A', text: '“people think… people also think…”' },
+                { key: 'B', text: '“While some argue that…, others contend that…”' },
+                { key: 'C', text: 'Listing events without a main idea' },
+                { key: 'D', text: 'Avoiding concrete examples entirely' },
               ],
               correctAnswer: 'B',
-              explanation: isJa
-                ? '第3段落「日々の小さな発見を大切に積み重ねていくこと」と合致。'
-                : 'Paragraph 3 directly compares language learning to steady, incremental insights.',
+              explanation:
+                'Paragraph 2 highlights the CET/Kaoyan-friendly contrast frame with While some… others…',
             },
           ];
         }
@@ -671,8 +605,9 @@ Language acquisition follows much the same cadence. By celebrating steady, incre
           title,
           topic,
           difficulty,
-          language,
+          language: persistLanguage,
           sourceLabel,
+          sourceUrl,
           body: bodyText,
           questions,
           createdAt: new Date().toISOString(),
@@ -696,7 +631,8 @@ Language acquisition follows much the same cadence. By celebrating steady, incre
         const setId = String(body.setId || '');
         const score = Number(body.score) || 0;
         const totalQuestions = Number(body.totalQuestions) || 1;
-        const language = (body.language === 'EN' ? 'EN' : 'JA') as 'JA' | 'EN';
+        const language =
+          body.language === 'JA' ? 'JA' : body.language === 'KO' ? 'KO' : ('EN' as const);
 
         const res = await drizzleRepo.recordReadingPractice(userId, {
           setId,

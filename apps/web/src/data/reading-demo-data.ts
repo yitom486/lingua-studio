@@ -21,7 +21,7 @@ export interface ReadingPassageSet {
   title: string;
   topic: string;
   difficulty: 1 | 2 | 3 | 4 | 5;
-  language: 'JA' | 'EN';
+  language: 'JA' | 'EN' | 'KO';
   sourceLabel: string;
   sourceUrl?: string;
   body: string;

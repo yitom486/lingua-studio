@@ -63,9 +63,9 @@ export function ReadingComprehensionWorkbench({
   const toggleFurigana = usePreferencesStore((s) => s.toggleFurigana);
 
   const [origin, setOrigin] = useState<PassageOrigin>('ai');
-  const [langFilter, setLangFilter] = useState<'ALL' | 'JA' | 'EN'>('ALL');
+  const [langFilter, setLangFilter] = useState<'ALL' | 'JA' | 'EN' | 'KO'>('EN');
   const [aiDifficulty, setAiDifficulty] = useState('2');
-  const [newsTopic, setNewsTopic] = useState('technology');
+  const [newsTopic, setNewsTopic] = useState('world');
 
   // TanStack Query 服务端状态对接
   const { data: newsTopics = NEWS_TOPIC_OPTIONS } = useNewsTopicsQuery();
@@ -270,17 +270,34 @@ export function ReadingComprehensionWorkbench({
   const handleGenerateNewPassage = async () => {
     sound.playClick();
     try {
+      const genLanguage: 'JA' | 'EN' | 'KO' =
+        langFilter === 'JA' ? 'JA' : langFilter === 'KO' ? 'KO' : 'EN';
       toast.loading(
         origin === 'ai'
-          ? `AI 正在按难度 Lv.${aiDifficulty} 生成自适应长文...`
-          : `正在拉取「${newsTopic}」栏目最新真实新闻...`,
+          ? genLanguage === 'EN'
+            ? `AI 正在按 CET/考研向难度 Lv.${aiDifficulty} 生成英语精读篇...`
+            : genLanguage === 'KO'
+              ? `AI 正在生成韩语轨道脚手架篇目（interim）Lv.${aiDifficulty}...`
+              : `AI 正在按难度 Lv.${aiDifficulty} 生成日语自适应长文...`
+          : genLanguage === 'EN'
+            ? `正在从英语媒体 RSS 拉取「${newsTopic}」（BBC / The Guardian / NPR）...`
+            : genLanguage === 'KO'
+              ? `正在拉取韩语轨道 interim 新闻 RSS「${newsTopic}」...`
+              : `正在从 NHK ONE RSS 拉取「${newsTopic}」日语新闻...`,
         { id: 'generate-reading' }
       );
       const generated = await generateMutation.mutateAsync({
         origin,
         difficulty: Number(aiDifficulty),
-        language: langFilter === 'EN' ? 'EN' : 'JA',
-        topic: origin === 'news' ? newsTopic : '日常生活与文化',
+        language: genLanguage,
+        topic:
+          origin === 'news'
+            ? newsTopic
+            : genLanguage === 'EN'
+              ? 'education and media literacy'
+              : genLanguage === 'KO'
+                ? '시사·생활'
+                : '日常生活与文化',
       });
       toast.success(
         origin === 'ai' ? '自适应阅读长文与配套测试题生成成功！' : '真实新闻篇目抓取与排版完成！',
@@ -353,7 +370,7 @@ export function ReadingComprehensionWorkbench({
               Lv.{activeSet.difficulty}
             </Badge>
             <Badge variant="outline" className="text-[10px]">
-              {activeSet.language === 'JA' ? '日文' : '英文'}
+              {activeSet.language === 'JA' ? '日文' : activeSet.language === 'KO' ? '韩文' : '英文'}
             </Badge>
             <span className="text-[11px] text-stone-500 truncate">{activeSet.sourceLabel}</span>
           </div>
@@ -649,6 +666,19 @@ export function ReadingComprehensionWorkbench({
               }`}
             >
               英文
+            </button>
+            <button
+              onClick={() => {
+                sound.playClick();
+                setLangFilter('KO');
+              }}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+                langFilter === 'KO'
+                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs'
+                  : 'text-stone-500'
+              }`}
+            >
+              韩文
             </button>
           </div>
 

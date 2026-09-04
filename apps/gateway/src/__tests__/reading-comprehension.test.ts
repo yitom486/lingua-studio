@@ -88,6 +88,8 @@ describe('Reading Comprehension Repository & Seeds (Companion Integration)', () 
   });
 
   it('should record reading practice, updating skill metrics and daily activity log', async () => {
+    await repo.updateLearnerProfile(testUserId, { targetLanguage: 'ja' });
+
     // 提交日文阅读成绩：3 题对 3 题
     const practiceRes = await repo.recordReadingPractice(testUserId, {
       setId: 'read_ai_cafe',

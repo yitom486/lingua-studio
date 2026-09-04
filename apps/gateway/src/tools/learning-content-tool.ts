@@ -45,7 +45,7 @@ export const LearningContentInputSchema = z.object({
     .optional(),
   skillIds: z.array(z.string()).optional(),
   difficulty: z.number().int().min(1).max(5).optional(),
-  language: z.enum(['ja', 'en']).optional(),
+  language: z.enum(['ja', 'en', 'ko']).optional(),
   topic: z.string().optional(),
   /** 写作体裁：translation | email | essay | diary | news_response */
   genre: z.string().optional(),

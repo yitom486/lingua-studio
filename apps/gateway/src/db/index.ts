@@ -56,10 +56,10 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS learner_profiles (
       user_id TEXT PRIMARY KEY,
       display_name TEXT NOT NULL DEFAULT '',
-      target_language TEXT NOT NULL DEFAULT 'ja',
-      study_goal TEXT NOT NULL DEFAULT 'JLPT_N2',
+      target_language TEXT NOT NULL DEFAULT 'en',
+      study_goal TEXT NOT NULL DEFAULT 'CET6',
       learner_level TEXT NOT NULL DEFAULT 'BEGINNER',
-      overall_level TEXT NOT NULL DEFAULT 'N3-',
+      overall_level TEXT NOT NULL DEFAULT 'B1',
       overall_proficiency REAL NOT NULL DEFAULT 0.55,
       streak_days INTEGER NOT NULL DEFAULT 0,
       max_streak_days INTEGER NOT NULL DEFAULT 0,
@@ -73,10 +73,31 @@ export function initSchema(sqlite: Database): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS learner_language_profiles (
+      user_id TEXT NOT NULL,
+      language TEXT NOT NULL,
+      study_goal TEXT NOT NULL DEFAULT 'CET6',
+      learner_level TEXT NOT NULL DEFAULT 'BEGINNER',
+      overall_level TEXT NOT NULL DEFAULT 'B1',
+      overall_proficiency REAL NOT NULL DEFAULT 0.55,
+      streak_days INTEGER NOT NULL DEFAULT 0,
+      max_streak_days INTEGER NOT NULL DEFAULT 0,
+      last_active_date TEXT,
+      retention_rate REAL NOT NULL DEFAULT 0.85,
+      daily_goal_quizzes INTEGER NOT NULL DEFAULT 5,
+      daily_goal_cards INTEGER NOT NULL DEFAULT 10,
+      total_study_minutes INTEGER NOT NULL DEFAULT 0,
+      total_cards_reviewed INTEGER NOT NULL DEFAULT 0,
+      total_quizzes_answered INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, language)
+    );
+
     CREATE TABLE IF NOT EXISTS study_activity_logs (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       activity_date TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       quizzes_count INTEGER NOT NULL DEFAULT 0,
       cards_reviewed_count INTEGER NOT NULL DEFAULT 0,
       listening_minutes INTEGER NOT NULL DEFAULT 0,
@@ -92,6 +113,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS skill_metrics (
       user_id TEXT NOT NULL,
       skill_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       dimension TEXT NOT NULL,
       name TEXT NOT NULL,
       proficiency REAL NOT NULL,
@@ -106,6 +128,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS flashcards (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       type TEXT NOT NULL,
       front TEXT NOT NULL,
       back TEXT NOT NULL,
@@ -118,6 +141,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS quiz_attempts (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       question_id TEXT NOT NULL,
       user_answer TEXT NOT NULL,
       is_correct INTEGER NOT NULL,
@@ -130,6 +154,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS mistakes (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       question_id TEXT NOT NULL,
       question TEXT NOT NULL,
       last_user_submission TEXT NOT NULL,
@@ -195,6 +220,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS quiz_questions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT 'default_user',
+      language TEXT NOT NULL DEFAULT 'ja',
       type TEXT NOT NULL,
       category TEXT NOT NULL,
       prompt TEXT NOT NULL,
@@ -213,6 +239,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS practice_collections (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       title TEXT NOT NULL,
       intent TEXT NOT NULL DEFAULT 'GENERATE_QUIZ',
       layout_hint TEXT,
@@ -225,6 +252,7 @@ export function initSchema(sqlite: Database): void {
     CREATE TABLE IF NOT EXISTS practice_items (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
       collection_id TEXT NOT NULL,
       question_json TEXT NOT NULL,
       skill_ids TEXT,
@@ -238,12 +266,66 @@ export function initSchema(sqlite: Database): void {
     CREATE INDEX IF NOT EXISTS idx_practice_items_user ON practice_items(user_id, collected_at);
   `);
 
-    // 增量列：已有库补 PDF 页码锚点
+  // 增量列：已有库补字段
+  const alterStatements = [
+    'ALTER TABLE annotations ADD COLUMN page_number INTEGER',
+    "ALTER TABLE study_activity_logs ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE skill_metrics ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE flashcards ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE quiz_attempts ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE mistakes ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE quiz_questions ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE practice_collections ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    "ALTER TABLE practice_items ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+  ];
+  for (const sql of alterStatements) {
     try {
-      sqlite.exec('ALTER TABLE annotations ADD COLUMN page_number INTEGER');
+      sqlite.exec(sql);
     } catch {
       /* column already exists */
     }
+  }
+
+  try {
+    sqlite.exec(
+      'CREATE INDEX IF NOT EXISTS idx_activity_user_date_lang ON study_activity_logs(user_id, activity_date, language)'
+    );
+    sqlite.exec('CREATE INDEX IF NOT EXISTS idx_flashcards_user_lang ON flashcards(user_id, language)');
+    sqlite.exec(
+      'CREATE INDEX IF NOT EXISTS idx_mistakes_user_lang_resolved ON mistakes(user_id, language, is_resolved)'
+    );
+    sqlite.exec(
+      'CREATE INDEX IF NOT EXISTS idx_quiz_questions_user_lang ON quiz_questions(user_id, language, created_at)'
+    );
+  } catch {
+    /* ignore */
+  }
+
+  // 将主档案镜像迁入当前语种行（仅当该语种行尚不存在）
+  try {
+    sqlite.exec(`
+      INSERT OR IGNORE INTO learner_language_profiles (
+        user_id, language, study_goal, learner_level, overall_level, overall_proficiency,
+        streak_days, max_streak_days, last_active_date, retention_rate,
+        daily_goal_quizzes, daily_goal_cards, total_study_minutes, total_cards_reviewed,
+        total_quizzes_answered, updated_at
+      )
+      SELECT
+        user_id,
+        CASE
+          WHEN lower(target_language) IN ('en', 'eng') THEN 'en'
+          WHEN lower(target_language) IN ('ko', 'kr') THEN 'ko'
+          ELSE 'ja'
+        END,
+        study_goal, learner_level, overall_level, overall_proficiency,
+        streak_days, max_streak_days, last_active_date, retention_rate,
+        daily_goal_quizzes, daily_goal_cards, total_study_minutes, total_cards_reviewed,
+        total_quizzes_answered, updated_at
+      FROM learner_profiles
+    `);
+  } catch (e) {
+    console.warn('[initSchema] Failed to backfill learner_language_profiles:', e);
+  }
 
     // 1. 自动填充五十音权威种子数据（若空）
     try {
@@ -318,8 +400,8 @@ export function initSchema(sqlite: Database): void {
       if (!cardCountRow || cardCountRow.count === 0) {
         const now = new Date().toISOString();
         const insertCardStmt = sqlite.prepare(`
-          INSERT INTO flashcards (id, user_id, type, front, back, phonetic, audio_url, tags, fsrs)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO flashcards (id, user_id, language, type, front, back, phonetic, audio_url, tags, fsrs)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const c of INITIAL_CARD_SEEDS) {
           const fsrsObj = {
@@ -337,6 +419,7 @@ export function initSchema(sqlite: Database): void {
           insertCardStmt.run(
             c.id,
             'student_web_01',
+            'ja',
             c.type,
             c.front,
             c.back,
@@ -359,13 +442,14 @@ export function initSchema(sqlite: Database): void {
       if (!qCountRow || qCountRow.count === 0) {
         const now = new Date().toISOString();
         const insertQStmt = sqlite.prepare(`
-          INSERT INTO quiz_questions (id, user_id, type, category, prompt, content, options, chunks, correct_answer, explanation, tested_skill_id, difficulty, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO quiz_questions (id, user_id, language, type, category, prompt, content, options, chunks, correct_answer, explanation, tested_skill_id, difficulty, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const q of INITIAL_QUESTION_SEEDS) {
           insertQStmt.run(
             q.id,
             'default_user',
+            'ja',
             q.type,
             q.category,
             q.prompt,
@@ -392,8 +476,8 @@ export function initSchema(sqlite: Database): void {
       if (!mistCountRow || mistCountRow.count === 0) {
         const now = new Date().toISOString();
         const insertMistStmt = sqlite.prepare(`
-          INSERT INTO mistakes (id, user_id, question_id, question, last_user_submission, last_grading, recorded_at, last_retried_at, retry_count, consecutive_correct, is_resolved)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO mistakes (id, user_id, language, question_id, question, last_user_submission, last_grading, recorded_at, last_retried_at, retry_count, consecutive_correct, is_resolved)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const m of INITIAL_MISTAKE_SEEDS) {
           const questionObj = {
@@ -416,6 +500,7 @@ export function initSchema(sqlite: Database): void {
           insertMistStmt.run(
             m.id,
             'student_web_01',
+            'ja',
             m.questionId,
             JSON.stringify(questionObj),
             m.userWrongAnswer,
@@ -440,13 +525,19 @@ export function initSchema(sqlite: Database): void {
       if (!smCountRow || smCountRow.count === 0) {
         const now = new Date().toISOString();
         const insertSmStmt = sqlite.prepare(`
-          INSERT INTO skill_metrics (user_id, skill_id, dimension, name, proficiency, total_attempts, correct_attempts, consecutive_errors, status, last_practiced_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO skill_metrics (user_id, skill_id, language, dimension, name, proficiency, total_attempts, correct_attempts, consecutive_errors, status, last_practiced_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const sm of INITIAL_SKILL_METRIC_SEEDS) {
+          const lang = sm.skillId.startsWith('en.')
+            ? 'en'
+            : sm.skillId.startsWith('ko.')
+              ? 'ko'
+              : 'ja';
           insertSmStmt.run(
             'student_web_01',
             sm.skillId,
+            lang,
             sm.dimension,
             sm.name,
             sm.proficiency,

@@ -20,7 +20,7 @@ import {
 import type { LearnerRepository } from '@study-studio/learner-core';
 
 export const GenerateAdaptiveQuizInputSchema = z.object({
-  targetLanguage: z.enum(['ja', 'en']),
+  targetLanguage: z.enum(['ja', 'en', 'ko']),
   targetLevel: z.string(),
   weaknessSkillId: z.string().optional(),
   count: z.number().min(1).max(5),

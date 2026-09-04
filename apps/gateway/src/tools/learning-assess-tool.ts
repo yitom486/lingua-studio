@@ -20,7 +20,7 @@ export const LearningAssessInputSchema = z.object({
   standardAnswer: z.string(),
   userSubmission: z.string(),
   testedSkillId: z.string().optional(),
-  language: z.enum(['ja', 'en']).optional(),
+  language: z.enum(['ja', 'en', 'ko']).optional(),
 });
 
 export type LearningAssessInput = z.infer<typeof LearningAssessInputSchema>;

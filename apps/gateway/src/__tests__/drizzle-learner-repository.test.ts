@@ -16,8 +16,8 @@ describe('DrizzleLearnerRepository', () => {
     if (!isOk(res)) return;
 
     expect(res.value.userId).toBe(testUserId);
-    expect(res.value.targetLanguage).toBe('ja');
-    expect(res.value.studyGoal).toBe('JLPT_N2');
+    expect(res.value.targetLanguage).toBe('en');
+    expect(res.value.studyGoal).toBe('CET6');
     expect(res.value.learnerLevel).toBe('BEGINNER');
     expect(res.value.streakDays).toBe(0);
     expect(res.value.dailyGoalQuizzes).toBe(5);
@@ -159,6 +159,9 @@ describe('DrizzleLearnerRepository', () => {
   });
 
   it('should auto-seed initial learning data (cards, questions, mistakes) into SQLite', async () => {
+    // 冷启动种子为日语资产；切到 ja 轨道再读
+    await repo.updateLearnerProfile('student_web_01', { targetLanguage: 'ja' });
+
     // 1. 验证卡片自动灌库与读取
     const cardsRes = await repo.getDueCards('student_web_01');
     expect(isOk(cardsRes)).toBe(true);
@@ -166,8 +169,8 @@ describe('DrizzleLearnerRepository', () => {
     expect(cardsRes.value.length).toBeGreaterThanOrEqual(4);
     expect(cardsRes.value[0]?.front).toBeDefined();
 
-    // 2. 验证题库自动灌库与读取
-    const questionsRes = await repo.getQuestions('default_user');
+    // 2. 验证题库自动灌库与读取（种子挂在 default_user + ja）
+    const questionsRes = await repo.getQuestions('student_web_01');
     expect(isOk(questionsRes)).toBe(true);
     if (!isOk(questionsRes)) return;
     expect(questionsRes.value.length).toBeGreaterThanOrEqual(6);
@@ -182,6 +185,7 @@ describe('DrizzleLearnerRepository', () => {
   });
 
   it('should persist updated FSRS review state for flashcards in SQLite', async () => {
+    await repo.updateLearnerProfile('student_web_01', { targetLanguage: 'ja' });
     const cardsRes = await repo.getDueCards('student_web_01');
     expect(isOk(cardsRes)).toBe(true);
     if (!isOk(cardsRes)) return;
@@ -211,6 +215,7 @@ describe('DrizzleLearnerRepository', () => {
   });
 
   it('should persist dynamically generated questions and resolve mistakes cleanly', async () => {
+    await repo.updateLearnerProfile('student_web_01', { targetLanguage: 'ja' });
     // 1. 保存一道由 AI 生成的新题目
     const newQuestion = {
       id: 'q_ai_dynamized_01',
@@ -248,5 +253,69 @@ describe('DrizzleLearnerRepository', () => {
     const resolvedMistake = mistakesRes.value.find((m) => m.id === 'mst_01');
     expect(resolvedMistake?.isResolved).toBe(true);
     expect(resolvedMistake?.consecutiveCorrect).toBeGreaterThanOrEqual(1);
+  });
+
+  it('isolates study goals and questions by target language track', async () => {
+    const userId = 'test_user_lang_tracks';
+    await repo.getLearnerProfile(userId);
+
+    // EN 轨道写题
+    await repo.saveQuestion({
+      id: 'q_en_only',
+      userId,
+      type: 'CHOICE',
+      category: 'reading',
+      prompt: 'Main idea?',
+      content: 'English passage',
+      correctAnswer: 'A',
+      explanation: 'en',
+      testedSkillId: 'en.reading.comprehension',
+      difficulty: 2,
+      language: 'en',
+    });
+
+    // 切到日语并改目标
+    const jaUpdate = await repo.updateLearnerProfile(userId, {
+      targetLanguage: 'ja',
+      studyGoal: 'JLPT_N2',
+      overallLevel: 'N3-',
+    });
+    expect(isOk(jaUpdate)).toBe(true);
+    if (!isOk(jaUpdate)) return;
+    expect(jaUpdate.value.targetLanguage).toBe('ja');
+    expect(jaUpdate.value.studyGoal).toBe('JLPT_N2');
+
+    await repo.saveQuestion({
+      id: 'q_ja_only',
+      userId,
+      type: 'CHOICE',
+      category: 'grammar',
+      prompt: '助詞',
+      content: '公園（　）歩く',
+      correctAnswer: 'A',
+      explanation: 'ja',
+      testedSkillId: 'jp.particle.traversal_o',
+      difficulty: 2,
+      language: 'ja',
+    });
+
+    const jaQs = await repo.getQuestions(userId);
+    expect(isOk(jaQs)).toBe(true);
+    if (!isOk(jaQs)) return;
+    expect(jaQs.value.some((q) => q.id === 'q_ja_only')).toBe(true);
+    expect(jaQs.value.some((q) => q.id === 'q_en_only')).toBe(false);
+
+    // 切回英语：目标应恢复为该语种档案（CET6），题库仅 EN
+    const enBack = await repo.updateLearnerProfile(userId, { targetLanguage: 'en' });
+    expect(isOk(enBack)).toBe(true);
+    if (!isOk(enBack)) return;
+    expect(enBack.value.targetLanguage).toBe('en');
+    expect(enBack.value.studyGoal).toBe('CET6');
+
+    const enQs = await repo.getQuestions(userId);
+    expect(isOk(enQs)).toBe(true);
+    if (!isOk(enQs)) return;
+    expect(enQs.value.some((q) => q.id === 'q_en_only')).toBe(true);
+    expect(enQs.value.some((q) => q.id === 'q_ja_only')).toBe(false);
   });
 });

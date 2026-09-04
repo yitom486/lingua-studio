@@ -22,10 +22,34 @@ export const LearnerLevelSchema = z.enum([
 ]);
 export type LearnerLevel = z.infer<typeof LearnerLevelSchema>;
 
+export const TargetLanguageSchema = z.enum(['ja', 'en', 'ko']);
+export type TargetLanguageCode = z.infer<typeof TargetLanguageSchema>;
+
+/** 按目标语种隔离的学情档案 */
+export const LearnerLanguageProfileSchema = z.object({
+  userId: z.string(),
+  language: TargetLanguageSchema,
+  studyGoal: StudyGoalSchema,
+  learnerLevel: LearnerLevelSchema,
+  overallLevel: z.string(),
+  overallProficiency: z.number().min(0).max(1),
+  streakDays: z.number().int().min(0),
+  maxStreakDays: z.number().int().min(0),
+  lastActiveDate: z.string().nullable(),
+  retentionRate: z.number().min(0).max(1),
+  dailyGoalQuizzes: z.number().int().min(1),
+  dailyGoalCards: z.number().int().min(1),
+  totalStudyMinutes: z.number().int().min(0),
+  totalCardsReviewed: z.number().int().min(0),
+  totalQuizzesAnswered: z.number().int().min(0),
+  updatedAt: z.string(),
+});
+export type LearnerLanguageProfile = z.infer<typeof LearnerLanguageProfileSchema>;
+
 export const LearnerProfileSchema = z.object({
   userId: z.string(),
   displayName: z.string(),
-  targetLanguage: z.enum(['ja', 'en', 'ko']),
+  targetLanguage: TargetLanguageSchema,
   studyGoal: StudyGoalSchema,
   learnerLevel: LearnerLevelSchema,
   overallLevel: z.string(),
@@ -45,7 +69,7 @@ export type LearnerProfile = z.infer<typeof LearnerProfileSchema>;
 
 export const UpdateLearnerProfileSchema = z.object({
   displayName: z.string().min(1).max(50).optional(),
-  targetLanguage: z.enum(['ja', 'en', 'ko']).optional(),
+  targetLanguage: TargetLanguageSchema.optional(),
   studyGoal: StudyGoalSchema.optional(),
   learnerLevel: LearnerLevelSchema.optional(),
   dailyGoalQuizzes: z.number().int().min(1).max(100).optional(),
@@ -56,6 +80,7 @@ export type UpdateLearnerProfileInput = z.infer<typeof UpdateLearnerProfileSchem
 export const DailyTaskProgressSchema = z.object({
   userId: z.string(),
   activityDate: z.string(), // YYYY-MM-DD
+  language: TargetLanguageSchema.default('en'),
   quizzesCount: z.number().int().min(0),
   dailyGoalQuizzes: z.number().int().min(1),
   cardsReviewedCount: z.number().int().min(0),
@@ -77,5 +102,6 @@ export const RecordDailyActivitySchema = z.object({
   listeningMinutes: z.number().int().min(0).optional(),
   mistakesResolved: z.number().int().min(0).optional(),
   date: z.string().optional(),
+  language: TargetLanguageSchema.optional(),
 });
 export type RecordDailyActivityInput = z.infer<typeof RecordDailyActivitySchema>;

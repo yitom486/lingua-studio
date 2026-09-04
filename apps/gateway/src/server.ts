@@ -367,7 +367,8 @@ export class GatewayServer {
               skillIds: rawPayload.weaknessSkillId
                 ? [String(rawPayload.weaknessSkillId)]
                 : undefined,
-              language: rawPayload.targetLanguage === 'en' ? 'en' : 'ja',
+              // learning.content 暂仅 ja|en；韩语轨道先落 EN 内容
+              language: rawPayload.targetLanguage === 'ja' ? 'ja' : 'en',
               collect: true,
             },
             { userId, sessionId: envelope.sessionId }
@@ -387,8 +388,8 @@ export class GatewayServer {
         } else if (legacyTool) {
           toolRes = await legacyTool.execute(
             {
-              targetLanguage: rawPayload.targetLanguage ?? 'ja',
-              targetLevel: rawPayload.targetLevel ?? 'JLPT N3',
+              targetLanguage: rawPayload.targetLanguage ?? 'en',
+              targetLevel: rawPayload.targetLevel ?? 'CEFR B1',
               weaknessSkillId: rawPayload.weaknessSkillId,
               count,
             },
@@ -494,7 +495,7 @@ export class GatewayServer {
                 {
                   action: 'example_set',
                   topic: snapshot.focus?.skillTag || '助词与谓语动词搭配',
-                  language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                  language: snapshot.targetLanguage === 'ja' ? 'ja' : 'en',
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -527,7 +528,7 @@ export class GatewayServer {
                 {
                   action: 'explain',
                   topic: snapshot.focus?.skillTag || '格助词辨析',
-                  language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                  language: snapshot.targetLanguage === 'ja' ? 'ja' : 'en',
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -563,7 +564,7 @@ export class GatewayServer {
                   action: 'generate_quiz',
                   count: Math.min(3, snapshot.constraints?.maxQuestions ?? 3),
                   difficulty: 2,
-                  language: snapshot.targetLanguage === 'en' ? 'en' : 'ja',
+                  language: snapshot.targetLanguage === 'ja' ? 'ja' : 'en',
                   skillIds,
                   collect: true,
                   collectionTitle: '导师即时练习',

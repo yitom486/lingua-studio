@@ -8,8 +8,11 @@ export const NewsTopicSchema = z.object({
 export type NewsTopic = z.infer<typeof NewsTopicSchema>;
 
 /**
- * 首发栏目枚举。真实 RSS/API 接入前，生成稿仍走 Gateway 合规模板，
- * 但栏目 ID 与文案以此表为准，禁止前端另写一套。
+ * 首发栏目枚举。Gateway 按语言映射公开 RSS：
+ * - EN（默认）→ BBC / The Guardian / NPR
+ * - JA → NHK ONE（news.web.nhk/.../catN.xml）
+ * - KO → 预留（interim 英文媒体；正式韩语社 RSS 后替换）
+ * 拉取失败时回退合规模板稿。
  */
 export const NEWS_TOPICS: readonly NewsTopic[] = [
   { id: 'technology', label: '科技 Tech' },

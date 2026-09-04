@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { eq, and, desc, asc, lte, or, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, lte, gte, or, inArray } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -34,6 +34,7 @@ import {
   createDrizzleDb,
   type DrizzleDb,
   learnerProfiles,
+  learnerLanguageProfiles,
   studyActivityLogs,
   skillMetrics,
   flashcards,
@@ -46,6 +47,33 @@ import {
   curriculumKana,
   quizQuestions,
 } from '../db/index.js';
+
+export type TrackLanguage = 'ja' | 'en' | 'ko';
+
+export function normalizeTrackLanguage(raw: string | null | undefined): TrackLanguage {
+  const v = (raw || '').toLowerCase();
+  if (v === 'en' || v === 'eng') return 'en';
+  if (v === 'ko' || v === 'kr') return 'ko';
+  if (v === 'ja' || v === 'jp') return 'ja';
+  return 'en';
+}
+
+export function inferLanguageFromSkillId(skillId: string): TrackLanguage {
+  if (skillId.startsWith('en.')) return 'en';
+  if (skillId.startsWith('ko.')) return 'ko';
+  return 'ja';
+}
+
+function defaultLanguageProfileSeed(language: TrackLanguage) {
+  if (language === 'ja') {
+    return { studyGoal: 'JLPT_N2', learnerLevel: 'BEGINNER', overallLevel: 'N3-' };
+  }
+  if (language === 'ko') {
+    return { studyGoal: 'INTEREST_BASIC', learnerLevel: 'BEGINNER', overallLevel: 'A1' };
+  }
+  return { studyGoal: 'CET6', learnerLevel: 'BEGINNER', overallLevel: 'B1' };
+}
+
 function getTodayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -70,8 +98,98 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     return this.sqlite;
   }
 
+  private async resolveActiveLanguage(userId: string): Promise<TrackLanguage> {
+    const rows = await this.db
+      .select({ targetLanguage: learnerProfiles.targetLanguage })
+      .from(learnerProfiles)
+      .where(eq(learnerProfiles.userId, userId))
+      .limit(1);
+    return normalizeTrackLanguage(rows[0]?.targetLanguage);
+  }
+
+  private async ensureLanguageProfile(
+    userId: string,
+    language: TrackLanguage,
+    seed?: Partial<{
+      studyGoal: string;
+      learnerLevel: string;
+      overallLevel: string;
+      overallProficiency: number;
+      streakDays: number;
+      maxStreakDays: number;
+      lastActiveDate: string | null;
+      retentionRate: number;
+      dailyGoalQuizzes: number;
+      dailyGoalCards: number;
+      totalStudyMinutes: number;
+      totalCardsReviewed: number;
+      totalQuizzesAnswered: number;
+    }>
+  ): Promise<typeof learnerLanguageProfiles.$inferSelect> {
+    const existing = await this.db
+      .select()
+      .from(learnerLanguageProfiles)
+      .where(
+        and(
+          eq(learnerLanguageProfiles.userId, userId),
+          eq(learnerLanguageProfiles.language, language)
+        )
+      )
+      .limit(1);
+    if (existing[0]) return existing[0];
+
+    const defaults = defaultLanguageProfileSeed(language);
+    const row = {
+      userId,
+      language,
+      studyGoal: seed?.studyGoal ?? defaults.studyGoal,
+      learnerLevel: seed?.learnerLevel ?? defaults.learnerLevel,
+      overallLevel: seed?.overallLevel ?? defaults.overallLevel,
+      overallProficiency: seed?.overallProficiency ?? 0.55,
+      streakDays: seed?.streakDays ?? 0,
+      maxStreakDays: seed?.maxStreakDays ?? 0,
+      lastActiveDate: seed?.lastActiveDate ?? null,
+      retentionRate: seed?.retentionRate ?? 0.85,
+      dailyGoalQuizzes: seed?.dailyGoalQuizzes ?? 5,
+      dailyGoalCards: seed?.dailyGoalCards ?? 10,
+      totalStudyMinutes: seed?.totalStudyMinutes ?? 0,
+      totalCardsReviewed: seed?.totalCardsReviewed ?? 0,
+      totalQuizzesAnswered: seed?.totalQuizzesAnswered ?? 0,
+      updatedAt: nowIso(),
+    };
+    await this.db.insert(learnerLanguageProfiles).values(row);
+    return row as typeof learnerLanguageProfiles.$inferSelect;
+  }
+
+  private async mirrorLanguageProfileToMain(
+    userId: string,
+    language: TrackLanguage,
+    langRow: typeof learnerLanguageProfiles.$inferSelect,
+    displayName?: string
+  ): Promise<void> {
+    const patch: Record<string, unknown> = {
+      targetLanguage: language,
+      studyGoal: langRow.studyGoal,
+      learnerLevel: langRow.learnerLevel,
+      overallLevel: langRow.overallLevel,
+      overallProficiency: langRow.overallProficiency,
+      streakDays: langRow.streakDays,
+      maxStreakDays: langRow.maxStreakDays,
+      lastActiveDate: langRow.lastActiveDate,
+      retentionRate: langRow.retentionRate,
+      dailyGoalQuizzes: langRow.dailyGoalQuizzes,
+      dailyGoalCards: langRow.dailyGoalCards,
+      totalStudyMinutes: langRow.totalStudyMinutes,
+      totalCardsReviewed: langRow.totalCardsReviewed,
+      totalQuizzesAnswered: langRow.totalQuizzesAnswered,
+      updatedAt: nowIso(),
+    };
+    if (displayName !== undefined) patch.displayName = displayName;
+    await this.db.update(learnerProfiles).set(patch).where(eq(learnerProfiles.userId, userId));
+  }
+
   /**
-   * 获取或初始化学习者基础档案
+   * 获取或初始化学习者基础档案（主表 + 当前语种档案合并）
    */
   public async getLearnerProfile(userId: string): Promise<Result<LearnerProfile, BusinessError>> {
     try {
@@ -83,12 +201,10 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
       if (rows.length > 0) {
         const row = rows[0]!;
-        return ok({
-          userId: row.userId,
-          displayName: row.displayName || '学习者',
-          targetLanguage: (row.targetLanguage as any) || 'ja',
-          studyGoal: (row.studyGoal as any) || 'JLPT_N2',
-          learnerLevel: (row.learnerLevel as any) || 'BEGINNER',
+        const language = normalizeTrackLanguage(row.targetLanguage);
+        const langRow = await this.ensureLanguageProfile(userId, language, {
+          studyGoal: row.studyGoal,
+          learnerLevel: row.learnerLevel,
           overallLevel: row.overallLevel,
           overallProficiency: row.overallProficiency,
           streakDays: row.streakDays,
@@ -100,18 +216,36 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           totalStudyMinutes: row.totalStudyMinutes,
           totalCardsReviewed: row.totalCardsReviewed,
           totalQuizzesAnswered: row.totalQuizzesAnswered,
-          updatedAt: row.updatedAt,
+        });
+
+        return ok({
+          userId: row.userId,
+          displayName: row.displayName || '学习者',
+          targetLanguage: language,
+          studyGoal: (langRow.studyGoal as LearnerProfile['studyGoal']) || 'CET6',
+          learnerLevel: (langRow.learnerLevel as LearnerProfile['learnerLevel']) || 'BEGINNER',
+          overallLevel: langRow.overallLevel,
+          overallProficiency: langRow.overallProficiency,
+          streakDays: langRow.streakDays,
+          maxStreakDays: langRow.maxStreakDays,
+          lastActiveDate: langRow.lastActiveDate,
+          retentionRate: langRow.retentionRate,
+          dailyGoalQuizzes: langRow.dailyGoalQuizzes,
+          dailyGoalCards: langRow.dailyGoalCards,
+          totalStudyMinutes: langRow.totalStudyMinutes,
+          totalCardsReviewed: langRow.totalCardsReviewed,
+          totalQuizzesAnswered: langRow.totalQuizzesAnswered,
+          updatedAt: langRow.updatedAt || row.updatedAt,
         });
       }
 
-      // 初次创建新用户默认档案
       const defaultProfile: LearnerProfile = {
         userId,
         displayName: '学员 ' + userId.slice(-4),
-        targetLanguage: 'ja',
-        studyGoal: 'JLPT_N2',
+        targetLanguage: 'en',
+        studyGoal: 'CET6',
         learnerLevel: 'BEGINNER',
-        overallLevel: 'N3-',
+        overallLevel: 'B1',
         overallProficiency: 0.55,
         streakDays: 0,
         maxStreakDays: 0,
@@ -128,6 +262,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       await this.db.insert(learnerProfiles).values({
         ...defaultProfile,
       });
+      await this.ensureLanguageProfile(userId, 'en', defaultProfile);
 
       return ok(defaultProfile);
     } catch (error) {
@@ -142,7 +277,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   }
 
   /**
-   * 更新学习者档案 (昵称、学习目标、难度阶段、每日配额等)
+   * 更新学习者档案：目标/等级/配额写入当前语种行；切换 targetLanguage 时镜像新语种行
    */
   public async updateLearnerProfile(
     userId: string,
@@ -151,17 +286,88 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     try {
       const currentRes = await this.getLearnerProfile(userId);
       if (!isOk(currentRes)) return currentRes;
+      const current = currentRes.value;
 
-      const updateData: Record<string, any> = {
-        ...input,
-        updatedAt: nowIso(),
-      };
-      delete updateData.userId;
+      const nextLanguage = input.targetLanguage
+        ? normalizeTrackLanguage(input.targetLanguage)
+        : normalizeTrackLanguage(current.targetLanguage);
 
-      await this.db
-        .update(learnerProfiles)
-        .set(updateData)
-        .where(eq(learnerProfiles.userId, userId));
+      const switching = nextLanguage !== normalizeTrackLanguage(current.targetLanguage);
+
+      if (input.displayName !== undefined) {
+        await this.db
+          .update(learnerProfiles)
+          .set({ displayName: input.displayName, updatedAt: nowIso() })
+          .where(eq(learnerProfiles.userId, userId));
+      }
+
+      // 切换轨道：确保目标语种行存在，并镜像到主表
+      if (switching) {
+        const langRow = await this.ensureLanguageProfile(userId, nextLanguage);
+        await this.mirrorLanguageProfileToMain(
+          userId,
+          nextLanguage,
+          langRow,
+          input.displayName ?? current.displayName
+        );
+      }
+
+      const activeLang = nextLanguage;
+      const langPatch: Record<string, unknown> = { updatedAt: nowIso() };
+      if (input.studyGoal !== undefined) langPatch.studyGoal = input.studyGoal;
+      if (input.learnerLevel !== undefined) langPatch.learnerLevel = input.learnerLevel;
+      if (input.overallLevel !== undefined) langPatch.overallLevel = input.overallLevel;
+      if (input.overallProficiency !== undefined)
+        langPatch.overallProficiency = input.overallProficiency;
+      if (input.dailyGoalQuizzes !== undefined) langPatch.dailyGoalQuizzes = input.dailyGoalQuizzes;
+      if (input.dailyGoalCards !== undefined) langPatch.dailyGoalCards = input.dailyGoalCards;
+      if (input.streakDays !== undefined) langPatch.streakDays = input.streakDays;
+      if (input.maxStreakDays !== undefined) langPatch.maxStreakDays = input.maxStreakDays;
+      if (input.lastActiveDate !== undefined) langPatch.lastActiveDate = input.lastActiveDate;
+      if (input.retentionRate !== undefined) langPatch.retentionRate = input.retentionRate;
+      if (input.totalStudyMinutes !== undefined)
+        langPatch.totalStudyMinutes = input.totalStudyMinutes;
+      if (input.totalCardsReviewed !== undefined)
+        langPatch.totalCardsReviewed = input.totalCardsReviewed;
+      if (input.totalQuizzesAnswered !== undefined)
+        langPatch.totalQuizzesAnswered = input.totalQuizzesAnswered;
+
+      await this.ensureLanguageProfile(userId, activeLang);
+      if (Object.keys(langPatch).length > 1) {
+        await this.db
+          .update(learnerLanguageProfiles)
+          .set(langPatch)
+          .where(
+            and(
+              eq(learnerLanguageProfiles.userId, userId),
+              eq(learnerLanguageProfiles.language, activeLang)
+            )
+          );
+      }
+
+      const refreshed = await this.db
+        .select()
+        .from(learnerLanguageProfiles)
+        .where(
+          and(
+            eq(learnerLanguageProfiles.userId, userId),
+            eq(learnerLanguageProfiles.language, activeLang)
+          )
+        )
+        .limit(1);
+      if (refreshed[0]) {
+        await this.mirrorLanguageProfileToMain(
+          userId,
+          activeLang,
+          refreshed[0],
+          input.displayName
+        );
+      } else {
+        await this.db
+          .update(learnerProfiles)
+          .set({ targetLanguage: activeLang, updatedAt: nowIso() })
+          .where(eq(learnerProfiles.userId, userId));
+      }
 
       return this.getLearnerProfile(userId);
     } catch (error) {
@@ -187,6 +393,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const profileRes = await this.getLearnerProfile(userId);
       if (!isOk(profileRes)) return profileRes;
       const profile = profileRes.value;
+      const language: TrackLanguage = normalizeTrackLanguage(profile.targetLanguage) ?? 'ja';
 
       const rows = await this.db
         .select()
@@ -194,7 +401,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .where(
           and(
             eq(studyActivityLogs.userId, userId),
-            eq(studyActivityLogs.activityDate, targetDate)
+            eq(studyActivityLogs.activityDate, targetDate),
+            eq(studyActivityLogs.language, language)
           )
         )
         .limit(1);
@@ -203,17 +411,18 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         return ok({
           userId,
           activityDate: targetDate,
-          quizzesCount: 0,
-          dailyGoalQuizzes: profile.dailyGoalQuizzes,
-          cardsReviewedCount: 0,
-          dailyGoalCards: profile.dailyGoalCards,
-          listeningMinutes: 0,
-          mistakesResolvedCount: 0,
-          isGoalCompleted: false,
-          streakDays: profile.streakDays,
-          intensityLevel: 0,
-          isOvertimeBurst: false,
-          completedAt: null,
+            language: language,
+            quizzesCount: 0,
+            dailyGoalQuizzes: profile.dailyGoalQuizzes,
+            cardsReviewedCount: 0,
+            dailyGoalCards: profile.dailyGoalCards,
+            listeningMinutes: 0,
+            mistakesResolvedCount: 0,
+            isGoalCompleted: false,
+            streakDays: profile.streakDays,
+            intensityLevel: 0,
+            isOvertimeBurst: false,
+            completedAt: null,
         });
       }
 
@@ -226,6 +435,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       return ok({
         userId: log.userId,
         activityDate: log.activityDate,
+        language: language,
         quizzesCount: log.quizzesCount,
         dailyGoalQuizzes: profile.dailyGoalQuizzes,
         cardsReviewedCount: log.cardsReviewedCount,
@@ -250,7 +460,125 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   }
 
   /**
-   * 记录每日学情足迹并自适应核算打卡与连续天数
+   * 获取最近 N 天的学习活动历史足迹 (默认为 28 天，未打卡日期自动填充真实 0 值，绝不虚构数据)
+   */
+  public async getActivityHistory(
+    userId: string,
+    days: number = 28,
+    targetLanguage?: TrackLanguage | string
+  ): Promise<Result<DailyTaskProgress[], BusinessError>> {
+    try {
+      const profileRes = await this.getLearnerProfile(userId);
+      if (!isOk(profileRes)) return profileRes;
+      const profile = profileRes.value;
+      const language: TrackLanguage = normalizeTrackLanguage(targetLanguage ?? profile.targetLanguage) ?? 'ja';
+
+      const now = new Date();
+      const dateList: string[] = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(now.getTime() - i * 86400000);
+        dateList.push(d.toISOString().slice(0, 10));
+      }
+
+      const earliestDate = dateList[0]!;
+      const latestDate = dateList[dateList.length - 1]!;
+
+      const rows = await this.db
+        .select()
+        .from(studyActivityLogs)
+        .where(
+          and(
+            eq(studyActivityLogs.userId, userId),
+            eq(studyActivityLogs.language, language),
+            gte(studyActivityLogs.activityDate, earliestDate),
+            lte(studyActivityLogs.activityDate, latestDate)
+          )
+        );
+
+      const logMap = new Map<string, (typeof rows)[0]>();
+      for (const r of rows) {
+        logMap.set(r.activityDate, r);
+      }
+
+      const result: DailyTaskProgress[] = dateList.map((dateStr) => {
+        const log = logMap.get(dateStr);
+        if (!log) {
+          return {
+            userId,
+            activityDate: dateStr,
+            language: language,
+            quizzesCount: 0,
+            dailyGoalQuizzes: profile.dailyGoalQuizzes,
+            cardsReviewedCount: 0,
+            dailyGoalCards: profile.dailyGoalCards,
+            listeningMinutes: 0,
+            mistakesResolvedCount: 0,
+            isGoalCompleted: false,
+            streakDays: profile.streakDays,
+            intensityLevel: 0,
+            isOvertimeBurst: false,
+            completedAt: null,
+          };
+        }
+        return {
+          userId: log.userId,
+          activityDate: log.activityDate,
+          language: language,
+          quizzesCount: log.quizzesCount,
+          dailyGoalQuizzes: profile.dailyGoalQuizzes,
+          cardsReviewedCount: log.cardsReviewedCount,
+          dailyGoalCards: profile.dailyGoalCards,
+          listeningMinutes: log.listeningMinutes,
+          mistakesResolvedCount: log.mistakesResolvedCount,
+          isGoalCompleted: Boolean(log.isGoalCompleted),
+          streakDays: profile.streakDays,
+          intensityLevel: log.intensityLevel,
+          isOvertimeBurst: Boolean(log.isOvertimeBurst),
+          completedAt: log.completedAt,
+        };
+      });
+
+      return ok(result);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'getActivityHistory',
+          entityId: userId,
+        })
+      );
+    }
+  }
+
+  /**
+   * 在独立事务中执行操作
+   */
+  public async withTransaction<T>(
+    fn: (repo: DrizzleLearnerRepository) => Promise<T>
+  ): Promise<T> {
+    return this.sqlite.transaction(async () => {
+      return await fn(this);
+    })();
+  }
+
+  /**
+   * 使用 SAVEPOINT 进行沙盒测试执行，并在执行完毕后无条件回滚，确保测试数据绝不污染真实数据库
+   */
+  public async withSavepointSandbox<T>(
+    fn: (repo: DrizzleLearnerRepository) => Promise<T>
+  ): Promise<T> {
+    const savepointName = `sp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    this.sqlite.run(`SAVEPOINT ${savepointName};`);
+    try {
+      return await fn(this);
+    } finally {
+      this.sqlite.run(`ROLLBACK TO ${savepointName};`);
+      this.sqlite.run(`RELEASE ${savepointName};`);
+    }
+  }
+
+  /**
+   * 记录每日学情足迹并自适应核算打卡与连续天数（按当前语种分区）
    */
   public async recordDailyActivity(
     userId: string,
@@ -260,6 +588,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       listeningMinutes?: number;
       mistakesResolved?: number;
       date?: string;
+      language?: TrackLanguage | string;
     }
   ): Promise<Result<DailyTaskProgress, BusinessError>> {
     try {
@@ -267,15 +596,16 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const profileRes = await this.getLearnerProfile(userId);
       if (!isOk(profileRes)) return profileRes;
       let profile = profileRes.value;
+      const language: TrackLanguage = normalizeTrackLanguage(delta.language ?? profile.targetLanguage) ?? 'ja';
 
-      // 查找今日已有足迹
       const existingLogs = await this.db
         .select()
         .from(studyActivityLogs)
         .where(
           and(
             eq(studyActivityLogs.userId, userId),
-            eq(studyActivityLogs.activityDate, today)
+            eq(studyActivityLogs.activityDate, today),
+            eq(studyActivityLogs.language, language)
           )
         )
         .limit(1);
@@ -288,10 +618,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
       const wasCompleted = Boolean(existing?.isGoalCompleted);
       const isCompleted =
-        newQuizzes >= profile.dailyGoalQuizzes &&
-        newCards >= profile.dailyGoalCards;
+        newQuizzes >= profile.dailyGoalQuizzes && newCards >= profile.dailyGoalCards;
 
-      // 计算活跃度评级 (0~4) 与超额连刷标记
       const quizRatio = newQuizzes / Math.max(profile.dailyGoalQuizzes, 1);
       const cardRatio = newCards / Math.max(profile.dailyGoalCards, 1);
       const avgRatio = (quizRatio + cardRatio) / 2;
@@ -308,41 +636,66 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       let updatedStreak = profile.streakDays;
       let updatedMaxStreak = profile.maxStreakDays;
 
-      // 如果今日刚刚达成打卡门槛，更新连胜记录
+      const langRow = await this.ensureLanguageProfile(userId, language, profile);
+      const nextTotals = {
+        totalQuizzesAnswered: langRow.totalQuizzesAnswered + (delta.quizzes ?? 0),
+        totalCardsReviewed: langRow.totalCardsReviewed + (delta.cards ?? 0),
+        totalStudyMinutes: langRow.totalStudyMinutes + (delta.listeningMinutes ?? 0),
+      };
+
       if (!wasCompleted && isCompleted) {
         completedAt = nowIso();
         const yesterday = getYesterdayString(today);
 
-        if (profile.lastActiveDate === yesterday) {
+        if (langRow.lastActiveDate === yesterday) {
           updatedStreak += 1;
-        } else if (profile.lastActiveDate !== today) {
+        } else if (langRow.lastActiveDate !== today) {
           updatedStreak = 1;
         }
         updatedMaxStreak = Math.max(updatedMaxStreak, updatedStreak);
 
         await this.db
-          .update(learnerProfiles)
+          .update(learnerLanguageProfiles)
           .set({
             streakDays: updatedStreak,
             maxStreakDays: updatedMaxStreak,
             lastActiveDate: today,
-            totalQuizzesAnswered: profile.totalQuizzesAnswered + (delta.quizzes ?? 0),
-            totalCardsReviewed: profile.totalCardsReviewed + (delta.cards ?? 0),
-            totalStudyMinutes: profile.totalStudyMinutes + (delta.listeningMinutes ?? 0),
+            ...nextTotals,
             updatedAt: nowIso(),
           })
-          .where(eq(learnerProfiles.userId, userId));
+          .where(
+            and(
+              eq(learnerLanguageProfiles.userId, userId),
+              eq(learnerLanguageProfiles.language, language)
+            )
+          );
       } else {
-        // 未打卡或早已打卡，只累加总数
         await this.db
-          .update(learnerProfiles)
+          .update(learnerLanguageProfiles)
           .set({
-            totalQuizzesAnswered: profile.totalQuizzesAnswered + (delta.quizzes ?? 0),
-            totalCardsReviewed: profile.totalCardsReviewed + (delta.cards ?? 0),
-            totalStudyMinutes: profile.totalStudyMinutes + (delta.listeningMinutes ?? 0),
+            ...nextTotals,
             updatedAt: nowIso(),
           })
-          .where(eq(learnerProfiles.userId, userId));
+          .where(
+            and(
+              eq(learnerLanguageProfiles.userId, userId),
+              eq(learnerLanguageProfiles.language, language)
+            )
+          );
+      }
+
+      const refreshedLang = await this.db
+        .select()
+        .from(learnerLanguageProfiles)
+        .where(
+          and(
+            eq(learnerLanguageProfiles.userId, userId),
+            eq(learnerLanguageProfiles.language, language)
+          )
+        )
+        .limit(1);
+      if (refreshedLang[0] && normalizeTrackLanguage(profile.targetLanguage) === language) {
+        await this.mirrorLanguageProfileToMain(userId, language, refreshedLang[0]);
       }
 
       const logId = existing?.id ?? generateId('act');
@@ -365,6 +718,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           id: logId,
           userId,
           activityDate: today,
+          language,
           quizzesCount: newQuizzes,
           cardsReviewedCount: newCards,
           listeningMinutes: newListening,
@@ -379,6 +733,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       return ok({
         userId,
         activityDate: today,
+        language: language,
         quizzesCount: newQuizzes,
         dailyGoalQuizzes: profile.dailyGoalQuizzes,
         cardsReviewedCount: newCards,
@@ -415,24 +770,29 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const dailyTaskRes = await this.getDailyTaskProgress(userId);
       const dailyTask = isOk(dailyTaskRes) ? dailyTaskRes.value : undefined;
 
+      const language = normalizeTrackLanguage(profile?.targetLanguage);
+
       let rows = await this.db
         .select()
         .from(skillMetrics)
-        .where(eq(skillMetrics.userId, userId));
+        .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.language, language)));
 
-      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user')) {
+      if (rows.length === 0 && language === 'ja' && (userId === 'student_web_01' || userId === 'default_user')) {
         const seedMetrics = [
-          { userId, skillId: 'jp.particle.destination_ni', dimension: 'GRAMMAR', name: '目的地到达点助词「に」', proficiency: 0.88, totalAttempts: 14, correctAttempts: 13, consecutiveErrors: 0, status: 'STRENGTH' },
-          { userId, skillId: 'jp.particle.action_de', dimension: 'GRAMMAR', name: '动作发生场所助词「で」', proficiency: 0.52, totalAttempts: 9, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
-          { userId, skillId: 'jp.listening.sokuon', dimension: 'LISTENING', name: '听力：促音与长音精细辨析', proficiency: 0.46, totalAttempts: 12, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
-          { userId, skillId: 'jp.grammar.conditional_tara', dimension: 'GRAMMAR', name: '假定条件「～たら」实际运用', proficiency: 0.65, totalAttempts: 10, correctAttempts: 7, consecutiveErrors: 0, status: 'NORMAL' },
-          { userId, skillId: 'jp.vocab.n3_verbs', dimension: 'VOCABULARY', name: 'N3 核心动词搭配与活用', proficiency: 0.94, totalAttempts: 32, correctAttempts: 30, consecutiveErrors: 0, status: 'STRENGTH' },
-          { userId, skillId: 'jp.nuance.polite_keigo', dimension: 'NUANCE_PRAGMATIC', name: '基础敬语与礼貌体语感', proficiency: 0.58, totalAttempts: 8, correctAttempts: 4, consecutiveErrors: 1, status: 'WEAKNESS' },
+          { userId, skillId: 'jp.particle.destination_ni', language: 'ja', dimension: 'GRAMMAR', name: '目的地到达点助词「に」', proficiency: 0.88, totalAttempts: 14, correctAttempts: 13, consecutiveErrors: 0, status: 'STRENGTH' },
+          { userId, skillId: 'jp.particle.action_de', language: 'ja', dimension: 'GRAMMAR', name: '动作发生场所助词「で」', proficiency: 0.52, totalAttempts: 9, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
+          { userId, skillId: 'jp.listening.sokuon', language: 'ja', dimension: 'LISTENING', name: '听力：促音与长音精细辨析', proficiency: 0.46, totalAttempts: 12, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
+          { userId, skillId: 'jp.grammar.conditional_tara', language: 'ja', dimension: 'GRAMMAR', name: '假定条件「～たら」实际运用', proficiency: 0.65, totalAttempts: 10, correctAttempts: 7, consecutiveErrors: 0, status: 'NORMAL' },
+          { userId, skillId: 'jp.vocab.n3_verbs', language: 'ja', dimension: 'VOCABULARY', name: 'N3 核心动词搭配与活用', proficiency: 0.94, totalAttempts: 32, correctAttempts: 30, consecutiveErrors: 0, status: 'STRENGTH' },
+          { userId, skillId: 'jp.nuance.polite_keigo', language: 'ja', dimension: 'NUANCE_PRAGMATIC', name: '基础敬语与礼貌体语感', proficiency: 0.58, totalAttempts: 8, correctAttempts: 4, consecutiveErrors: 1, status: 'WEAKNESS' },
         ];
         for (const sm of seedMetrics) {
           await this.db.insert(skillMetrics).values({ ...sm, lastPracticedAt: nowIso() });
         }
-        rows = await this.db.select().from(skillMetrics).where(eq(skillMetrics.userId, userId));
+        rows = await this.db
+          .select()
+          .from(skillMetrics)
+          .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.language, language)));
       }
 
       const allMetrics: SkillMetric[] = rows.map((r) => ({
@@ -455,8 +815,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       return ok({
         userId,
         profile,
-        targetLanguage: profile?.targetLanguage ?? 'ja',
-        overallLevel: profile?.overallLevel ?? 'N3-',
+        targetLanguage: profile?.targetLanguage ?? 'en',
+        overallLevel: profile?.overallLevel ?? 'B1',
         strengths,
         weaknesses,
         allMetrics,
@@ -494,6 +854,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db
           .update(skillMetrics)
           .set({
+            language: inferLanguageFromSkillId(metric.id),
             dimension: metric.dimension,
             name: metric.name,
             proficiency: metric.proficiency,
@@ -513,6 +874,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db.insert(skillMetrics).values({
           userId,
           skillId: metric.id,
+          language: inferLanguageFromSkillId(metric.id),
           dimension: metric.dimension,
           name: metric.name,
           proficiency: metric.proficiency,
@@ -543,17 +905,19 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   ): Promise<Result<Flashcard[], BusinessError>> {
     try {
       const now = nowIso();
+      const language = await this.resolveActiveLanguage(userId);
       let rows = await this.db
         .select()
         .from(flashcards)
-        .where(eq(flashcards.userId, userId))
+        .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
         .limit(limit);
 
-      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user')) {
+      if (rows.length === 0 && language === 'ja' && (userId === 'student_web_01' || userId === 'default_user')) {
         const seedCards = [
           {
             id: 'card_01',
             userId,
+            language: 'ja',
             type: 'VOCAB',
             front: '約束',
             back: '约定、诺言、契约',
@@ -565,6 +929,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           {
             id: 'card_02',
             userId,
+            language: 'ja',
             type: 'VOCAB',
             front: '曖昧',
             back: '含糊、暧昧、不明确',
@@ -576,6 +941,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           {
             id: 'card_03',
             userId,
+            language: 'ja',
             type: 'VOCAB',
             front: '遠慮',
             back: '客气、顾虑、推辞',
@@ -587,6 +953,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           {
             id: 'card_04',
             userId,
+            language: 'ja',
             type: 'GRAMMAR',
             front: '「～わけにはいかない」',
             back: '不能……、无法……（从情理/社会常识上不能这么做）',
@@ -599,7 +966,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         for (const sc of seedCards) {
           await this.db.insert(flashcards).values(sc);
         }
-        rows = await this.db.select().from(flashcards).where(eq(flashcards.userId, userId)).limit(limit);
+        rows = await this.db
+          .select()
+          .from(flashcards)
+          .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
+          .limit(limit);
       }
 
       const cards: Flashcard[] = rows.map((r) => ({
@@ -647,15 +1018,26 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     limit: number = 50
   ): Promise<Result<any[], BusinessError>> {
     try {
+      const language = await this.resolveActiveLanguage(userId);
       let rows = await this.db
         .select()
         .from(quizQuestions)
-        .where(or(eq(quizQuestions.userId, userId), eq(quizQuestions.userId, 'default_user')))
+        .where(
+          and(
+            or(eq(quizQuestions.userId, userId), eq(quizQuestions.userId, 'default_user')),
+            eq(quizQuestions.language, language)
+          )
+        )
         .orderBy(desc(quizQuestions.createdAt))
         .limit(limit);
 
       if (rows.length === 0) {
-        rows = await this.db.select().from(quizQuestions).orderBy(desc(quizQuestions.createdAt)).limit(limit);
+        rows = await this.db
+          .select()
+          .from(quizQuestions)
+          .where(eq(quizQuestions.language, language))
+          .orderBy(desc(quizQuestions.createdAt))
+          .limit(limit);
       }
 
       const mapped = rows.map((r) => ({
@@ -692,6 +1074,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
    */
   public async saveQuestion(question: any): Promise<Result<void, BusinessError>> {
     try {
+      const skillId = question.testedSkill || question.testedSkillId || '';
+      const ownerId = question.userId || 'default_user';
+      const language = normalizeTrackLanguage(
+        question.language ?? (await this.resolveActiveLanguage(ownerId))
+      );
       const existing = await this.db
         .select()
         .from(quizQuestions)
@@ -713,6 +1100,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db
           .update(quizQuestions)
           .set({
+            language,
             type: question.type,
             category: question.category,
             prompt: question.prompt,
@@ -721,7 +1109,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
             chunks: chunksStr,
             correctAnswer: question.correctAnswer,
             explanation: question.explanation,
-            testedSkillId: question.testedSkill || question.testedSkillId || '',
+            testedSkillId: skillId,
             difficulty: question.difficulty ?? 3,
           })
           .where(eq(quizQuestions.id, question.id));
@@ -729,6 +1117,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db.insert(quizQuestions).values({
           id: question.id,
           userId: question.userId || 'default_user',
+          language,
           type: question.type,
           category: question.category,
           prompt: question.prompt,
@@ -737,7 +1126,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           chunks: chunksStr,
           correctAnswer: question.correctAnswer,
           explanation: question.explanation,
-          testedSkillId: question.testedSkill || question.testedSkillId || '',
+          testedSkillId: skillId,
           difficulty: question.difficulty ?? 3,
           createdAt: question.createdAt || nowIso(),
         });
@@ -778,6 +1167,9 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db
           .update(flashcards)
           .set({
+            language: normalizeTrackLanguage(
+              (card as any).language ?? (await this.resolveActiveLanguage(card.userId))
+            ),
             type: card.type,
             front: card.front,
             back: card.back,
@@ -788,9 +1180,13 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           })
           .where(eq(flashcards.id, card.id));
       } else {
+        const language = normalizeTrackLanguage(
+          (card as any).language ?? (await this.resolveActiveLanguage(card.userId))
+        );
         await this.db.insert(flashcards).values({
           id: card.id,
           userId: card.userId,
+          language,
           type: card.type,
           front: card.front,
           back: card.back,
@@ -820,6 +1216,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       await this.db.insert(quizAttempts).values({
         id: attempt.id,
         userId: attempt.userId,
+        language: inferLanguageFromSkillId(attempt.testedSkillId),
         questionId: attempt.questionId,
         userAnswer: attempt.userAnswer,
         isCorrect: attempt.isCorrect,
@@ -846,6 +1243,15 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   public async saveMistake(mistake: MistakeEntry): Promise<Result<void, BusinessError>> {
     try {
+      const skillId =
+        (mistake.question as any)?.testedSkillId ||
+        (mistake.question as any)?.testedSkill ||
+        '';
+      const language = normalizeTrackLanguage(
+        (mistake as any).language ??
+          (await this.resolveActiveLanguage(mistake.userId)) ??
+          inferLanguageFromSkillId(String(skillId))
+      );
       const existing = await this.db
         .select()
         .from(mistakes)
@@ -856,6 +1262,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db
           .update(mistakes)
           .set({
+            language,
             questionId: mistake.questionId,
             question: JSON.stringify(mistake.question),
             lastUserSubmission: mistake.lastUserSubmission,
@@ -871,6 +1278,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db.insert(mistakes).values({
           id: mistake.id,
           userId: mistake.userId,
+          language,
           questionId: mistake.questionId,
           question: JSON.stringify(mistake.question),
           lastUserSubmission: mistake.lastUserSubmission,
@@ -900,10 +1308,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     filter?: { resolved?: boolean }
   ): Promise<Result<MistakeEntry[], BusinessError>> {
     try {
+      const language = await this.resolveActiveLanguage(userId);
       const rows = await this.db
         .select()
         .from(mistakes)
-        .where(eq(mistakes.userId, userId));
+        .where(and(eq(mistakes.userId, userId), eq(mistakes.language, language)));
 
       const filteredRows = filter?.resolved !== undefined
         ? rows.filter((r) => Boolean(r.isResolved) === filter.resolved)
@@ -1436,7 +1845,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   public async listReadingSets(
     userId: string,
     origin?: 'ai' | 'news' | 'user_import',
-    language?: 'JA' | 'EN'
+    language?: 'JA' | 'EN' | 'KO'
   ): Promise<Result<ReadingPassageSet[], BusinessError>> {
     try {
       const userCondition = or(
@@ -1474,7 +1883,9 @@ export class DrizzleLearnerRepository implements LearnerRepository {
               ? ('ai' as const)
               : ('user_import' as const);
 
-          const itemLang = row.language.toUpperCase() === 'EN' ? ('EN' as const) : ('JA' as const);
+          const upper = row.language.toUpperCase();
+          const itemLang =
+            upper === 'EN' ? ('EN' as const) : upper === 'KO' ? ('KO' as const) : ('JA' as const);
 
           return {
             id: row.id,
@@ -1580,9 +1991,18 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     input: SubmitReadingPractice
   ): Promise<Result<{ proficiency: number }, BusinessError>> {
     try {
-      const isJa = input.language === 'JA';
-      const skillId = isJa ? 'jp.reading.comprehension' : 'en.reading.comprehension';
-      const skillName = isJa ? '日语长文阅读与理解' : '英语篇章精读与理解';
+      const skillId =
+        input.language === 'JA'
+          ? 'jp.reading.comprehension'
+          : input.language === 'KO'
+            ? 'ko.reading.comprehension'
+            : 'en.reading.comprehension';
+      const skillName =
+        input.language === 'JA'
+          ? '日语长文阅读与理解'
+          : input.language === 'KO'
+            ? '韩语阅读理解（扩展预留）'
+            : '英语篇章精读与理解';
 
       const existingRows = await this.db
         .select()
@@ -1666,10 +2086,12 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const collectionId = generateId('pcol');
       const createdAt = nowIso();
       const intent = input.intent ?? 'GENERATE_QUIZ';
+      const language = await this.resolveActiveLanguage(input.userId);
 
       await this.db.insert(practiceCollections).values({
         id: collectionId,
         userId: input.userId,
+        language,
         title: input.title,
         intent,
         layoutHint: input.layoutHint ?? null,
@@ -1685,6 +2107,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         await this.db.insert(practiceItems).values({
           id: itemId,
           userId: input.userId,
+          language,
           collectionId,
           questionJson: JSON.stringify(q),
           skillIds: JSON.stringify(skillIds),
@@ -1732,10 +2155,16 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     limit = 20
   ): Promise<Result<PracticeCollection[], BusinessError>> {
     try {
+      const language = await this.resolveActiveLanguage(userId);
       const rows = await this.db
         .select()
         .from(practiceCollections)
-        .where(eq(practiceCollections.userId, userId))
+        .where(
+          and(
+            eq(practiceCollections.userId, userId),
+            eq(practiceCollections.language, language)
+          )
+        )
         .orderBy(desc(practiceCollections.createdAt))
         .limit(limit);
 

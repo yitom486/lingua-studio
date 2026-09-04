@@ -39,13 +39,19 @@ interface AiTutorDrawerProps {
   gateway?: ReturnType<typeof useGateway>;
 }
 
+function normalizeTutorLanguage(lang: string): 'ja' | 'en' | 'ko' {
+  if (lang === 'en') return 'en';
+  if (lang === 'ko') return 'ko';
+  return 'ja';
+}
+
 function buildTutorClientSnapshot(
   ctx: AiTutorContext,
   activeTab: string,
-  profile: { targetLanguage: 'ja' | 'en'; overallLevel: string }
+  profile: { targetLanguage: 'ja' | 'en' | 'ko'; overallLevel: string }
 ): Partial<ContextSnapshot> {
   return {
-    targetLanguage: profile.targetLanguage === 'en' ? 'en' : 'ja',
+    targetLanguage: normalizeTutorLanguage(profile.targetLanguage),
     learnerLevel: profile.overallLevel,
     locale: 'zh-CN',
     ui: {
@@ -78,7 +84,7 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
   const buildSnapshot = useCallback((): Partial<ContextSnapshot> | undefined => {
     if (!context) return undefined;
     return buildTutorClientSnapshot(context, activeTab, {
-      targetLanguage: profile.targetLanguage === 'en' ? 'en' : 'ja',
+      targetLanguage: normalizeTutorLanguage(profile.targetLanguage),
       overallLevel: profile.overallLevel,
     });
   }, [context, activeTab, profile.targetLanguage, profile.overallLevel]);

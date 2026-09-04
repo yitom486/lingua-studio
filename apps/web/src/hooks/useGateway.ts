@@ -72,7 +72,7 @@ export function useGateway({
           id: generateId('msg'),
           sessionId: 'init_req',
           type: WsEventTypes.CLIENT_SESSION_INIT,
-          payload: { userId, targetLanguage: 'ja', targetLevel: 'N3' },
+          payload: { userId, targetLanguage: 'en', targetLevel: 'B1' },
           timestamp: Date.now(),
         };
         ws.send(JSON.stringify(initEnvelope));
@@ -332,8 +332,8 @@ export function useGateway({
     async (options?: { weaknessSkillId?: string; count?: number }) => {
       return sendRequest(WsEventTypes.CLIENT_QUIZ_GENERATE, {
         userId,
-        targetLanguage: 'ja',
-        targetLevel: 'JLPT N3',
+        targetLanguage: 'en',
+        targetLevel: 'CEFR B1',
         ...options,
       });
     },

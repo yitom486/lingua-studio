@@ -160,8 +160,8 @@ export class SqliteLearnerRepository implements LearnerRepository {
 
       return ok({
         userId,
-        targetLanguage: 'ja',
-        overallLevel: 'JLPT N3',
+        targetLanguage: 'en',
+        overallLevel: 'CEFR B1',
         strengths,
         weaknesses,
         allMetrics,
@@ -404,10 +404,10 @@ export class SqliteLearnerRepository implements LearnerRepository {
     return ok({
       userId,
       displayName: '学员 ' + userId.slice(-4),
-      targetLanguage: 'ja',
-      studyGoal: 'JLPT_N2',
+      targetLanguage: 'en',
+      studyGoal: 'CET6',
       learnerLevel: 'BEGINNER',
-      overallLevel: 'N3-',
+      overallLevel: 'B1',
       overallProficiency: 0.55,
       streakDays: 0,
       maxStreakDays: 0,
@@ -437,6 +437,7 @@ export class SqliteLearnerRepository implements LearnerRepository {
     return ok({
       userId,
       activityDate: date || new Date().toISOString().slice(0, 10),
+      language: 'ja',
       quizzesCount: 0,
       dailyGoalQuizzes: 5,
       cardsReviewedCount: 0,

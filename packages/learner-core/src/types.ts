@@ -58,6 +58,8 @@ export interface LearnerProfile {
 export interface DailyTaskProgress {
   userId: string;
   activityDate: string;            // 'YYYY-MM-DD'
+  /** 当前打卡所属目标语种轨道 */
+  language: TargetLanguage;
   quizzesCount: number;
   dailyGoalQuizzes: number;
   cardsReviewedCount: number;

@@ -17,10 +17,10 @@ const getTodayDateString = () => new Date().toISOString().slice(0, 10);
 const defaultProfile: LearnerProfile = {
   userId: DEFAULT_USER_ID,
   displayName: '极光学者',
-  targetLanguage: 'ja',
-  studyGoal: 'JLPT_N2',
+  targetLanguage: 'en',
+  studyGoal: 'CET6',
   learnerLevel: 'BEGINNER',
-  overallLevel: 'N3-',
+  overallLevel: 'B1',
   overallProficiency: 0.58,
   streakDays: 0,
   maxStreakDays: 0,
@@ -37,6 +37,7 @@ const defaultProfile: LearnerProfile = {
 const defaultDailyTask: DailyTaskProgress = {
   userId: DEFAULT_USER_ID,
   activityDate: getTodayDateString(),
+  language: 'en',
   quizzesCount: 0,
   dailyGoalQuizzes: 5,
   cardsReviewedCount: 0,

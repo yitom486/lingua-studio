@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
-import type { SkillMetric } from '@study-studio/learner-core';
+import type { SkillMetric, DailyTaskProgress } from '@study-studio/learner-core';
 import type { KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
@@ -26,6 +26,7 @@ export const QUERY_KEYS = {
   QUESTIONS: ['learner', 'questions'] as const,
   CARDS: ['learner', 'cards'] as const,
   DAILY_TASK: ['learner', 'dailyTask'] as const,
+  ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
 };
 
 /**
@@ -202,6 +203,58 @@ export function useCardsQuery(userId = DEFAULT_USER_ID) {
       return [];
     },
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+/**
+ * 学习者每日打卡与足迹进度查询 (实时 SQLite 同步)
+ */
+export function useDailyTaskQuery(userId = DEFAULT_USER_ID, date?: string) {
+  return useQuery<DailyTaskProgress | null>({
+    queryKey: [...QUERY_KEYS.DAILY_TASK, userId, date ?? 'today'],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/task/progress/${userId}`);
+        if (date) url.searchParams.set('date', date);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          return (await res.json()) as DailyTaskProgress;
+        }
+      } catch (e) {
+        console.warn('[useDailyTaskQuery] Failed to load daily task progress', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 30,
+  });
+}
+
+/**
+ * 学习者历史足迹打卡热力图查询 (真实 SQLite 数据源)
+ */
+export function useActivityHistoryQuery(
+  days = 28,
+  userId = DEFAULT_USER_ID,
+  targetLanguage?: string
+) {
+  return useQuery<DailyTaskProgress[]>({
+    queryKey: [...QUERY_KEYS.ACTIVITY_HISTORY, userId, days, targetLanguage ?? 'all'],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/task/history/${userId}`);
+        url.searchParams.set('days', String(days));
+        if (targetLanguage) url.searchParams.set('lang', targetLanguage);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          const list = (await res.json()) as DailyTaskProgress[];
+          if (Array.isArray(list)) return list;
+        }
+      } catch (e) {
+        console.warn('[useActivityHistoryQuery] Failed to load activity history', e);
+      }
+      return [];
+    },
+    staleTime: 1000 * 30,
   });
 }
 
@@ -676,7 +729,7 @@ export function useKanaPracticeMutation(userId = DEFAULT_USER_ID) {
 /** 双源阅读理解篇目查询 (AI 分级篇目 / 真实合规新闻) */
 export function useReadingSetsQuery(
   origin?: 'ai' | 'news' | 'user_import',
-  lang?: 'JA' | 'EN',
+  lang?: 'JA' | 'EN' | 'KO',
   userId = DEFAULT_USER_ID
 ) {
   return useQuery<ReadingPassageSet[]>({
@@ -777,7 +830,7 @@ export function useGenerateReadingSetMutation(userId = DEFAULT_USER_ID) {
     mutationFn: async (payload: {
       origin?: 'ai' | 'news';
       difficulty?: number;
-      language?: 'JA' | 'EN';
+      language?: 'JA' | 'EN' | 'KO';
       topic?: string;
     }) => {
       const res = await apiClient.api.reading.generate[':userId'].$post({
@@ -785,8 +838,8 @@ export function useGenerateReadingSetMutation(userId = DEFAULT_USER_ID) {
         json: {
           origin: payload.origin || 'ai',
           difficulty: payload.difficulty || 2,
-          language: payload.language || 'JA',
-          topic: payload.topic || '日常生活',
+          language: payload.language || 'EN',
+          topic: payload.topic || 'education and media literacy',
         },
       });
       if (res.ok) {
@@ -809,7 +862,7 @@ export function useSubmitReadingPracticeMutation(userId = DEFAULT_USER_ID) {
       setId: string;
       score: number;
       totalQuestions: number;
-      language?: 'JA' | 'EN';
+      language?: 'JA' | 'EN' | 'KO';
     }) => {
       const res = await apiClient.api.reading.practice[':userId'].$post({
         param: { userId },
@@ -817,7 +870,7 @@ export function useSubmitReadingPracticeMutation(userId = DEFAULT_USER_ID) {
           setId: payload.setId,
           score: payload.score,
           totalQuestions: payload.totalQuestions,
-          language: payload.language || 'JA',
+          language: payload.language || 'EN',
         },
       });
       if (res.ok) {
