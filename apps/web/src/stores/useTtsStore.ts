@@ -15,12 +15,20 @@ export interface SpeakOptions {
   onError?: ((err?: unknown) => void) | undefined;
 }
 
+export type VoicePrefKey = `${SupportedLanguage}_${TtsGender}`;
+
+export function voicePrefKey(lang: SupportedLanguage, gender: TtsGender): VoicePrefKey {
+  return `${lang}_${gender}`;
+}
+
 export interface TtsStoreState {
   // 持久化字段
   gender: TtsGender;
   rate: number;
   customPluginUrl: string;
   isCustomPluginEnabled: boolean;
+  /** 按语种+性别记住用户手动选择的系统音色 URI */
+  preferredVoices: Partial<Record<VoicePrefKey, string>>;
 
   // 内存运行时字段
   isSpeaking: boolean;
@@ -30,6 +38,7 @@ export interface TtsStoreState {
   setGender: (gender: TtsGender) => void;
   setRate: (rate: number) => void;
   setCustomPluginConfig: (url: string, enabled: boolean) => void;
+  setPreferredVoice: (lang: SupportedLanguage, gender: TtsGender, voiceURI: string | null) => void;
   speak: (text: string, options?: SpeakOptions) => Promise<void>;
   stop: () => void;
 }
@@ -67,6 +76,7 @@ export const useTtsStore = create<TtsStoreState>()(
         rate: speechStudio.getRate(),
         customPluginUrl: speechStudio.getCustomPluginConfig().url,
         isCustomPluginEnabled: speechStudio.getCustomPluginConfig().enabled,
+        preferredVoices: {},
         isSpeaking: speechStudio.getIsSpeaking(),
         currentText: speechStudio.getCurrentText(),
 
@@ -85,12 +95,30 @@ export const useTtsStore = create<TtsStoreState>()(
           set({ customPluginUrl: url, isCustomPluginEnabled: enabled });
         },
 
+        setPreferredVoice: (lang, gender, voiceURI) => {
+          const key = voicePrefKey(lang, gender);
+          set((state) => {
+            const next = { ...state.preferredVoices };
+            if (!voiceURI) {
+              delete next[key];
+            } else {
+              next[key] = voiceURI;
+            }
+            return { preferredVoices: next };
+          });
+        },
+
         speak: async (text: string, options?: SpeakOptions) => {
           const current = get();
+          const lang = options?.lang || 'EN';
+          const gender = options?.gender || current.gender;
+          const preferredVoiceURI =
+            current.preferredVoices[voicePrefKey(lang, gender)] ?? null;
           await speechStudio.speak(text, {
-            lang: options?.lang || 'JA',
-            gender: options?.gender || current.gender,
+            lang,
+            gender,
             rate: options?.rate || current.rate,
+            preferredVoiceURI,
             onStart: options?.onStart,
             onEnd: options?.onEnd,
             onError: options?.onError,
@@ -110,6 +138,7 @@ export const useTtsStore = create<TtsStoreState>()(
         rate: state.rate,
         customPluginUrl: state.customPluginUrl,
         isCustomPluginEnabled: state.isCustomPluginEnabled,
+        preferredVoices: state.preferredVoices,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {

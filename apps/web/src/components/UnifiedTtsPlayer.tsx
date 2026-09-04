@@ -41,7 +41,7 @@ export interface UnifiedTtsPlayerProps {
 
 export const UnifiedTtsPlayer: React.FC<UnifiedTtsPlayerProps> = ({
   text,
-  lang = 'JA',
+  lang = 'EN',
   variant = 'button',
   shadowStep: _shadowStep,
   isLooping = false,

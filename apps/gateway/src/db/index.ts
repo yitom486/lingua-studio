@@ -8,6 +8,7 @@ import {
   INITIAL_EN_CARD_SEEDS,
   INITIAL_QUESTION_SEEDS,
   INITIAL_EN_QUESTION_SEEDS,
+  INITIAL_KO_QUESTION_SEEDS,
   INITIAL_MISTAKE_SEEDS,
   INITIAL_SKILL_METRIC_SEEDS,
 } from './seeds/learning-seed.js';
@@ -21,6 +22,7 @@ export {
   INITIAL_EN_CARD_SEEDS,
   INITIAL_QUESTION_SEEDS,
   INITIAL_EN_QUESTION_SEEDS,
+  INITIAL_KO_QUESTION_SEEDS,
   INITIAL_MISTAKE_SEEDS,
   INITIAL_SKILL_METRIC_SEEDS,
 } from './seeds/learning-seed.js';
@@ -410,6 +412,31 @@ export function initSchema(sqlite: Database): void {
             now
           );
         }
+      } else {
+        // 增量补种：旧库已有 JA/EN 时仍补入缺失的 KO 等新种子（按 id）
+        const now = new Date().toISOString();
+        const insertIgnore = sqlite.prepare(`
+          INSERT OR IGNORE INTO documents (
+            id, user_id, title, source_kind, language, content, ast_json, topic, difficulty, source_url, source_publisher, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const set of INITIAL_READING_SEEDS) {
+          insertIgnore.run(
+            set.id,
+            'default_user',
+            set.title,
+            set.origin === 'news' ? 'news' : 'ai_generated',
+            set.language.toLowerCase(),
+            set.body,
+            JSON.stringify({ questions: set.questions }),
+            set.topic,
+            set.difficulty,
+            set.sourceUrl ?? null,
+            set.sourceLabel,
+            now,
+            now
+          );
+        }
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed reading passages:', e);
@@ -545,6 +572,30 @@ export function initSchema(sqlite: Database): void {
           );
         }
       }
+
+      const koQCount = sqlite
+        .query<{ count: number }, []>("SELECT COUNT(*) as count FROM quiz_questions WHERE language = 'ko'")
+        .get();
+      if (!koQCount || koQCount.count === 0) {
+        for (const q of INITIAL_KO_QUESTION_SEEDS) {
+          insertQStmt.run(
+            q.id,
+            'student_web_01',
+            'ko',
+            q.type,
+            q.category,
+            q.prompt,
+            q.content,
+            q.options ? JSON.stringify(q.options) : null,
+            q.chunks ? JSON.stringify(q.chunks) : null,
+            q.correctAnswer,
+            q.explanation,
+            q.testedSkillId,
+            q.difficulty,
+            now
+          );
+        }
+      }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed quiz_questions:', e);
     }
@@ -635,32 +686,28 @@ export function initSchema(sqlite: Database): void {
     }
 
     // 7. learning.content 内容模板库（工具离线兜底 SSOT）
+    // INSERT OR IGNORE：已有库也能补进新语种模板（如 KO），不覆盖用户改写
     try {
-      const tplCount = sqlite
-        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM learning_content_templates')
-        .get();
-      if (!tplCount || tplCount.count === 0) {
-        const now = new Date().toISOString();
-        const insertTpl = sqlite.prepare(`
-          INSERT INTO learning_content_templates
-            (id, language, action, format, skill_id, difficulty, topic, genre, sort_order, payload, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-        for (const t of LEARNING_CONTENT_TEMPLATE_SEEDS) {
-          insertTpl.run(
-            t.id,
-            t.language,
-            t.action,
-            t.format ?? null,
-            t.skillId ?? null,
-            t.difficulty,
-            t.topic ?? null,
-            t.genre ?? null,
-            t.sortOrder,
-            JSON.stringify(t.payload),
-            now
-          );
-        }
+      const now = new Date().toISOString();
+      const insertTpl = sqlite.prepare(`
+        INSERT OR IGNORE INTO learning_content_templates
+          (id, language, action, format, skill_id, difficulty, topic, genre, sort_order, payload, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const t of LEARNING_CONTENT_TEMPLATE_SEEDS) {
+        insertTpl.run(
+          t.id,
+          t.language,
+          t.action,
+          t.format ?? null,
+          t.skillId ?? null,
+          t.difficulty,
+          t.topic ?? null,
+          t.genre ?? null,
+          t.sortOrder,
+          JSON.stringify(t.payload),
+          now
+        );
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed learning_content_templates:', e);

@@ -25,6 +25,7 @@ export interface LearningShellConfig {
     emptySkillsHint: string;
     targetWeaknessLabel: string;
     readingEmptyHint: string;
+    quizEmptyHint: string;
   };
   /** 双源阅读默认语言 */
   defaultReadingLang: 'JA' | 'EN' | 'KO';
@@ -49,6 +50,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       emptySkillsHint: '暂无英语技能评测记录 · 开始自适应做题后系统将自动构建真实能力画像',
       targetWeaknessLabel: '考研/六级核心难点',
       readingEmptyHint: '暂无英语篇目，点击右上角生成或拉取最新外媒新闻',
+      quizEmptyHint: '暂无英语示范题 · 可点「AI 针对弱项出题」组卷',
     },
     defaultReadingLang: 'EN',
     fallbackTab: 'QUIZ',
@@ -80,6 +82,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       emptySkillsHint: '暂无日语技能评测记录 · 开始自适应做题后系统将自动构建真实能力画像',
       targetWeaknessLabel: 'JLPT 核心语法与助词',
       readingEmptyHint: '暂无日语篇目，点击右上角生成或拉取 NHK 新闻',
+      quizEmptyHint: '暂无日语示范题 · 可点「AI 针对弱项出题」组卷',
     },
     defaultReadingLang: 'JA',
     fallbackTab: 'QUIZ',
@@ -97,9 +100,10 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
     },
     copy: {
       levelSchemeLabel: 'TOPIK (interim 预研)',
-      emptySkillsHint: '韩语学习轨道搭建中 · 敬请期待自适应题库上线',
+      emptySkillsHint: '暂无韩语技能评测记录 · 做题后将按 TOPIK 考点构建画像',
       targetWeaknessLabel: 'TOPIK 核心词汇与句式',
-      readingEmptyHint: '韩语轨道脚手架体验中',
+      readingEmptyHint: '韩语篇目骨架已接入 · 空列表时可点生成；完整 TOPIK 题库仍在筹备',
+      quizEmptyHint: '暂无韩语示范题 · 可点「AI 针对弱项出题」从内容模板组卷',
     },
     defaultReadingLang: 'KO',
     fallbackTab: 'READING',

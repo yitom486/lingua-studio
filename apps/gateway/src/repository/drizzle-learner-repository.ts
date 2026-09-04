@@ -73,7 +73,7 @@ function defaultLanguageProfileSeed(language: TrackLanguage) {
     return { studyGoal: 'JLPT_N2', learnerLevel: 'BEGINNER', overallLevel: 'N3-' };
   }
   if (language === 'ko') {
-    return { studyGoal: 'INTEREST_BASIC', learnerLevel: 'BEGINNER', overallLevel: 'A1' };
+    return { studyGoal: 'TOPIK_I', learnerLevel: 'BEGINNER', overallLevel: 'A1' };
   }
   return { studyGoal: 'CET6', learnerLevel: 'BEGINNER', overallLevel: 'B1' };
 }
@@ -1002,7 +1002,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .orderBy(desc(quizQuestions.createdAt))
         .limit(limit);
 
-      const mapped = rows.map((r) => ({
+      let mapped = rows.map((r) => ({
         id: r.id,
         userId: r.userId,
         type: r.type,
@@ -1018,6 +1018,13 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         difficulty: r.difficulty,
         createdAt: r.createdAt,
       }));
+
+      // 防串语：历史上曾把 EN 题误写入 ko 分区；按 skillId 前缀再过滤一次
+      mapped = mapped.filter((q) => {
+        const skill = String(q.testedSkillId || q.testedSkill || '');
+        if (!skill) return true;
+        return inferLanguageFromSkillId(skill) === language;
+      });
 
       return ok(mapped);
     } catch (error) {

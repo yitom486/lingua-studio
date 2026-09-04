@@ -9,6 +9,7 @@ import {
 } from '@study-studio/protocol';
 import { generateId } from '@study-studio/shared';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 
 export interface StreamTurnOptions {
   input: string;
@@ -66,13 +67,19 @@ export function useGateway({
         setIsConnecting(false);
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
 
-        // 建立会话
+        // 建立会话：使用当前学情档案的目标语种，禁止写死 en 覆盖用户选择
+        const profileLang =
+          useUserProfileStore.getState().profile.targetLanguage || 'en';
         const initEnvelope: WsEnvelope = {
           version: '1.0',
           id: generateId('msg'),
           sessionId: 'init_req',
           type: WsEventTypes.CLIENT_SESSION_INIT,
-          payload: { userId, targetLanguage: 'en', targetLevel: 'B1' },
+          payload: {
+            userId,
+            targetLanguage: profileLang,
+            targetLevel: useUserProfileStore.getState().profile.overallLevel || 'B1',
+          },
           timestamp: Date.now(),
         };
         ws.send(JSON.stringify(initEnvelope));
@@ -330,10 +337,11 @@ export function useGateway({
 
   const generateAdaptiveQuiz = useCallback(
     async (options?: { weaknessSkillId?: string; count?: number }) => {
+      const profile = useUserProfileStore.getState().profile;
       return sendRequest(WsEventTypes.CLIENT_QUIZ_GENERATE, {
         userId,
-        targetLanguage: 'en',
-        targetLevel: 'CEFR B1',
+        targetLanguage: profile.targetLanguage || 'en',
+        targetLevel: profile.overallLevel || 'CEFR B1',
         ...options,
       });
     },
@@ -358,9 +366,23 @@ export function useGateway({
   );
 
   useEffect(() => {
-    if (autoConnect) {
+    if (!autoConnect) return;
+
+    const start = () => {
       connect();
+    };
+
+    // 等学情档案从 localStorage 水合后再连 WS，避免用默认 en 覆盖用户轨道
+    if (useUserProfileStore.persist.hasHydrated()) {
+      start();
+    } else {
+      const unsub = useUserProfileStore.persist.onFinishHydration(start);
+      return () => {
+        unsub();
+        disconnect();
+      };
     }
+
     return () => {
       disconnect();
     };

@@ -160,9 +160,13 @@ const MSG = {
 function resolveContentLanguage(input: LearningContentInput): 'ja' | 'en' | 'ko' {
   const skillId = input.skillIds?.[0];
   if (skillId) return inferLanguageFromSkillId(skillId);
-  const lang = normalizeTrackLanguage(input.language);
-  // KO interim: reuse EN content bank
-  return lang === 'ko' ? 'en' : lang;
+  return normalizeTrackLanguage(input.language);
+}
+
+function defaultQuizSkill(language: 'ja' | 'en' | 'ko'): string {
+  if (language === 'en') return 'en.grammar.subjunctive';
+  if (language === 'ko') return 'ko.grammar.particle_eseo';
+  return 'jp.particle.ni_vs_de';
 }
 
 function applyPlaceholders(
@@ -284,9 +288,7 @@ export class LearningContentTool
             return this.buildDictation(repo, context, input, language, count, difficulty, skillId);
           }
 
-          const defaultSkill =
-            language === 'en' ? 'en.grammar.subjunctive' : 'jp.particle.ni_vs_de';
-          const targetSkill = skillId || defaultSkill;
+          const targetSkill = skillId || defaultQuizSkill(language);
           const templates = await this.loadTemplates(repo, {
             action: 'generate_quiz',
             language,
@@ -488,7 +490,7 @@ export class LearningContentTool
             return err(new BusinessError('E_CONTENT_EMPTY', MSG.emptyPassage(language), 'TOOL_EXECUTION'));
           }
           const topicLabel =
-            topic || row.topic || (language === 'en' ? MSG.dailyEn : MSG.dailyJa);
+            topic || row.topic || (language === 'en' ? MSG.dailyEn : language === 'ko' ? '????' : MSG.dailyJa);
           const payload = row.payload as {
             titleTemplate: string;
             bodyTemplate: string;

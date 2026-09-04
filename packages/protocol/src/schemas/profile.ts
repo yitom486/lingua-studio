@@ -11,6 +11,8 @@ export const StudyGoalSchema = z.enum([
   'CET6',
   'DAILY_CONVERSATION',
   'INTEREST_BASIC',
+  'TOPIK_I',
+  'TOPIK_II',
 ]);
 export type StudyGoal = z.infer<typeof StudyGoalSchema>;
 

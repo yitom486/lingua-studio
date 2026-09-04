@@ -211,4 +211,56 @@ Environmental planners advocate expanding the framework to weekend mornings, whi
       },
     ],
   },
+  {
+    id: 'read_ai_ko_cafe',
+    origin: 'ai',
+    title: '카페에서 한국어를 공부하다',
+    topic: '일상생활',
+    difficulty: 2,
+    language: 'KO',
+    sourceLabel: 'AI 생성 · TOPIK I 预备 · 难度 2',
+    body: `지난 토요일에 저는 친구 민수와 함께 역 앞 카페에 갔습니다. 가게 안은 조용했고, 창문 밖에는 벚꽃이 보였습니다.
+
+우리는 커피를 주문한 뒤에 테이블에서 한국어 책을 펼쳤습니다. 민수는 「조사 '에서'와 '에'가 아직 어렵다」고 말했습니다. 저는 공책에 예문을 쓰면서 설명했습니다.
+
+두 시간쯤 공부한 후에 우리는 짧은 산책을 했습니다. 저녁 바람은 조금 차가웠지만 기분이 좋았습니다. 다음 주에도 같은 카페에서 만나기로 약속했습니다.`,
+    questions: [
+      {
+        id: 'q_ko_ai_1',
+        prompt: '두 사람은 어디에서 공부했습니까?',
+        options: [
+          { key: 'A', text: '도서관' },
+          { key: 'B', text: '역 앞 카페' },
+          { key: 'C', text: '학교 교실' },
+          { key: 'D', text: '공원 벤치' },
+        ],
+        correctAnswer: 'B',
+        explanation: '「역 앞 카페에 갔습니다」「테이블에서 한국어 책을 펼쳤습니다」라고 나와 있습니다.',
+      },
+      {
+        id: 'q_ko_ai_2',
+        prompt: '민수가 어렵다고 한 것은 무엇입니까?',
+        options: [
+          { key: 'A', text: '한자 읽기' },
+          { key: 'B', text: '경어' },
+          { key: 'C', text: "조사 '에서'와 '에'" },
+          { key: 'D', text: '과거형 만들기' },
+        ],
+        correctAnswer: 'C',
+        explanation: "「조사 '에서'와 '에'가 아직 어렵다」고 명시되어 있습니다.",
+      },
+      {
+        id: 'q_ko_ai_3',
+        prompt: '공부한 뒤에 두 사람은 무엇을 했습니까?',
+        options: [
+          { key: 'A', text: '영화를 봤다' },
+          { key: 'B', text: '짧은 산책을 했다' },
+          { key: 'C', text: '바로 집에 갔다' },
+          { key: 'D', text: '식사를 주문했다' },
+        ],
+        correctAnswer: 'B',
+        explanation: '「두 시간쯤 공부한 후에 우리는 짧은 산책을 했습니다.」',
+      },
+    ],
+  },
 ];

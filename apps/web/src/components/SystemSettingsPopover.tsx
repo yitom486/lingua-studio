@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   SlidersHorizontal,
   Volume2,
@@ -8,7 +8,6 @@ import {
   Play,
   Check,
   ChevronRight,
-  ExternalLink,
   Flame,
   CheckCircle2,
 } from 'lucide-react';
@@ -17,9 +16,23 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { Slider } from './ui/slider.js';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from './ui/select.js';
 import { sound, speechStudio, type TtsGender } from '../utils/audio.js';
-import { useTtsStore } from '../stores/useTtsStore.js';
+import { useTtsStore, voicePrefKey } from '../stores/useTtsStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { useLearningShell } from '../hooks/useLearningShell.js';
+import {
+  getPersonaLabel,
+  getPreviewText,
+  getTtsVoicePack,
+  trackToSpeechLang,
+} from '../data/tts-voice-personas.js';
 
 interface SystemSettingsPopoverProps {
   gateway: {
@@ -30,32 +43,71 @@ interface SystemSettingsPopoverProps {
 
 export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
   const [open, setOpen] = useState(false);
+  const [voiceTick, setVoiceTick] = useState(0);
 
   // TTS 状态
   const gender = useTtsStore((s) => s.gender);
   const rate = useTtsStore((s) => s.rate);
+  const preferredVoices = useTtsStore((s) => s.preferredVoices);
   const setGender = useTtsStore((s) => s.setGender);
   const setRate = useTtsStore((s) => s.setRate);
+  const setPreferredVoice = useTtsStore((s) => s.setPreferredVoice);
   const speak = useTtsStore((s) => s.speak);
 
   // 学情与画像
   const profile = useUserProfileStore((s) => s.profile);
   const dailyTask = useUserProfileStore((s) => s.dailyTask);
   const setProfileModalOpen = useUserProfileStore((s) => s.setProfileModalOpen);
+  const shell = useLearningShell();
+  const speechLang = trackToSpeechLang(shell.track);
+  const voicePack = getTtsVoicePack(speechLang);
+  const prefKey = voicePrefKey(speechLang, gender);
+  const preferredURI = preferredVoices[prefKey] ?? null;
+
+  // 系统音色异步加载（Chrome onvoiceschanged）
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const bump = () => setVoiceTick((n) => n + 1);
+    bump();
+    window.speechSynthesis.addEventListener('voiceschanged', bump);
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', bump);
+  }, []);
+
+  const langVoices = useMemo(() => {
+    void voiceTick;
+    return speechStudio.listVoicesForLang(speechLang);
+  }, [speechLang, voiceTick]);
+
+  const activeSystemVoice = speechStudio.getBestVoice(speechLang, gender, preferredURI);
+  const hasNamed = speechStudio.hasNamedGenderVoice(speechLang, gender);
+
+  // 切到男声且尚无偏好时，自动锁定评分最高的男声音色
+  useEffect(() => {
+    if (gender !== 'MALE' || preferredURI || langVoices.length === 0) return;
+    const best = speechStudio.getBestVoice(speechLang, 'MALE');
+    if (best && speechStudio.hasNamedGenderVoice(speechLang, 'MALE')) {
+      setPreferredVoice(speechLang, 'MALE', best.voiceURI);
+    }
+  }, [gender, speechLang, preferredURI, langVoices.length, setPreferredVoice]);
 
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
     setGender(newGender);
-    toast.success(newGender === 'FEMALE' ? '已切换至：👩 女声导师音色' : '已切换至：👨 男声助教音色');
+    toast.success(`已切换至：${getPersonaLabel(speechLang, newGender)}`);
+  };
+
+  const handleVoicePick = (voiceURI: string | null) => {
+    sound.playClick();
+    setPreferredVoice(speechLang, gender, voiceURI);
+    if (voiceURI) {
+      const v = speechStudio.getVoiceByURI(voiceURI);
+      toast.success(`已指定引擎音色：${v?.name ?? voiceURI}`);
+    }
   };
 
   const handlePreview = () => {
     sound.playClick();
-    const previewText =
-      gender === 'FEMALE'
-        ? 'こんにちは！私は日本語チューターの七海です。今日も楽しく学びましょう。'
-        : 'こんにちは！私は日本語アシスタントの圭太です。一緒に頑張りましょう。';
-    speak(previewText, { lang: 'JA', gender, rate });
+    speak(getPreviewText(speechLang, gender), { lang: speechLang, gender, rate });
   };
 
   return (
@@ -114,17 +166,25 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
                 <Volume2 className="w-3.5 h-3.5 text-amber-500" />
                 <span>发音音色与语速</span>
               </div>
-              <button
-                type="button"
-                onClick={handlePreview}
-                className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer font-medium"
-              >
-                <Play className="w-2.5 h-2.5 fill-current" />
-                试听
-              </button>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="text-[10px] px-1.5 py-0 border-amber-500/30 text-amber-600 dark:text-amber-400 font-mono"
+                >
+                  {voicePack.trackLabel} · {speechLang}
+                </Badge>
+                <button
+                  type="button"
+                  onClick={handlePreview}
+                  className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 cursor-pointer font-medium"
+                >
+                  <Play className="w-2.5 h-2.5 fill-current" />
+                  试听
+                </button>
+              </div>
             </div>
 
-            {/* 音色男女声选择 */}
+            {/* 音色男女声选择：标签随目标语种轨道切换 */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -135,7 +195,7 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
                     : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800/60 text-stone-600 dark:text-stone-400'
                 }`}
               >
-                <span className="truncate">👩 女声 (七海)</span>
+                <span className="truncate">{voicePack.female.label}</span>
                 {gender === 'FEMALE' && <Check className="w-3 h-3 text-amber-500" />}
               </button>
               <button
@@ -147,10 +207,51 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
                     : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800/60 text-stone-600 dark:text-stone-400'
                 }`}
               >
-                <span className="truncate">👨 男声 (圭太)</span>
+                <span className="truncate">{voicePack.male.label}</span>
                 {gender === 'MALE' && <Check className="w-3 h-3 text-amber-500" />}
               </button>
             </div>
+
+            <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-400 truncate">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+              <span className="truncate">
+                当前引擎: {activeSystemVoice?.name || '系统默认 · 随语种自动匹配'}
+              </span>
+            </div>
+
+            {langVoices.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-stone-500 dark:text-stone-400">
+                  手动指定系统音色（英语请优先选 David / Mark / Guy）
+                </label>
+                <Select
+                  value={preferredURI || activeSystemVoice?.voiceURI || ''}
+                  onValueChange={(val) => handleVoicePick(val || null)}
+                >
+                  <SelectTrigger className="h-8 text-[11px]">
+                    <SelectValue placeholder="选择系统音色..." />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-56">
+                    {langVoices.map((v) => (
+                      <SelectItem key={v.voiceURI} value={v.voiceURI}>
+                        <span className="truncate">
+                          {v.name}
+                          {v.localService ? ' · 本地' : ' · 云端'}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {!hasNamed && (
+              <p className="text-[10px] text-amber-700/90 dark:text-amber-300/90 leading-relaxed">
+                {gender === 'MALE'
+                  ? '未检测到具名男声（如 Microsoft David/Mark）。若列表里只有 Google US English，听感会偏女声；请在上方手动选男声，或到系统设置安装英文男声 / 启用 TTS 外挂。'
+                  : '未检测到具名女声引擎；已使用该语种默认音色。'}
+              </p>
+            )}
 
             {/* 语速滑动条 */}
             <div className="pt-1">

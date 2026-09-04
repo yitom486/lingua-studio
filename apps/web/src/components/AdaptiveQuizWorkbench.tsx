@@ -26,6 +26,7 @@ import {
   useQuestionsQuery,
   usePrependQuestionMutation,
 } from '../queries/useLearnerQueries.js';
+import { useLearningShell } from '../hooks/useLearningShell.js';
 
 interface AdaptiveQuizWorkbenchProps {
   onOpenTutor: (ctx: AiTutorContext) => void;
@@ -58,11 +59,13 @@ export function AdaptiveQuizWorkbench({
   isGatewayConnected,
   onGenerateAdaptiveQuizApi,
 }: AdaptiveQuizWorkbenchProps) {
-  const { data: questionsFromQuery = [] } = useQuestionsQuery();
+  const shell = useLearningShell();
+  const { data: questionsFromQuery = [], isLoading: questionsLoading } = useQuestionsQuery();
   const prependQuestion = usePrependQuestionMutation();
   const questionIndex = useStudySessionStore((s) => s.questionIndex);
   const setQuestionIndex = useStudySessionStore((s) => s.setQuestionIndex);
   const presentedQuiz = useStudySessionStore((s) => s.presentedQuiz);
+  const clearPresentedQuiz = useStudySessionStore((s) => s.clearPresentedQuiz);
 
   const [quizSubMode, setQuizSubMode] = useState<'OBJECTIVE' | 'SUBJECTIVE'>('OBJECTIVE');
   const [isGeneratingAdaptive, setIsGeneratingAdaptive] = useState(false);
@@ -96,17 +99,11 @@ export function AdaptiveQuizWorkbench({
   const questions =
     presentedAsItems.length > 0 ? presentedAsItems : questionsFromQuery;
 
-  const currentQ: QuizQuestionItem | undefined = questions[questionIndex] ?? questions[0];
-  if (!currentQ) {
-    return (
-      <div className="p-8 text-center text-sm text-stone-500">题库加载中或暂无题目…</div>
-    );
-  }
-
   // AI 针对画像弱项一键出题 (动态组卷)
   const handleGenerateAdaptiveQuiz = async () => {
     sound.playClick();
     setIsGeneratingAdaptive(true);
+    clearPresentedQuiz();
     try {
       if (isGatewayConnected && onGenerateAdaptiveQuizApi) {
         const reply = await onGenerateAdaptiveQuizApi();
@@ -115,7 +112,7 @@ export function AdaptiveQuizWorkbench({
           const newQ: QuizQuestionItem = {
             id: newQRaw.id,
             type: toUiQuizType(String(newQRaw.type ?? 'MULTIPLE_CHOICE')),
-            category: `AI 靶向弱项 · ${reply.targetSkillName ?? '核心语法'}`,
+            category: `AI 靶向弱项 · ${reply.targetSkillName ?? shell.copy.targetWeaknessLabel}`,
             prompt: newQRaw.prompt,
             content: newQRaw.content,
             options: newQRaw.options?.map((text: string, i: number) => ({
@@ -139,24 +136,59 @@ export function AdaptiveQuizWorkbench({
         }
       }
 
-      // 离线环境备选动态题
+      // 离线环境备选：按当前轨道给骨架题，避免韩语轨仍落日语
       setTimeout(() => {
-        const fallbackQ: QuizQuestionItem = {
-          id: `q_ai_${Date.now()}`,
-          type: 'CHOICE',
-          category: 'AI 靶向弱项 · 助词「で」与「に」',
-          prompt: '根据动作属性选择正确的场所助词：',
-          content: '昨夜、友達と一緒に図書館（　）勉強しました。',
-          options: [
-            { key: 'A', text: 'で', note: '动作发生的场所' },
-            { key: 'B', text: 'に', note: '静态存在场所或目的地' },
-            { key: 'C', text: 'を', note: '宾格助词' },
-            { key: 'D', text: 'へ', note: '移动方向' },
-          ],
-          correctAnswer: 'A',
-          explanation: '「勉強する」为具体动态动作，动作发生场所固定使用「で」。',
-          testedSkill: 'jp.particle.ni_vs_de',
-        };
+        const fallbackQ: QuizQuestionItem =
+          shell.track === 'ko'
+            ? {
+                id: `q_ai_${Date.now()}`,
+                type: 'CHOICE',
+                category: 'AI 靶向弱项 · 조사 에/에서',
+                prompt: '빈칸에 알맞은 조사를 고르세요:',
+                content: '친구와 카페( ) 한국어를 공부합니다.',
+                options: [
+                  { key: 'A', text: '에서', note: '동작 장소' },
+                  { key: 'B', text: '에', note: '존재·도착' },
+                  { key: 'C', text: '을', note: '목적어' },
+                  { key: 'D', text: '와', note: '동반' },
+                ],
+                correctAnswer: 'A',
+                explanation: '동작이 일어나는 장소에는 「에서」를 씁니다.',
+                testedSkill: 'ko.grammar.particle_eseo',
+              }
+            : shell.track === 'en'
+              ? {
+                  id: `q_ai_${Date.now()}`,
+                  type: 'CHOICE',
+                  category: 'AI 靶向弱项 · Subjunctive',
+                  prompt: '选择最恰当的动词形式填入括号（虚拟语气）：',
+                  content: 'The professor suggested that each student ( ) an outline.',
+                  options: [
+                    { key: 'A', text: 'submit' },
+                    { key: 'B', text: 'submits' },
+                    { key: 'C', text: 'submitted' },
+                    { key: 'D', text: 'will submit' },
+                  ],
+                  correctAnswer: 'A',
+                  explanation: 'suggest that … (should) + 动词原形。',
+                  testedSkill: 'en.grammar.subjunctive',
+                }
+              : {
+                  id: `q_ai_${Date.now()}`,
+                  type: 'CHOICE',
+                  category: 'AI 靶向弱项 · 助词「で」与「に」',
+                  prompt: '根据动作属性选择正确的场所助词：',
+                  content: '昨夜、友達と一緒に図書館（　）勉強しました。',
+                  options: [
+                    { key: 'A', text: 'で', note: '动作发生的场所' },
+                    { key: 'B', text: 'に', note: '静态存在场所或目的地' },
+                    { key: 'C', text: 'を', note: '宾格助词' },
+                    { key: 'D', text: 'へ', note: '移动方向' },
+                  ],
+                  correctAnswer: 'A',
+                  explanation: '「勉強する」为具体动态动作，动作发生场所固定使用「で」。',
+                  testedSkill: 'jp.particle.ni_vs_de',
+                };
         prependQuestion.mutate(fallbackQ);
         setQuestionIndex(0);
         setSelectedChoice(null);
@@ -171,6 +203,32 @@ export function AdaptiveQuizWorkbench({
       setIsGeneratingAdaptive(false);
     }
   };
+
+  const currentQ: QuizQuestionItem | undefined = questions[questionIndex] ?? questions[0];
+  if (!currentQ) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 p-10 text-center">
+        <p className="text-sm text-stone-500 dark:text-stone-400 max-w-md">
+          {questionsLoading
+            ? '题库加载中…'
+            : shell.copy.quizEmptyHint}
+        </p>
+        {shell.featureFlags.koreanInterim && shell.track === 'ko' && (
+          <p className="text-[11px] text-amber-700/80 dark:text-amber-400/80 max-w-sm">
+            韩语轨道为 interim 骨架：侧栏与题库已按 TOPIK 分区；界面母语仍为中文（非整页韩语 i18n）。
+          </p>
+        )}
+        <ShimmerButton
+          onClick={handleGenerateAdaptiveQuiz}
+          disabled={isGeneratingAdaptive || !isGatewayConnected}
+          className="px-4 py-1.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>{isGeneratingAdaptive ? 'AI 正在分析弱项组卷...' : '🎯 AI 针对弱项出题'}</span>
+        </ShimmerButton>
+      </div>
+    );
+  }
 
   // 提交做题答题
   const handleQuizSubmit = () => {

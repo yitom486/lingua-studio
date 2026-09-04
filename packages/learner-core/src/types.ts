@@ -10,7 +10,9 @@ export type StudyGoal =
   | 'CET4'
   | 'CET6'
   | 'DAILY_CONVERSATION'
-  | 'INTEREST_BASIC';
+  | 'INTEREST_BASIC'
+  | 'TOPIK_I'
+  | 'TOPIK_II';
 
 export type LearnerLevel = 'NOVICE' | 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
 

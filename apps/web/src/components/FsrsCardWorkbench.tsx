@@ -4,10 +4,12 @@ import { toast } from 'sonner';
 import { scheduleNextReview } from '@study-studio/learner-core';
 import type { CardReviewRating } from '@study-studio/protocol';
 import { fireSuccessConfetti } from './magicui/index.js';
-import { sound } from '../utils/audio.js';
+import { sound, type SupportedLanguage } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useCardsQuery, useUpdateCardMutation } from '../queries/useLearnerQueries.js';
+import { useLearningShell } from '../hooks/useLearningShell.js';
+import { trackToSpeechLang } from '../data/tts-voice-personas.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
@@ -27,6 +29,8 @@ export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchPr
   const updateCard = useUpdateCardMutation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
+  const shell = useLearningShell();
+  const cardSpeechLang: SupportedLanguage = trackToSpeechLang(shell.track);
 
   const cardFilter = useStudySessionStore((s) => s.cardFilter);
   const setCardFilter = useStudySessionStore((s) => s.setCardFilter);
@@ -153,7 +157,7 @@ export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchPr
                     <UnifiedTtsPlayer
                       variant="button"
                       text={activeCard.frontWord}
-                      lang="JA"
+                      lang={cardSpeechLang}
                       label="听发音"
                     />
                   </div>
@@ -182,7 +186,7 @@ export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchPr
                         <UnifiedTtsPlayer
                           variant="inline"
                           text={activeCard.exampleJp}
-                          lang="JA"
+                          lang={cardSpeechLang}
                         />
                       </span>
                     </div>

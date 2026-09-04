@@ -83,15 +83,28 @@ export const useUserProfileStore = create<UserProfileState>()(
       fetchProfile: async (userId = DEFAULT_USER_ID) => {
         set({ isLoading: true });
         try {
-          const res = await fetch(`${GATEWAY_HTTP_URL}/api/profile/${userId}`);
+          const lang = get().profile.targetLanguage || 'en';
+          const res = await fetch(
+            `${GATEWAY_HTTP_URL}/api/profile/${userId}?lang=${encodeURIComponent(lang)}`
+          );
           if (res.ok) {
             const data = await res.json();
             if (data.profile) {
               set((state) => ({
                 profile: { ...state.profile, ...data.profile },
                 dailyTask: data.dailyTask
-                  ? { ...state.dailyTask, ...data.dailyTask }
-                  : state.dailyTask,
+                  ? {
+                      ...state.dailyTask,
+                      ...data.dailyTask,
+                      language:
+                        data.dailyTask.language ||
+                        data.profile.targetLanguage ||
+                        state.dailyTask.language,
+                    }
+                  : {
+                      ...state.dailyTask,
+                      language: data.profile.targetLanguage || state.dailyTask.language,
+                    },
               }));
             }
           }
@@ -105,12 +118,14 @@ export const useUserProfileStore = create<UserProfileState>()(
       updateProfile: async (updates: Partial<LearnerProfile>) => {
         const currentProfile = get().profile;
         const newProfile = { ...currentProfile, ...updates };
+        const nextLang = updates.targetLanguage ?? currentProfile.targetLanguage;
 
-        // 乐观更新本地状态
+        // 乐观更新本地状态（含打卡语种戳，驱动壳层即时刷新）
         set({
           profile: newProfile,
           dailyTask: {
             ...get().dailyTask,
+            language: nextLang,
             dailyGoalQuizzes: updates.dailyGoalQuizzes ?? get().dailyTask.dailyGoalQuizzes,
             dailyGoalCards: updates.dailyGoalCards ?? get().dailyTask.dailyGoalCards,
           },
@@ -124,7 +139,13 @@ export const useUserProfileStore = create<UserProfileState>()(
           });
           if (res.ok) {
             const updated = await res.json();
-            set({ profile: { ...newProfile, ...updated } });
+            set({
+              profile: { ...newProfile, ...updated },
+              dailyTask: {
+                ...get().dailyTask,
+                language: updated.targetLanguage || nextLang,
+              },
+            });
             return true;
           }
         } catch (e) {
@@ -212,6 +233,11 @@ export const useUserProfileStore = create<UserProfileState>()(
     }),
     {
       name: 'study_studio_user_profile',
+      partialize: (state) => ({
+        profile: state.profile,
+        dailyTask: state.dailyTask,
+        lastCelebratedDate: state.lastCelebratedDate,
+      }),
     }
   )
 );

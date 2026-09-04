@@ -112,7 +112,7 @@ export function ReadingComprehensionWorkbench({
     y: number;
   } | null>(null);
 
-  // 默认选中第一个可用篇目
+  // 默认选中第一个可用篇目；切语种后不得残留他语篇目
   useEffect(() => {
     if (combinedSets.length > 0) {
       if (!activeSetId || !combinedSets.some((s) => s.id === activeSetId)) {
@@ -122,13 +122,17 @@ export function ReadingComprehensionWorkbench({
         setSubmitted(false);
         setScore(0);
       }
+    } else {
+      setActiveSetId('');
+      setStepIndex(0);
+      setSelected(null);
+      setSubmitted(false);
+      setScore(0);
     }
   }, [combinedSets, activeSetId]);
 
-  const activeSet: ReadingPassageSet =
-    combinedSets.find((s) => s.id === activeSetId) ??
-    combinedSets[0] ??
-    DEMO_READING_SETS[0]!;
+  const activeSet: ReadingPassageSet | undefined =
+    combinedSets.find((s) => s.id === activeSetId) ?? combinedSets[0];
 
   const question = activeSet?.questions[stepIndex] ?? activeSet?.questions[0];
   const totalQuestions = activeSet?.questions?.length || 1;
@@ -148,6 +152,7 @@ export function ReadingComprehensionWorkbench({
 
   // 朗读文章
   const handleTogglePlayAudio = () => {
+    if (!activeSet) return;
     sound.playClick();
     if (isPlayingAudio) {
       speechStudio.stop();
@@ -186,7 +191,7 @@ export function ReadingComprehensionWorkbench({
 
   // 划词标记重点
   const handleMarkKeyPoint = () => {
-    if (!selectionRange?.text) return;
+    if (!activeSet || !selectionRange?.text) return;
     sound.playClick();
     addAnnotationMutation.mutate({
       documentId: activeSet.id,
@@ -202,7 +207,7 @@ export function ReadingComprehensionWorkbench({
 
   // 划词转记忆卡
   const handleConvertToFlashcard = () => {
-    if (!selectionRange?.text) return;
+    if (!activeSet || !selectionRange?.text) return;
     sound.playClick();
     addCardsMutation.mutate([
       {
@@ -243,6 +248,7 @@ export function ReadingComprehensionWorkbench({
 
   // 进入下一题或完成整篇
   const handleNextQuestion = () => {
+    if (!activeSet) return;
     sound.playClick();
     if (stepIndex < totalQuestions - 1) {
       setStepIndex((i) => i + 1);
@@ -322,8 +328,19 @@ export function ReadingComprehensionWorkbench({
     }
   };
 
-  // 左侧文章区
-  const passagePanel = (
+  // 左侧文章区（无匹配语种篇目时展示空态，禁止回落到他语 DEMO）
+  const passagePanel = !activeSet ? (
+    <div className="h-full rounded-2xl border border-dashed border-amber-900/20 dark:border-amber-500/20 bg-[#faf9f6] dark:bg-[#1a1816] flex flex-col items-center justify-center gap-2 p-8 text-center">
+      <Newspaper className="w-8 h-8 text-amber-500/70" />
+      <p className="text-sm font-medium text-stone-700 dark:text-stone-200">
+        {shell.copy.readingEmptyHint}
+      </p>
+      <p className="text-xs text-stone-500">
+        当前筛选无篇目 · 可点右上角「自适应生成」创建 {langFilter === 'ALL' ? '目标语' : langFilter}{' '}
+        阅读材料
+      </p>
+    </div>
+  ) : (
     <div
       ref={passageRef}
       onMouseUp={handleMouseUpPassage}
@@ -481,7 +498,11 @@ export function ReadingComprehensionWorkbench({
   );
 
   // 右侧题目自测区
-  const questionPanel = (
+  const questionPanel = !activeSet ? (
+    <div className="h-full rounded-2xl border border-dashed border-amber-900/20 dark:border-amber-500/20 bg-[#faf9f6] dark:bg-[#1a1816] flex flex-col items-center justify-center gap-2 p-8 text-center">
+      <p className="text-sm text-stone-500">暂无配题 · 生成篇目后将在此作答</p>
+    </div>
+  ) : (
     <div className="h-full rounded-2xl border border-amber-900/10 dark:border-amber-500/15 bg-[#faf9f6] dark:bg-[#1a1816] shadow-xs flex flex-col overflow-hidden">
       <div className="px-4 py-3 border-b border-amber-900/10 dark:border-amber-500/15 space-y-2">
         <div className="flex items-center justify-between text-xs text-stone-500">

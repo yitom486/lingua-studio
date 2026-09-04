@@ -20,12 +20,22 @@ import { Popover, PopoverTrigger, PopoverContent } from './ui/popover.js';
 import { Slider } from './ui/slider.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Badge } from './ui/badge.js';
+import { useLearningShell } from '../hooks/useLearningShell.js';
+import {
+  getPersonaLabel,
+  getPreviewText,
+  getTtsVoicePack,
+  trackToSpeechLang,
+} from '../data/tts-voice-personas.js';
 
 interface VoiceSettingsPopoverProps {
   currentLanguage?: SupportedLanguage;
 }
 
-export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPopoverProps) {
+export function VoiceSettingsPopover({ currentLanguage }: VoiceSettingsPopoverProps) {
+  const shell = useLearningShell();
+  const resolvedLang = currentLanguage ?? trackToSpeechLang(shell.track);
+  const voicePack = getTtsVoicePack(resolvedLang);
   const [showPluginConfig, setShowPluginConfig] = useState(false);
 
   const gender = useTtsStore((s) => s.gender);
@@ -45,13 +55,13 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
     setEditEnabled(isCustomPluginEnabled);
   }, [customPluginUrl, isCustomPluginEnabled]);
 
-  const activeVoice = speechStudio.getBestVoice(currentLanguage, gender);
+  const activeVoice = speechStudio.getBestVoice(resolvedLang, gender);
   const activeVoiceName = activeVoice ? activeVoice.name : '系统默认自然发音';
 
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
     setGender(newGender);
-    toast.success(newGender === 'FEMALE' ? '已切换至：👩 女声导师音色' : '已切换至：👨 男声助教音色');
+    toast.success(`已切换至：${getPersonaLabel(resolvedLang, newGender)}`);
   };
 
   const handleRateChange = (newRate: number) => {
@@ -61,25 +71,7 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
 
   const handlePreview = () => {
     sound.playClick();
-    let previewText = '';
-    if (currentLanguage === 'EN') {
-      previewText =
-        gender === 'FEMALE'
-          ? 'Hello! I am your English tutor Jenny. Let us practice English together.'
-          : 'Hi there! I am your English assistant Guy. Welcome to Study Studio.';
-    } else if (currentLanguage === 'KO') {
-      previewText =
-        gender === 'FEMALE'
-          ? '안녕하세요! 한국어 학습을 함께 시작해 볼까요?'
-          : '반갑습니다! 오늘도 열심히 한국어를 공부해 봅시다.';
-    } else {
-      previewText =
-        gender === 'FEMALE'
-          ? 'こんにちは！私は日本語チューターの七海です。'
-          : 'こんにちは！私は日本語アシスタントの圭太です。一緒に頑張りましょう。';
-    }
-
-    speak(previewText, { lang: currentLanguage, gender, rate });
+    speak(getPreviewText(resolvedLang, gender), { lang: resolvedLang, gender, rate });
   };
 
   const handleSavePlugin = () => {
@@ -98,7 +90,7 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
         title="语音音色与发音设置"
       >
         <Volume2 className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-        <span>{gender === 'FEMALE' ? '👩 女声' : '👨 男声'}</span>
+        <span>{gender === 'FEMALE' ? voicePack.female.displayName : voicePack.male.displayName}</span>
         <span className="text-[10px] text-stone-400 font-mono">({rate}x)</span>
         <ChevronDown className="w-3 h-3 text-stone-400" />
       </PopoverTrigger>
@@ -110,13 +102,13 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
             <span className="text-xs font-bold">语音合成与音色工作台</span>
           </div>
           <Badge variant="amber" className="text-[10px] font-mono">
-            {currentLanguage}
+            {voicePack.trackLabel} · {resolvedLang}
           </Badge>
         </div>
 
         <div className="space-y-1.5">
           <label className="text-[11px] font-bold text-stone-500 dark:text-stone-400">
-            发音音色预设 (双导师方案)
+            发音音色预设（随目标语种自动切换人设）
           </label>
           <div className="grid grid-cols-2 gap-2">
             <Button
@@ -126,7 +118,7 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
               onClick={() => handleGenderChange('FEMALE')}
               className="h-9"
             >
-              <span>👩 温柔女声</span>
+              <span>{voicePack.female.label}</span>
               {gender === 'FEMALE' && <Check className="w-3.5 h-3.5" />}
             </Button>
             <Button
@@ -136,7 +128,7 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
               onClick={() => handleGenderChange('MALE')}
               className="h-9"
             >
-              <span>👨 阳光男声</span>
+              <span>{voicePack.male.label}</span>
               {gender === 'MALE' && <Check className="w-3.5 h-3.5" />}
             </Button>
           </div>
@@ -182,7 +174,7 @@ export function VoiceSettingsPopover({ currentLanguage = 'JA' }: VoiceSettingsPo
 
         <Button type="button" variant="amber" className="w-full" onClick={handlePreview}>
           <Play className="w-3.5 h-3.5 fill-current" />
-          <span>试听当前音色 ({currentLanguage})</span>
+          <span>试听当前音色 ({resolvedLang})</span>
         </Button>
 
         <div className="pt-2 border-t border-stone-200 dark:border-stone-800 space-y-2">

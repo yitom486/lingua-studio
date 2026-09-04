@@ -54,11 +54,25 @@ export function App() {
     }
   }, [activeTab, shell.allowedTabs, shell.fallbackTab, setActiveTab]);
 
+  // 切轨道时清空 Agent 灌入的临时题包，避免 EN 题包压住 KO Query 结果
+  useEffect(() => {
+    useStudySessionStore.getState().clearPresentedQuiz();
+    useStudySessionStore.getState().setQuestionIndex(0);
+  }, [shell.track]);
+
   const fetchProfile = useUserProfileStore((s) => s.fetchProfile);
   const recordActivity = useUserProfileStore((s) => s.recordActivity);
 
+  // 等 Zustand persist 水合后再拉远端，避免默认 en 抢先覆盖本地已存的韩语/日语轨道
   useEffect(() => {
-    fetchProfile();
+    const run = () => {
+      void fetchProfile();
+    };
+    if (useUserProfileStore.persist.hasHydrated()) {
+      run();
+      return;
+    }
+    return useUserProfileStore.persist.onFinishHydration(run);
   }, [fetchProfile]);
 
   const handleSubmitQuiz = useCallback(
@@ -125,13 +139,14 @@ export function App() {
 
         <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
           <ErrorBoundary
-            key={activeTab}
+            key={`${shell.track}-${activeTab}`}
             variant="embedded"
             title="当前工作区遇到临时渲染异常"
             message="此模块由于外部数据或音频上下文发生了临时异常。您的个人学情资产已安全持久化，可点击下方按钮重新加载。"
           >
             {activeTab === 'QUIZ' && (
               <AdaptiveQuizWorkbench
+                key={shell.track}
                 onOpenTutor={(ctx) => {
                   sound.playClick();
                   openTutor(ctx);
@@ -144,11 +159,12 @@ export function App() {
             )}
 
             {activeTab === 'CARDS' && (
-              <FsrsCardWorkbench onReviewCardToGateway={handleReviewCard} />
+              <FsrsCardWorkbench key={shell.track} onReviewCardToGateway={handleReviewCard} />
             )}
 
             {activeTab === 'READING' && (
               <ReadingComprehensionWorkbench
+                key={shell.track}
                 onOpenTutor={(ctx) => {
                   sound.playClick();
                   openTutor(ctx);
@@ -157,7 +173,10 @@ export function App() {
             )}
 
             {activeTab === 'WRITING' && (
-              <WritingStudioWorkbench onGradeSubjective={gateway.gradeSubjectiveQuiz} />
+              <WritingStudioWorkbench
+                key={shell.track}
+                onGradeSubjective={gateway.gradeSubjectiveQuiz}
+              />
             )}
 
             {activeTab === 'TEXTBOOK' && (

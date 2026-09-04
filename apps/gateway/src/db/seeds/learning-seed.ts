@@ -197,6 +197,49 @@ export const INITIAL_EN_QUESTION_SEEDS: QuestionSeed[] = [
 /**
  * 错题记录：新用户出厂默认零错题，待学员真实作答触发记录
  */
+
+/**
+ * 官方精选韩语自适应题库示范题（TOPIK 场所助词骨架）
+ */
+export const INITIAL_KO_QUESTION_SEEDS: QuestionSeed[] = [
+  {
+    id: 'q_ko_01',
+    type: 'CHOICE',
+    category: '조사 에/에서',
+    prompt: '빈칸에 알맞은 조사를 고르세요:',
+    content: '친구와 카페( ) 한국어를 공부합니다.',
+    options: [
+      { key: 'A', text: '에서', note: '동작이 일어나는 장소' },
+      { key: 'B', text: '에', note: '존재·도착 장소' },
+      { key: 'C', text: '을', note: '목적어' },
+      { key: 'D', text: '와', note: '동반' },
+    ],
+    correctAnswer: 'A',
+    explanation:
+      '「공부하다」는 동작 동사이므로 장소에는 조사 「에서」를 씁니다. 「에」는 존재(있다/없다)나 도착점에 주로 사용합니다.',
+    testedSkillId: 'ko.grammar.particle_eseo',
+    difficulty: 2,
+  },
+  {
+    id: 'q_ko_02',
+    type: 'CHOICE',
+    category: '조사 에/에서',
+    prompt: '빈칸에 알맞은 조사를 고르세요:',
+    content: '책상 위( ) 사전이 있습니다.',
+    options: [
+      { key: 'A', text: '에', note: '존재 위치' },
+      { key: 'B', text: '에서', note: '동작 장소' },
+      { key: 'C', text: '을', note: '목적어' },
+      { key: 'D', text: '로', note: '방향·수단' },
+    ],
+    correctAnswer: 'A',
+    explanation:
+      '「있다」는 존재를 나타내므로 장소 조사는 「에」입니다. 동작이 일어나는 장소에는 「에서」를 씁니다.',
+    testedSkillId: 'ko.grammar.particle_eseo',
+    difficulty: 2,
+  },
+];
+
 export const INITIAL_MISTAKE_SEEDS: MistakeSeed[] = [];
 
 /**

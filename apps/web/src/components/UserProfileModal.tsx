@@ -26,6 +26,7 @@ import {
   BookOpen,
   Sliders,
   Layers,
+  Languages,
 } from 'lucide-react';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { useQueryClient } from '@tanstack/react-query';
@@ -34,10 +35,13 @@ import { invalidateAllLearningQueries } from '../queries/useLearnerQueries.js';
 import { getLearningShellConfig } from '../learning/learning-shell.js';
 import { sound } from '../utils/audio.js';
 import type { StudyGoal, LearnerLevel } from '@study-studio/protocol';
+import type { TargetLanguage } from '@study-studio/learner-core';
 import {
   LEARNER_LEVELS,
-  STUDY_GOAL_OPTIONS,
+  STUDY_GOAL_TRACK_GROUPS,
   findStudyGoalOption,
+  findTrackGroup,
+  defaultGoalForTrack,
 } from '../data/learner-profile-options.js';
 
 export function UserProfileModal() {
@@ -49,6 +53,9 @@ export function UserProfileModal() {
 
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [studyGoal, setStudyGoal] = useState<StudyGoal>(profile.studyGoal);
+  const [goalTrack, setGoalTrack] = useState<TargetLanguage>(
+    () => findStudyGoalOption(profile.studyGoal)?.lang ?? 'en'
+  );
   const [learnerLevel, setLearnerLevel] = useState<LearnerLevel>(profile.learnerLevel);
   const [dailyGoalQuizzes, setDailyGoalQuizzes] = useState(profile.dailyGoalQuizzes);
   const [dailyGoalCards, setDailyGoalCards] = useState(profile.dailyGoalCards);
@@ -58,11 +65,23 @@ export function UserProfileModal() {
     if (isOpen) {
       setDisplayName(profile.displayName);
       setStudyGoal(profile.studyGoal);
+      setGoalTrack(findStudyGoalOption(profile.studyGoal)?.lang ?? profile.targetLanguage ?? 'en');
       setLearnerLevel(profile.learnerLevel);
       setDailyGoalQuizzes(profile.dailyGoalQuizzes);
       setDailyGoalCards(profile.dailyGoalCards);
     }
   }, [isOpen, profile]);
+
+  const trackGoals = findTrackGroup(goalTrack).goals;
+
+  const handleTrackChange = (lang: TargetLanguage) => {
+    sound.playClick();
+    setGoalTrack(lang);
+    const stillValid = findStudyGoalOption(studyGoal)?.lang === lang;
+    if (!stillValid) {
+      setStudyGoal(defaultGoalForTrack(lang));
+    }
+  };
 
   const handleSave = async () => {
     sound.playClick();
@@ -131,7 +150,7 @@ export function UserProfileModal() {
             </div>
           </div>
 
-          {/* 2. 目标选择 */}
+          {/* 2. 目标选择：语种大类 → 赛道子项 */}
           <div className="space-y-2">
             <label className="text-xs font-semibold text-stone-700 dark:text-stone-300 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
@@ -143,6 +162,33 @@ export function UserProfileModal() {
               </span>
             </label>
 
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-[11px] text-stone-500 dark:text-stone-400">
+                <Languages className="w-3.5 h-3.5" />
+                <span>先选目标语种，再选具体赛道</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {STUDY_GOAL_TRACK_GROUPS.map((group) => {
+                  const active = goalTrack === group.lang;
+                  return (
+                    <button
+                      key={group.lang}
+                      type="button"
+                      onClick={() => handleTrackChange(group.lang)}
+                      className={`px-2.5 py-2 rounded-xl border text-left transition-all cursor-pointer ${
+                        active
+                          ? 'border-amber-500 bg-amber-500/10 dark:bg-amber-500/15 text-amber-900 dark:text-amber-200 shadow-xs'
+                          : 'border-stone-200 dark:border-stone-800 bg-white dark:bg-[#1f1d1a] hover:border-stone-300 dark:hover:border-stone-700 text-stone-600 dark:text-stone-400'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{group.label}</div>
+                      <div className="text-[10px] opacity-70 mt-0.5 truncate">{group.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <Select
               value={studyGoal}
               onValueChange={(val) => {
@@ -150,10 +196,10 @@ export function UserProfileModal() {
               }}
             >
               <SelectTrigger className="h-10">
-                <SelectValue placeholder="选择你的备考目标..." />
+                <SelectValue placeholder="选择该语种下的备考赛道..." />
               </SelectTrigger>
               <SelectContent>
-                {STUDY_GOAL_OPTIONS.map((goal) => (
+                {trackGoals.map((goal) => (
                   <SelectItem key={goal.id} value={goal.id}>
                     <div className="flex flex-col py-0.5 text-left">
                       <div className="flex items-center gap-2">

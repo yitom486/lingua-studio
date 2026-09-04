@@ -101,7 +101,7 @@ export class GatewayServer {
       case WsEventTypes.CLIENT_SESSION_INIT: {
         const payload = envelope.payload as {
           userId: string;
-          targetLanguage: 'ja' | 'en';
+          targetLanguage: 'ja' | 'en' | 'ko';
           targetLevel: string;
         };
         const sessionRes = this.sessionManager.createSession(
@@ -113,10 +113,9 @@ export class GatewayServer {
           return err(sessionRes.error);
         }
 
-        // 初始化或更新该用户的学习目标与语种
+        // 仅同步目标语种轨道；禁止每次重连强行改写 studyGoal（否则刷新会把韩语打回英语）
         await this.learnerRepo.updateLearnerProfile(payload.userId, {
           targetLanguage: payload.targetLanguage,
-          studyGoal: payload.targetLanguage === 'ja' ? 'JLPT_N2' : 'CET6',
         });
 
         // 获取该学习者的最新画像快照
@@ -373,8 +372,7 @@ export class GatewayServer {
               skillIds: rawPayload.weaknessSkillId
                 ? [String(rawPayload.weaknessSkillId)]
                 : undefined,
-              // learning.content 暂仅 ja|en；韩语轨道先落 EN 内容
-              language: rawPayload.targetLanguage === 'ja' ? 'ja' : 'en',
+              language: rawPayload.targetLanguage === 'ja' ? 'ja' : rawPayload.targetLanguage === 'ko' ? 'ko' : 'en',
               collect: true,
             },
             { userId, sessionId: envelope.sessionId }
@@ -409,12 +407,19 @@ export class GatewayServer {
         // 动态生成的题目属于学习资产；在发送给客户端前先写入 SQLite，刷新后仍可恢复。
         if (this.learnerRepo instanceof DrizzleLearnerRepository) {
           const generatedOutput = toolRes.value as { questions?: unknown[]; targetSkillName?: string };
+          const partitionLang =
+            rawPayload.targetLanguage === 'ja'
+              ? 'ja'
+              : rawPayload.targetLanguage === 'ko'
+                ? 'ko'
+                : 'en';
           const questions = (generatedOutput.questions ?? []).map(
             (question) => {
               const generated = question as Record<string, unknown>;
               return {
               ...generated,
               userId,
+              language: generated.language ?? partitionLang,
               // GeneratedQuestion 是工具协议，quiz_questions 则是可直接渲染的题库模型。
               category: generated.category ?? generatedOutput.targetSkillName ?? 'AI 靶向练习',
               difficulty: generated.difficulty ?? generated.difficultyTier ?? 3,
@@ -501,7 +506,12 @@ export class GatewayServer {
                 {
                   action: 'example_set',
                   topic: snapshot.focus?.skillTag || '助词与谓语动词搭配',
-                  language: snapshot.targetLanguage === 'ja' ? 'ja' : 'en',
+                  language:
+                    snapshot.targetLanguage === 'ja'
+                      ? 'ja'
+                      : snapshot.targetLanguage === 'ko'
+                        ? 'ko'
+                        : 'en',
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -534,7 +544,12 @@ export class GatewayServer {
                 {
                   action: 'explain',
                   topic: snapshot.focus?.skillTag || '格助词辨析',
-                  language: snapshot.targetLanguage === 'ja' ? 'ja' : 'en',
+                  language:
+                    snapshot.targetLanguage === 'ja'
+                      ? 'ja'
+                      : snapshot.targetLanguage === 'ko'
+                        ? 'ko'
+                        : 'en',
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -570,7 +585,12 @@ export class GatewayServer {
                   action: 'generate_quiz',
                   count: Math.min(3, snapshot.constraints?.maxQuestions ?? 3),
                   difficulty: 2,
-                  language: snapshot.targetLanguage === 'ja' ? 'ja' : 'en',
+                  language:
+                    snapshot.targetLanguage === 'ja'
+                      ? 'ja'
+                      : snapshot.targetLanguage === 'ko'
+                        ? 'ko'
+                        : 'en',
                   skillIds,
                   collect: true,
                   collectionTitle: '导师即时练习',

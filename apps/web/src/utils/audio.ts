@@ -207,76 +207,146 @@ class SpeechStudioEngine {
   }
 
   /**
-   * 智能挑选当前语言与性别下的最优音色
+   * 列出某语种下全部系统音色（供手动选择）
    */
-  public getBestVoice(
-    lang: SupportedLanguage = 'JA',
-    gender: TtsGender = this.gender
-  ): SpeechSynthesisVoice | null {
+  public listVoicesForLang(lang: SupportedLanguage = 'EN'): SpeechSynthesisVoice[] {
     if (!this.voices || this.voices.length === 0) {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         this.voices = window.speechSynthesis.getVoices();
       }
     }
-    if (this.voices.length === 0) return null;
-
     const langCode = lang === 'EN' ? 'en' : lang === 'KO' ? 'ko' : 'ja';
-    const langVoices = this.voices.filter((v) =>
-      v.lang.toLowerCase().startsWith(langCode)
-    );
+    return this.voices
+      .filter((v) => v.lang.toLowerCase().startsWith(langCode))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
 
-    if (langVoices.length === 0) return null;
+  public getVoiceByURI(voiceURI: string | null | undefined): SpeechSynthesisVoice | null {
+    if (!voiceURI) return null;
+    if (!this.voices || this.voices.length === 0) {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        this.voices = window.speechSynthesis.getVoices();
+      }
+    }
+    return this.voices.find((v) => v.voiceURI === voiceURI) ?? null;
+  }
 
-    // 女声优选关键词
-    const femaleKeywords = [
+  private scoreVoiceForGender(voice: SpeechSynthesisVoice, gender: TtsGender): number {
+    const name = voice.name.toLowerCase();
+    // 扩展名单：覆盖 Windows / Edge / Chrome 常见英日韩音色
+    const femaleHints = [
       'nanami',
       'jenny',
+      'zira',
+      'susan',
+      'samantha',
+      'kyoko',
       'sunhi',
-      'natural',
-      'neural',
+      'yuna',
+      'heami',
+      'aria',
+      'jenny',
+      'michelle',
+      'sara',
+      'hazel',
+      'catherine',
+      'sonia',
       'female',
       'woman',
-      'zira',
-      'kyoko',
-      'samantha',
-      'yuna',
+      'girl',
+      '女士',
+      '女声',
     ];
-
-    // 男声优选关键词
-    const maleKeywords = [
+    const maleHints = [
       'keita',
-      'guy',
-      'injoon',
-      'natural',
-      'neural',
-      'male',
-      'man',
-      'david',
       'otoya',
       'ichiro',
+      'guy',
+      'david',
+      'mark',
       'daniel',
-      'heami',
+      'james',
+      'george',
+      'ryan',
+      'christopher',
+      'eric',
+      'andrew',
+      'thomas',
+      'steffan',
+      'brian',
+      'ravi',
+      'injoon',
+      'bongjin',
+      'male',
+      'man',
+      'boy',
+      '男声',
+      '男士',
     ];
 
-    const targetKeywords = gender === 'FEMALE' ? femaleKeywords : maleKeywords;
+    let score = 0;
+    const own = gender === 'FEMALE' ? femaleHints : maleHints;
+    const opposite = gender === 'FEMALE' ? maleHints : femaleHints;
 
-    // 1. 优先匹配包含具体高保真名称的音色
-    for (const kw of targetKeywords) {
-      const found = langVoices.find((v) => v.name.toLowerCase().includes(kw));
-      if (found) return found;
+    for (const kw of own) {
+      if (name.includes(kw)) score += 100;
+    }
+    for (const kw of opposite) {
+      if (name.includes(kw)) score -= 120;
     }
 
-    // 2. 次选包含 Natural / Online 的高质量音色
-    const naturalVoice = langVoices.find(
-      (v) =>
-        v.name.toLowerCase().includes('natural') ||
-        v.name.toLowerCase().includes('online') ||
-        v.name.toLowerCase().includes('google')
-    );
-    if (naturalVoice) return naturalVoice;
+    // 本地桌面音色通常比单一 Google 云端音色更易分出男女
+    if (voice.localService) score += 15;
+    // 避免把含 Neural 但未点名的默认云端女声当男声高分
+    if (gender === 'MALE' && (name.includes('jenny') || name.includes('zira') || name.includes('aria'))) {
+      score -= 200;
+    }
+    return score;
+  }
 
-    // 3. 兜底返回该语言首个音色
-    return langVoices[0] ?? null;
+  /**
+   * 智能挑选当前语言与性别下的最优音色。
+   * preferredVoiceURI 优先（用户手动指定）。
+   */
+  public getBestVoice(
+    lang: SupportedLanguage = 'EN',
+    gender: TtsGender = this.gender,
+    preferredVoiceURI?: string | null
+  ): SpeechSynthesisVoice | null {
+    if (preferredVoiceURI) {
+      const preferred = this.getVoiceByURI(preferredVoiceURI);
+      if (preferred) return preferred;
+    }
+
+    const langVoices = this.listVoicesForLang(lang);
+    if (langVoices.length === 0) return null;
+
+    let best: SpeechSynthesisVoice | null = null;
+    let bestScore = -Infinity;
+    for (const v of langVoices) {
+      const s = this.scoreVoiceForGender(v, gender);
+      if (s > bestScore) {
+        bestScore = s;
+        best = v;
+      }
+    }
+
+    // 若最高分仍 ≤0，说明没有正向性别线索：男声时尽量避开高分女声名
+    if (best && bestScore <= 0 && gender === 'MALE') {
+      const nonFemale = langVoices
+        .map((v) => ({ v, s: this.scoreVoiceForGender(v, 'MALE') }))
+        .sort((a, b) => b.s - a.s);
+      return nonFemale[0]?.v ?? best;
+    }
+
+    return best ?? langVoices[0] ?? null;
+  }
+
+  /** 当前系统是否能为该语种找到「具名」对应性别音色 */
+  public hasNamedGenderVoice(lang: SupportedLanguage, gender: TtsGender): boolean {
+    const langVoices = this.listVoicesForLang(lang);
+    return langVoices.some((v) => this.scoreVoiceForGender(v, gender) >= 100);
   }
 
   private isSpeaking: boolean = false;
@@ -301,6 +371,7 @@ class SpeechStudioEngine {
       lang?: SupportedLanguage;
       gender?: TtsGender;
       rate?: number;
+      preferredVoiceURI?: string | null;
       onStart?: (() => void) | undefined;
       onEnd?: (() => void) | undefined;
       onError?: ((err?: unknown) => void) | undefined;
@@ -311,9 +382,10 @@ class SpeechStudioEngine {
 
     if (!text || !text.trim()) return;
 
-    const lang = options?.lang || 'JA';
+    const lang = options?.lang || 'EN';
     const gender = options?.gender || this.gender;
     const rate = options?.rate || this.rate;
+    const hasNamed = this.hasNamedGenderVoice(lang, gender);
 
     this.isSpeaking = true;
     this.currentText = text;
@@ -377,7 +449,7 @@ class SpeechStudioEngine {
       const utterance = new SpeechSynthesisUtterance(text);
       this.currentUtterance = utterance; // 防止垃圾回收导致发音被掐断
 
-      const voice = this.getBestVoice(lang, gender);
+      const voice = this.getBestVoice(lang, gender, options?.preferredVoiceURI);
       if (voice) {
         utterance.voice = voice;
         utterance.lang = voice.lang;
@@ -386,7 +458,9 @@ class SpeechStudioEngine {
       }
 
       utterance.rate = rate;
-      utterance.pitch = gender === 'FEMALE' ? 1.05 : 0.95;
+      // 无具名男声时大幅降调（Chrome 常只有一条 Google US English 女声）
+      utterance.pitch =
+        gender === 'FEMALE' ? 1.08 : hasNamed ? 0.88 : 0.55;
 
       utterance.onstart = () => {
         this.isSpeaking = true;
