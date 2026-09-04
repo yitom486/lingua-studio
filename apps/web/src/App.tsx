@@ -29,6 +29,7 @@ import {
   Zap,
   Bot,
   HelpCircle,
+  Headphones,
 } from 'lucide-react';
 import {
   initFsrsState,
@@ -36,6 +37,7 @@ import {
   type SkillMetric,
 } from '@study-studio/learner-core';
 import type { CardReviewRating } from '@study-studio/protocol';
+import { generateId } from '@study-studio/shared';
 import {
   DotPattern,
   NumberTicker,
@@ -58,6 +60,8 @@ import { PitchAccentCoach } from './components/PitchAccentCoach.js';
 import { StudyStreakHeatmap } from './components/StudyStreakHeatmap.js';
 import { AiTutorDrawer, type AiTutorContext } from './components/AiTutorDrawer.js';
 import { SubjectiveWritingWorkbench } from './components/SubjectiveWritingWorkbench.js';
+import { ListeningShadowingWorkbench } from './components/ListeningShadowingWorkbench.js';
+import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { useGateway } from './hooks/useGateway.js';
 
 export function App() {
@@ -91,7 +95,7 @@ export function App() {
   };
 
   // 导航选项卡
-  const [activeTab, setActiveTab] = useState<'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'PITCH' | 'MISTAKES' | 'RADAR'>('QUIZ');
+  const [activeTab, setActiveTab] = useState<'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'SHADOWING' | 'PITCH' | 'MISTAKES' | 'RADAR'>('QUIZ');
 
   // 全局指令面板 (Cmd+K)
   const [isCommandOpen, setIsCommandOpen] = useState(false);
@@ -388,6 +392,47 @@ export function App() {
     );
   };
 
+  // 错题攻克结果更新 (两连对攻克)
+  const handleUpdateMistakeStatus = (mistakeId: string, isCorrect: boolean) => {
+    setMistakes((prev) =>
+      prev.map((m) => {
+        if (m.id !== mistakeId) return m;
+        const newCount = isCorrect ? m.consecutiveCorrect + 1 : 0;
+        const isResolved = newCount >= 2;
+        return {
+          ...m,
+          consecutiveCorrect: newCount,
+          isResolved,
+        };
+      })
+    );
+  };
+
+  // 听力听写错题自动归入错题本
+  const handleAddMistakeFromListening = (item: {
+    categoryTag: string;
+    prompt: string;
+    sentence: string;
+    userWrongAnswer: string;
+    correctAnswer: string;
+    testedSkillId: string;
+    reviewNote: string;
+  }) => {
+    const newEntry: MistakeNotebookItem = {
+      id: generateId('msk_listen'),
+      categoryTag: item.categoryTag,
+      prompt: item.prompt,
+      sentence: item.sentence,
+      userWrongAnswer: item.userWrongAnswer,
+      correctAnswer: item.correctAnswer,
+      testedSkillId: item.testedSkillId,
+      reviewNote: item.reviewNote,
+      consecutiveCorrect: 0,
+      isResolved: false,
+    };
+    setMistakes((prev) => [newEntry, ...prev]);
+  };
+
   // 全局快捷键绑定 (Cmd+K 全局指令, 1-4 选选项/评分, 空格翻卡)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -462,21 +507,30 @@ export function App() {
       onSelect: () => setActiveTab('TEXTBOOK'),
     },
     {
+      id: 'nav-shadowing',
+      category: '导航',
+      title: '前往听力精听与影子跟读工作台',
+      subtitle: '短句切片原声循环、假名遮罩与关键助词听写',
+      icon: <Headphones className="w-4 h-4" />,
+      shortcut: 'Tab 4',
+      onSelect: () => setActiveTab('SHADOWING'),
+    },
+    {
       id: 'nav-pitch',
       category: '导航',
       title: '前往 AI 日语声调与口语纠音',
       subtitle: '高低起伏走势线与实时声波跟读打分',
       icon: <Mic className="w-4 h-4" />,
-      shortcut: 'Tab 4',
+      shortcut: 'Tab 5',
       onSelect: () => setActiveTab('PITCH'),
     },
     {
       id: 'nav-mistakes',
       category: '导航',
-      title: '前往错题攻坚本',
+      title: '前往错题智能攻坚台',
       subtitle: `当前有 ${mistakes.filter((m) => !m.isResolved).length} 道待攻克疑难痛点`,
       icon: <AlertTriangle className="w-4 h-4" />,
-      shortcut: 'Tab 5',
+      shortcut: 'Tab 6',
       onSelect: () => setActiveTab('MISTAKES'),
     },
     {
@@ -485,7 +539,7 @@ export function App() {
       title: '前往学情能力画像与打卡热力图',
       subtitle: '语法、词汇、听力多维雷达与弱项靶向加练',
       icon: <TrendingUp className="w-4 h-4" />,
-      shortcut: 'Tab 6',
+      shortcut: 'Tab 7',
       onSelect: () => setActiveTab('RADAR'),
     },
     {
@@ -528,7 +582,7 @@ export function App() {
   ];
 
   const tabs: {
-    id: 'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'PITCH' | 'MISTAKES' | 'RADAR';
+    id: 'QUIZ' | 'CARDS' | 'TEXTBOOK' | 'SHADOWING' | 'PITCH' | 'MISTAKES' | 'RADAR';
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     count?: string;
@@ -536,6 +590,7 @@ export function App() {
     { id: 'QUIZ', label: '自适应做题', icon: Zap, count: `${questionIndex + 1}/${INITIAL_QUESTIONS.length}` },
     { id: 'CARDS', label: 'FSRS 闪卡', icon: Layers, count: `${filteredCards.length}` },
     { id: 'TEXTBOOK', label: '教材精读', icon: BookOpen, count: '标日/大家的日语' },
+    { id: 'SHADOWING', label: '听力跟读', icon: Headphones, count: '原声' },
     { id: 'PITCH', label: '声调纠音', icon: Mic, count: 'AI' },
     { id: 'MISTAKES', label: '错题攻坚', icon: AlertTriangle, count: `${mistakes.filter((m) => !m.isResolved).length}` },
     { id: 'RADAR', label: '学情画像', icon: TrendingUp },
@@ -1155,7 +1210,23 @@ export function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* 4. AI 日语声调走向与口语纠音评测器                                        */}
+        {/* 4. 听力精听与影子跟读工作台 (Web Audio 原声短句切片与关键助词听写)         */}
+        {/* ========================================================================= */}
+        {activeTab === 'SHADOWING' && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <ListeningShadowingWorkbench
+              onOpenTutor={handleOpenTutor}
+              onAddMistake={handleAddMistakeFromListening}
+            />
+          </motion.div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* 5. AI 日语声调走向与口语纠音评测器                                        */}
         {/* ========================================================================= */}
         {activeTab === 'PITCH' && (
           <motion.div
@@ -1168,111 +1239,19 @@ export function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* 5. 错题攻坚本模块                                                         */}
+        {/* 6. 错题本智能归因与专项冲刺攻克工作台                                     */}
         {/* ========================================================================= */}
         {activeTab === 'MISTAKES' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col gap-4 max-w-3xl"
+            transition={{ duration: 0.25 }}
           >
-            <div className="flex items-center justify-between text-xs text-stone-500 px-1">
-              <span>错题攻克规则：连续订正正确 2 次即自动标记攻克</span>
-              <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-900 p-1 rounded-xl">
-                {(['ALL', 'UNRESOLVED', 'RESOLVED'] as const).map((f) => (
-                  <button
-                    key={f}
-                    onClick={() => setMistakeFilter(f)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                      mistakeFilter === f
-                        ? 'bg-[#faf9f6] dark:bg-amber-600 text-stone-900 dark:text-white shadow-sm font-semibold'
-                        : 'text-stone-500'
-                    }`}
-                  >
-                    {f === 'ALL' ? '全部' : f === 'UNRESOLVED' ? '未攻克' : '已攻克'}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {mistakes
-                .filter((m) =>
-                  mistakeFilter === 'ALL'
-                    ? true
-                    : mistakeFilter === 'UNRESOLVED'
-                    ? !m.isResolved
-                    : m.isResolved
-                )
-                .map((m) => (
-                  <div
-                    key={m.id}
-                    className="p-5 rounded-2xl bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-3"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 text-xs font-semibold rounded bg-amber-500/15 text-amber-800 dark:text-amber-300">
-                          {m.categoryTag}
-                        </span>
-                        {m.isResolved ? (
-                          <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">
-                            ✓ 已成功攻克
-                          </span>
-                        ) : (
-                          <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono">
-                            连对进度: {m.consecutiveCorrect}/2
-                          </span>
-                        )}
-                      </div>
-
-                      {/* AI 导师针对错题诊断 */}
-                      <button
-                        onClick={() =>
-                          handleOpenTutor({
-                            questionText: m.sentence,
-                            userAnswer: m.userWrongAnswer,
-                            correctAnswer: m.correctAnswer,
-                            skillTag: m.categoryTag,
-                            explanation: m.reviewNote,
-                          })
-                        }
-                        className="text-xs text-amber-700 dark:text-amber-400 font-semibold hover:underline flex items-center gap-1"
-                      >
-                        <Bot className="w-3.5 h-3.5" />
-                        <span>AI 导师诊断</span>
-                      </button>
-                    </div>
-
-                    <div className="text-sm font-medium text-stone-900 dark:text-stone-100 font-serif">
-                      {m.sentence}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="p-2 rounded-lg bg-rose-500/10 text-rose-800 dark:text-rose-300">
-                        你的误答：<span className="font-bold">{m.userWrongAnswer}</span>
-                      </div>
-                      <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-800 dark:text-emerald-300">
-                        标准答案：<span className="font-bold">{m.correctAnswer}</span>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed font-serif">
-                      💡 归因点拨：{m.reviewNote}
-                    </p>
-
-                    {!m.isResolved && (
-                      <div className="flex justify-end pt-1">
-                        <button
-                          onClick={() => handleResolveMistakeRetry(m.id)}
-                          className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 text-xs font-bold shadow-sm transition-all"
-                        >
-                          立即订正攻克 (连对 2 次攻克)
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-            </div>
+            <MistakeSprintWorkbench
+              mistakes={mistakes}
+              onUpdateMistake={handleUpdateMistakeStatus}
+              onOpenTutor={handleOpenTutor}
+            />
           </motion.div>
         )}
 

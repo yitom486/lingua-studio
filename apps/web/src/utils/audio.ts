@@ -98,6 +98,10 @@ class SoundEngine {
       osc.stop(ctx.currentTime + 0.14);
     } catch {}
   }
+
+  public playError() {
+    this.playMistake();
+  }
 }
 
 export const sound = new SoundEngine();
