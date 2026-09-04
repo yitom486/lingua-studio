@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { parseRssItems, resolveNewsFeed, pickLeadSentence } from '../services/news-rss.js';
+import {
+  parseRssItems,
+  resolveNewsFeed,
+  resolveNewsFeedCandidates,
+  pickLeadSentence,
+} from '../services/news-rss.js';
 import { generateNewsPassage } from '../services/generate-news-passage.js';
 import { DEFAULT_CONTENT_LANGUAGE } from '../services/learning-language-policy.js';
 
@@ -19,16 +24,31 @@ describe('news RSS integration', () => {
     const culture = resolveNewsFeed('culture', 'EN');
     expect(culture.publisher).toBe('NPR');
     expect(culture.url).toContain('npr.org');
+
+    const enCandidates = resolveNewsFeedCandidates('technology', 'EN');
+    expect(enCandidates.length).toBeGreaterThanOrEqual(2);
   });
 
-  it('maps JA topics to NHK ONE and keeps KO on interim EN feeds', () => {
+  it('maps JA to NHK candidates and KO to Korean Yonhap feeds', () => {
     const ja = resolveNewsFeed('world', 'JA');
     expect(ja.publisher).toBe('NHK ONE');
     expect(ja.url).toContain('cat6.xml');
 
+    const jaAll = resolveNewsFeedCandidates('world', 'JA');
+    expect(jaAll.length).toBeGreaterThanOrEqual(2);
+    expect(jaAll[1]!.url).toContain('nhk.or.jp');
+
     const ko = resolveNewsFeed('world', 'KO');
     expect(ko.language).toBe('KO');
-    expect(ko.publisher).toContain('interim EN');
+    expect(ko.publisher).toBe('연합뉴스');
+    expect(ko.url).toContain('yna.co.kr');
+    expect(ko.url).toContain('international');
+
+    const koTech = resolveNewsFeed('technology', 'KO');
+    expect(koTech.url).toContain('industry');
+
+    const koAll = resolveNewsFeedCandidates('world', 'KO');
+    expect(koAll.some((f) => f.url.includes('donga.com'))).toBe(true);
   });
 
   it('builds Korean interim AI prompt scaffold', async () => {
@@ -123,9 +143,9 @@ describe('news RSS integration', () => {
       expect(news.title.length).toBeGreaterThan(0);
       expect(news.questions.length).toBe(3);
       if (news.fromRss) {
-        expect(news.publisher).toBe('NHK ONE');
+        expect(news.publisher).toMatch(/NHK/);
         expect(news.sourceUrl).toBeTruthy();
-        expect(news.sourceLabel).toContain('NHK');
+        expect(news.sourceLabel).toMatch(/NHK/);
         expect(typeof news.fromFullText).toBe('boolean');
         expect(news.body.length).toBeGreaterThan(40);
         expect(news.body).not.toMatch(/<\/?[a-z]+/i);
@@ -134,6 +154,30 @@ describe('news RSS integration', () => {
         expect(news.fromFullText).toBe(false);
       }
     },
-    { timeout: 20_000 }
+    { timeout: 25_000 }
+  );
+
+  it(
+    'fetches a live Korean Yonhap feed when network allows',
+    async () => {
+      const news = await generateNewsPassage({
+        setId: 'read_news_live_ko',
+        topic: 'world',
+        language: 'KO',
+      });
+      expect(news.title.length).toBeGreaterThan(0);
+      expect(news.questions.length).toBe(3);
+      if (news.fromRss) {
+        expect(news.publisher).toMatch(/연합|동아/);
+        expect(news.sourceUrl).toBeTruthy();
+        expect(typeof news.fromFullText).toBe('boolean');
+        expect(news.body.length).toBeGreaterThan(20);
+        expect(news.questions[0]!.prompt).toMatch(/뉴스|중심/);
+      } else {
+        expect(news.sourceLabel).toContain('템플릿');
+        expect(news.fromFullText).toBe(false);
+      }
+    },
+    { timeout: 25_000 }
   );
 });

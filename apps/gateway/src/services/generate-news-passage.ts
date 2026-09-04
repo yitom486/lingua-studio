@@ -1,7 +1,7 @@
 import { isOk } from '@study-studio/shared';
 import {
-  fetchRssItems,
-  resolveNewsFeed,
+  fetchRssItemsWithFallback,
+  resolveNewsFeedCandidates,
   type RssItem,
 } from './news-rss.js';
 import { fetchNewsArticleFullText } from './news-article-fetch.js';
@@ -36,13 +36,14 @@ export async function generateNewsPassage(params: {
 }): Promise<GeneratedNewsPassage> {
   const { setId, topic } = params;
   const language = normalizeContentLanguage(params.language);
-  const isJa = language === 'JA';
-  const feed = resolveNewsFeed(topic, language);
-  const rssRes = await fetchRssItems(feed.url, { limit: 10 });
+  const candidates = resolveNewsFeedCandidates(topic, language);
+  const primaryPublisher = candidates[0]?.publisher ?? 'News';
+  const rssRes = await fetchRssItemsWithFallback(candidates, { limit: 10 });
 
-  if (isOk(rssRes) && rssRes.value.length > 0) {
+  if (isOk(rssRes) && rssRes.value.items.length > 0) {
+    const { items, feed } = rssRes.value;
     const article: RssItem =
-      rssRes.value[Math.floor(Math.random() * rssRes.value.length)] ?? rssRes.value[0]!;
+      items[Math.floor(Math.random() * items.length)] ?? items[0]!;
 
     let fullText: string | undefined;
     let fromFullText = false;
@@ -74,34 +75,59 @@ export async function generateNewsPassage(params: {
     };
   }
 
-  if (!isJa) {
+  return buildOfflineNewsTemplate(setId, language, topic, primaryPublisher);
+}
+
+function buildOfflineNewsTemplate(
+  setId: string,
+  language: StudyContentLanguage,
+  topic: string,
+  publisher: string
+): GeneratedNewsPassage {
+  if (language === 'KO') {
     return {
-      title: `English Media Briefing: ${topic}`,
-      body: `Authentic English news on ${topic} is temporarily unavailable, so this curated briefing keeps your reading practice going.
+      title: `한국어 뉴스 연습: ${topic}`,
+      body: `지금은 공개 뉴스 RSS를 잠시 가져올 수 없어, TOPIK 대비용 한국어 읽기 골격으로 연습합니다.
 
-First, identify the writer's claim in the opening lines. Next, notice discourse markers (however, meanwhile, according to) that signal contrast or evidence — these matter more than translating every noun into Chinese.
+먼저 제목과 첫 두 문장에서 주장(무엇이 일어났는지)을 찾으세요. 이어서 연결어(그래서, 하지만, 그러나, 또한)가 대조·근거·추가를 어떻게 표시하는지 표시해 보세요.
 
-Finally, check whether the summary supports a clear main idea about ${topic}, or merely lists events. That distinction is central to CET and Kaoyan reading items.`,
-      sourceLabel: `English study template · ${topic} (RSS unavailable: ${feed.publisher})`,
+마지막으로 이 요약이 ${topic}에 대한 분명한 중심 생각을 말하는지, 아니면 사건만 나열하는지 구분하세요. 이 구분이 TOPIK 읽기 문항의 핵심입니다.`,
+      sourceLabel: `한국어 학습 템플릿 · ${topic}（RSS 暂不可用：${publisher}）`,
       questions: buildTemplateNewsQuestions(setId, language, topic),
       fromRss: false,
       fromFullText: false,
-      publisher: feed.publisher,
+      publisher,
     };
   }
 
-  return {
-    title: `【快讯】关于${topic}领域的最新发展与社会影响`,
-    body: `近年のグローバルな技術革新と社会の変化に伴い、${topic}分野における新たな取り組みが急速に注目を集めている。国内外の専門機関が発表した最新データによれば、関連する市場規模は過去2年間で約30%拡大したという。
+  if (language === 'JA') {
+    return {
+      title: `【快讯】关于${topic}领域的最新发展与社会影响`,
+      body: `近年のグローバルな技術革新と社会の変化に伴い、${topic}分野における新たな取り組みが急速に注目を集めている。国内外の専門機関が発表した最新データによれば、関連する市場規模は過去2年間で約30%拡大したという。
 
 市場の成長とともに、ユーザーの利便性向上や業務効率化が実現される一方で、プライバシーの保護や安全性基準の整備といった制度的課題も指摘されている。
 
 関係者は「持続可能な発展を遂げるためには、技術の進化だけでなく、社会全体の倫理規範との調和が不可欠である」と強調している。今後の法整備や官民連携の行方が注目される。`,
-    sourceLabel: `合规模板稿 · ${topic}（RSS 暂不可用：${feed.publisher}）`,
+      sourceLabel: `合规模板稿 · ${topic}（RSS 暂不可用：${publisher}）`,
+      questions: buildTemplateNewsQuestions(setId, language, topic),
+      fromRss: false,
+      fromFullText: false,
+      publisher,
+    };
+  }
+
+  return {
+    title: `English Media Briefing: ${topic}`,
+    body: `Authentic English news on ${topic} is temporarily unavailable, so this curated briefing keeps your reading practice going.
+
+First, identify the writer's claim in the opening lines. Next, notice discourse markers (however, meanwhile, according to) that signal contrast or evidence — these matter more than translating every noun into Chinese.
+
+Finally, check whether the summary supports a clear main idea about ${topic}, or merely lists events. That distinction is central to CET and Kaoyan reading items.`,
+    sourceLabel: `English study template · ${topic} (RSS unavailable: ${publisher})`,
     questions: buildTemplateNewsQuestions(setId, language, topic),
     fromRss: false,
     fromFullText: false,
-    publisher: feed.publisher,
+    publisher,
   };
 }
 
@@ -110,6 +136,84 @@ function buildTemplateNewsQuestions(
   language: StudyContentLanguage,
   topic: string
 ) {
+  if (language === 'KO') {
+    return [
+      {
+        id: `${setId}_q1`,
+        prompt: `이 ${topic} 연습 글의 일차 읽기 목표는 무엇인가요?`,
+        options: [
+          {
+            key: 'A',
+            text: '중심 주장과 연결어가 표시하는 근거·대조를 찾기',
+          },
+          {
+            key: 'B',
+            text: '모든 단어를 중국어로 직역한 뒤에야 이해하기',
+          },
+          {
+            key: 'C',
+            text: '고유명사만 외우고 문장 구조는 무시하기',
+          },
+          {
+            key: 'D',
+            text: '요약에 사실 내용이 없다고 가정하기',
+          },
+        ],
+        correctAnswer: 'A',
+        explanation:
+          'TOPIK 읽기는 중심 생각 + 담화 표지 파악이 핵심이며, 단어별 직역보다 문맥을 우선합니다.',
+      },
+      {
+        id: `${setId}_q2`,
+        prompt: '뉴스형 글을 읽을 때 가장 도움이 되는 습관은?',
+        options: [
+          {
+            key: 'A',
+            text: '제목→앞부분→연결어 순으로 훑은 뒤 세부 확인',
+          },
+          {
+            key: 'B',
+            text: '중간부터 임의로 뛰어 읽기',
+          },
+          {
+            key: 'C',
+            text: '한 문장도 건너뛰지 않고 사전만 찾기',
+          },
+          {
+            key: 'D',
+            text: '출처 링크는 절대 열어보지 않기',
+          },
+        ],
+        correctAnswer: 'A',
+        explanation: '스키밍으로 주제를 잡은 뒤 세부·출처를 확인하면 효율이 높습니다.',
+      },
+      {
+        id: `${setId}_q3`,
+        prompt: '이 골격 자료의 역할로 맞는 것은?',
+        options: [
+          {
+            key: 'A',
+            text: '공개 RSS가 잠시 실패했을 때의 학습용 임시 본문',
+          },
+          {
+            key: 'B',
+            text: '영구적으로 진짜 한국어 뉴스를 대체하는 공식 원문',
+          },
+          {
+            key: 'C',
+            text: '검열된 광고 문구만 모은 목록',
+          },
+          {
+            key: 'D',
+            text: '시험 채점 기준표 그 자체',
+          },
+        ],
+        correctAnswer: 'A',
+        explanation: 'RSS 복구 후에는 연합뉴스 등 공개 원문으로 다시 연습하세요.',
+      },
+    ];
+  }
+
   if (language !== 'JA') {
     return [
       {
@@ -155,37 +259,36 @@ function buildTemplateNewsQuestions(
           },
           {
             key: 'D',
-            text: 'Memorize publisher names instead of the claim',
+            text: 'Treat every proper noun as more important than the claim',
           },
         ],
         correctAnswer: 'A',
         explanation:
-          'Collocations and connectors (however / according to / while) carry logic that CET/Kaoyan items often test.',
+          'Collocations and discourse markers carry meaning that word-by-word translation often erases.',
       },
       {
         id: `${setId}_q3`,
-        prompt: 'When live RSS returns, which source type should learners prefer?',
+        prompt: 'What should you do when the live RSS feed returns?',
         options: [
           {
             key: 'A',
-            text: 'Reputable English media feeds (BBC / NPR / Guardian) with a source link',
+            text: 'Switch back to authentic English media with a source link',
           },
           {
             key: 'B',
-            text: 'Anonymous forum reposts without a citation',
+            text: 'Keep using only this offline template forever',
           },
           {
             key: 'C',
-            text: 'Unverified marketing emails',
+            text: 'Ignore publisher labels and trust anonymous reposts',
           },
           {
             key: 'D',
-            text: 'Machine-translated social captions only',
+            text: 'Stop checking whether the summary matches the headline',
           },
         ],
         correctAnswer: 'A',
-        explanation:
-          'Study Studio defaults to public English media RSS for authentic input; Korean tracks can swap publishers later.',
+        explanation: 'Templates keep practice going; authentic RSS + full-text is the preferred path.',
       },
     ];
   }
@@ -193,63 +296,39 @@ function buildTemplateNewsQuestions(
   return [
     {
       id: `${setId}_q1`,
-      prompt: `本文で言及されている主な動向として適切なものはどれか。`,
+      prompt: 'この練習文の主題として最も適切なものはどれか。',
       options: [
-        {
-          key: 'A',
-          text: '関連分野の取り組みが急速に注目され市場が拡大している',
-        },
-        {
-          key: 'B',
-          text: '政府が当該分野への投資を全面的に禁止した',
-        },
-        {
-          key: 'C',
-          text: '技術の進化が完全に停滞し需要が消滅した',
-        },
-        {
-          key: 'D',
-          text: 'すべての規制や基準が撤廃された',
-        },
+        { key: 'A', text: `${topic}分野の動向と社会的影響` },
+        { key: 'B', text: '天気予報のみの速報' },
+        { key: 'C', text: 'スポーツの試合結果一覧' },
+        { key: 'D', text: '広告メールの件名' },
       ],
       correctAnswer: 'A',
-      explanation: '第1段落で市場規模の拡大と急速な注目の高まりが述べられている。',
+      explanation: 'オフライン原稿は当該トピックの論説骨格である。',
     },
     {
       id: `${setId}_q2`,
-      prompt: `本文で指摘されている課題は何か。`,
+      prompt: '本文で指摘されている課題に近いものはどれか。',
       options: [
-        { key: 'A', text: '原料の物理的枯渇' },
-        {
-          key: 'B',
-          text: '安全性基準の整備やプライバシーの保護',
-        },
-        { key: 'C', text: '従事者の完全な不足' },
-        { key: 'D', text: '交通インフラの機能停止' },
+        { key: 'A', text: 'プライバシー保護や安全性基準の整備' },
+        { key: 'B', text: 'すべての研究の全面禁止' },
+        { key: 'C', text: '報道の全面停止' },
+        { key: 'D', text: '語彙学習の廃止' },
       ],
-      correctAnswer: 'B',
-      explanation: '第2段落「プライバシーの保護や安全性基準の整備といった制度的課題」と合致。',
+      correctAnswer: 'A',
+      explanation: '成長の一方で制度的課題が述べられている。',
     },
     {
       id: `${setId}_q3`,
-      prompt: `今後の持続可能な発展に必要な条件として関係者が挙げたものは何か。`,
+      prompt: 'この資料の位置づけとして正しいものはどれか。',
       options: [
-        {
-          key: 'A',
-          text: '技術の進化と社会全体の倫理規範・透明性との調和',
-        },
-        {
-          key: 'B',
-          text: '競争相手の排除と独占体制の確立',
-        },
-        { key: 'C', text: 'すべての法整備の中止' },
-        {
-          key: 'D',
-          text: '海外市場からの即時撤退',
-        },
+        { key: 'A', text: 'RSS 不通時の学習用テンプレート' },
+        { key: 'B', text: '公式統計の一次資料そのもの' },
+        { key: 'C', text: '匿名掲示板の転載のみ' },
+        { key: 'D', text: '未検証の個人ブログ' },
       ],
       correctAnswer: 'A',
-      explanation: '第3段落「技術の進化だけでなく、社会全体の倫理規範との調和が不可欠」と対応。',
+      explanation: '通信復旧後は NHK 等の公開 RSS・原文へ戻る。',
     },
   ];
 }

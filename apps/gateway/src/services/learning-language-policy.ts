@@ -57,10 +57,10 @@ Wrong options should be plausible Chinglish traps or over-generalizations.
 Keep option length similar; one clearly best answer.
 `.trim();
 
-/** 韩语扩展占位：正式接入时替换为真实 RSS 与 TOPIK 向提示词 */
+/** 韩语轨道学习注记：新闻已接公开韩语 RSS；AI 篇目脚手架仍可演进 */
 export const KOREAN_LEARNING_NOTES = `
-Korean track is reserved. When enabled: map content language KO to public Korean/English-Korea news RSS,
-and align prompts with TOPIK reading strategies (main idea, connector words, honorific register awareness).
+Korean track news uses public Korean RSS (Yonhap / Donga) with article full-text extract when possible, else RSS summary.
+Align prompts with TOPIK reading strategies (main idea, connector words, honorific register awareness).
 `.trim();
 
 /**

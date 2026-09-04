@@ -121,7 +121,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       readingEmptyHint: '韩语篇目骨架已接入 · 空列表时可点生成；完整 TOPIK 题库仍在筹备',
       quizEmptyHint: '暂无韩语示范题 · 可点「AI 针对弱项出题」从内容模板组卷',
       interimBanner:
-        '韩语轨道为 TOPIK interim：题库与阅读为骨架示范；写作/听力灰显筹备中，暂不接入真实韩语新闻全文。',
+        '韩语轨道为 TOPIK interim：写作/听力仍在筹备；阅读新闻已接联合新闻等公开韩语源（原文摘录失败则回退摘要）。',
     },
     comingSoonModules: [
       {

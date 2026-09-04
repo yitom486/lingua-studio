@@ -1,4 +1,4 @@
-import { ok, err, type Result, BusinessError } from '@study-studio/shared';
+import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared';
 import {
   type StudyContentLanguage,
   normalizeContentLanguage,
@@ -18,15 +18,16 @@ export interface NewsFeedRef {
 }
 
 /**
- * 栏目 → 公开 RSS。
- * - EN（默认优先）：BBC / NPR / The Guardian 等英语媒体
- * - JA：NHK ONE
- * - KO：预留（暂用英文朝鲜半岛相关源，后续可换韩语社 RSS）
+ * 栏目 → 公开 RSS 候选（按优先级）。
+ * - EN：BBC / Guardian / NPR，同栏目多源回退
+ * - JA：NHK ONE，失败回退 www3.nhk.or.jp
+ * - KO：联合新闻（韩语正文）+ 东亚日报总览回退
+ * 仅个人学习用途；遵守各源非商业 RSS 条款。
  */
-export function resolveNewsFeed(
+export function resolveNewsFeedCandidates(
   topicId: string,
   language: StudyContentLanguage | string
-): NewsFeedRef {
+): NewsFeedRef[] {
   const lang = normalizeContentLanguage(language);
 
   if (lang === 'JA') {
@@ -41,52 +42,82 @@ export function resolveNewsFeed(
           exam_prep: '0',
         } as Record<string, string>
       )[topicId] ?? '0';
-    return {
-      url: `https://news.web.nhk/n-data/conf/na/rss/cat${cat}.xml`,
-      publisher: 'NHK ONE',
-      language: 'JA',
-    };
+    const legacyCat =
+      (
+        {
+          technology: '3',
+          world: '6',
+          culture: '3',
+          business: '5',
+          sports: '7',
+          exam_prep: '0',
+        } as Record<string, string>
+      )[topicId] ?? '0';
+    return [
+      {
+        url: `https://news.web.nhk/n-data/conf/na/rss/cat${cat}.xml`,
+        publisher: 'NHK ONE',
+        language: 'JA',
+      },
+      {
+        url: `https://www3.nhk.or.jp/rss/news/cat${legacyCat}.xml`,
+        publisher: 'NHK News',
+        language: 'JA',
+      },
+    ];
   }
 
   if (lang === 'KO') {
-    // 预留：先用英语世界源中的东亚/国际报道；正式韩语社接入时替换 URL
-    const koMap: Record<string, NewsFeedRef> = {
+    const koPrimary: Record<string, NewsFeedRef> = {
       technology: {
-        url: 'https://feeds.bbci.co.uk/news/technology/rss.xml',
-        publisher: 'BBC News (KO track · interim EN feed)',
+        url: 'https://www.yna.co.kr/rss/industry.xml',
+        publisher: '연합뉴스',
         language: 'KO',
       },
       world: {
-        url: 'https://www.theguardian.com/world/rss',
-        publisher: 'The Guardian (KO track · interim EN feed)',
+        url: 'https://www.yna.co.kr/rss/international.xml',
+        publisher: '연합뉴스',
         language: 'KO',
       },
       culture: {
-        url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml',
-        publisher: 'BBC News (KO track · interim EN feed)',
+        url: 'https://www.yna.co.kr/rss/culture.xml',
+        publisher: '연합뉴스',
         language: 'KO',
       },
       business: {
-        url: 'https://feeds.bbci.co.uk/news/business/rss.xml',
-        publisher: 'BBC News (KO track · interim EN feed)',
+        url: 'https://www.yna.co.kr/rss/economy.xml',
+        publisher: '연합뉴스',
         language: 'KO',
       },
       sports: {
-        url: 'https://feeds.bbci.co.uk/sport/rss.xml',
-        publisher: 'BBC Sport (KO track · interim EN feed)',
+        url: 'https://www.yna.co.kr/rss/sports.xml',
+        publisher: '연합뉴스',
         language: 'KO',
       },
       exam_prep: {
-        url: 'https://feeds.bbci.co.uk/news/education/rss.xml',
-        publisher: 'BBC Education (KO track · interim EN feed)',
+        url: 'https://www.yna.co.kr/rss/society.xml',
+        publisher: '연합뉴스',
         language: 'KO',
       },
     };
-    return koMap[topicId] ?? koMap.world!;
+    const primary = koPrimary[topicId] ?? koPrimary.world!;
+    return [
+      primary,
+      {
+        url: 'https://www.yna.co.kr/rss/news.xml',
+        publisher: '연합뉴스',
+        language: 'KO',
+      },
+      {
+        url: 'https://rss.donga.com/total.xml',
+        publisher: '동아일보',
+        language: 'KO',
+      },
+    ];
   }
 
-  // EN — 英语学习主路径：多源英语媒体
-  const enMap: Record<string, NewsFeedRef> = {
+  // EN — 英语学习主路径：栏目主源 + 跨社回退
+  const enPrimary: Record<string, NewsFeedRef> = {
     technology: {
       url: 'https://feeds.bbci.co.uk/news/technology/rss.xml',
       publisher: 'BBC News',
@@ -98,7 +129,7 @@ export function resolveNewsFeed(
       language: 'EN',
     },
     culture: {
-      url: 'https://feeds.npr.org/1008/rss.xml', // Arts & Life
+      url: 'https://feeds.npr.org/1008/rss.xml',
       publisher: 'NPR',
       language: 'EN',
     },
@@ -118,7 +149,66 @@ export function resolveNewsFeed(
       language: 'EN',
     },
   };
-  return enMap[topicId] ?? enMap.world!;
+  const primary = enPrimary[topicId] ?? enPrimary.world!;
+  const enFallbacks = [
+    {
+      url: 'https://feeds.bbci.co.uk/news/world/rss.xml',
+      publisher: 'BBC News',
+      language: 'EN' as const,
+    },
+    {
+      url: 'https://www.theguardian.com/international/rss',
+      publisher: 'The Guardian',
+      language: 'EN' as const,
+    },
+    {
+      url: 'https://feeds.npr.org/1001/rss.xml',
+      publisher: 'NPR',
+      language: 'EN' as const,
+    },
+  ] satisfies NewsFeedRef[];
+  const fallbacks = enFallbacks.filter((f) => f.url !== primary.url);
+
+  return [primary, ...fallbacks];
+}
+
+/** 兼容：返回最高优先级源 */
+export function resolveNewsFeed(
+  topicId: string,
+  language: StudyContentLanguage | string
+): NewsFeedRef {
+  return resolveNewsFeedCandidates(topicId, language)[0]!;
+}
+
+/**
+ * 按候选列表依次拉取 RSS，首个成功即返回（带实际命中的 feed）。
+ */
+export async function fetchRssItemsWithFallback(
+  feeds: NewsFeedRef[],
+  options?: { timeoutMs?: number; limit?: number }
+): Promise<Result<{ items: RssItem[]; feed: NewsFeedRef }, BusinessError>> {
+  if (feeds.length === 0) {
+    return err(
+      new BusinessError('E_NEWS_RSS_EMPTY', '未配置可用新闻源。', 'VALIDATION', false)
+    );
+  }
+  let lastErr: BusinessError | null = null;
+  for (const feed of feeds) {
+    const res = await fetchRssItems(feed.url, options);
+    if (isOk(res) && res.value.length > 0) {
+      return ok({ items: res.value, feed });
+    }
+    if (!isOk(res)) lastErr = res.error;
+  }
+  return err(
+    lastErr ??
+      new BusinessError(
+        'E_NEWS_RSS_EMPTY',
+        '新闻源暂时不可用，请稍后再试或换栏目。',
+        'NETWORK',
+        true
+      )
+  );
 }
 
 export async function fetchRssItems(
@@ -133,9 +223,10 @@ export async function fetchRssItems(
   try {
     const res = await fetch(feedUrl, {
       signal: controller.signal,
+      redirect: 'follow',
       headers: {
         Accept: 'application/rss+xml, application/xml, text/xml, */*',
-        'User-Agent': 'StudyStudio/0.1 (English-first language learning; personal use)',
+        'User-Agent': 'StudyStudio/0.1 (language-learning; personal study use)',
       },
     });
     if (!res.ok) {

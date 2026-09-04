@@ -300,10 +300,10 @@ export function ReadingComprehensionWorkbench({
               ? `AI 正在生成韩语轨道脚手架篇目（interim）Lv.${aiDifficulty}...`
               : `AI 正在按难度 Lv.${aiDifficulty} 生成日语自适应长文...`
           : genLanguage === 'EN'
-            ? `正在从英语媒体抓取「${newsTopic}」原文（失败则回退 RSS 摘要）...`
+            ? `正在从英语媒体抓取「${newsTopic}」原文（多源回退；失败则用 RSS 摘要）...`
             : genLanguage === 'KO'
-              ? `正在拉取韩语轨道 interim 新闻「${newsTopic}」（摘要/原文尽力）...`
-              : `正在从 NHK 相关页抓取「${newsTopic}」正文（失败则回退 RSS）...`,
+              ? `正在从韩语公开源抓取「${newsTopic}」原文（联合新闻等；失败回退摘要）...`
+              : `正在从 NHK 等日语源抓取「${newsTopic}」正文（失败则回退 RSS）...`,
         { id: 'generate-reading' }
       );
       const generated = await generateMutation.mutateAsync({
@@ -325,7 +325,7 @@ export function ReadingComprehensionWorkbench({
             ? '韩语轨道 interim 篇目与配题已生成'
             : '自适应阅读长文与配套测试题生成成功！'
           : genLanguage === 'KO'
-            ? '韩语轨道 interim 新闻已就绪（摘要或原文摘录）'
+            ? '韩语公开新闻已就绪（原文摘录或 RSS 摘要）'
             : '真实新闻篇目抓取与排版完成！',
         { id: 'generate-reading' }
       );
@@ -403,6 +403,16 @@ export function ReadingComprehensionWorkbench({
             <Badge variant={activeSet.origin === 'ai' ? 'amber' : 'emerald'}>
               {activeSet.origin === 'ai' ? 'AI 自适应篇目' : '真实精选新闻'}
             </Badge>
+            {activeSet.origin === 'news' &&
+              (activeSet.sourceLabel.includes('原文摘录') ? (
+                <Badge variant="outline" className="text-[10px] border-emerald-600/40 text-emerald-800 dark:text-emerald-300">
+                  原文摘录
+                </Badge>
+              ) : activeSet.sourceLabel.includes('RSS') ? (
+                <Badge variant="outline" className="text-[10px]">
+                  RSS 摘要
+                </Badge>
+              ) : null)}
             <Badge variant="secondary" className="font-mono text-[10px]">
               Lv.{activeSet.difficulty}
             </Badge>
@@ -668,7 +678,7 @@ export function ReadingComprehensionWorkbench({
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
               {shell.featureFlags.koreanInterim
-                ? '韩语 interim：可拉 AI 骨架或 interim 新闻；正式韩语社全文仍在筹备'
+                ? '韩语：联合新闻等公开 RSS + 原文摘录；失败回退学习模板'
                 : 'AI 分级篇目与真实合规新闻双源驱动 · 左文右题 · 划词转闪卡 · 自动同步学情'}
             </p>
           </div>

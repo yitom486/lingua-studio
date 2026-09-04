@@ -35,4 +35,20 @@ describe('formatNewsBody', () => {
     expect(body).not.toContain('原文リンク');
     expect(body).not.toContain('https://news.example.jp');
   });
+
+  it('uses Korean tip and 게시 date line', () => {
+    const body = formatNewsBody(
+      {
+        title: '제목',
+        link: 'https://www.yna.co.kr/view/example',
+        description: '첫 문장입니다.',
+        pubDate: 'Sat, 05 Sep 2026 00:00:00 +0900',
+      },
+      'KO'
+    );
+    expect(body).toContain('첫 문장');
+    expect(body).toContain('게시：');
+    expect(body).toContain('학습 팁');
+    expect(body).not.toContain('https://www.yna.co.kr');
+  });
 });

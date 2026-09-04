@@ -22,7 +22,10 @@ export function buildReadingQuestionsFromNews(params: {
   explanation: string;
 }> {
   const { setId, language, topic, article, publisher } = params;
-  if (language === 'EN' || language === 'KO') {
+  if (language === 'KO') {
+    return buildKoreanNewsQuestions(setId, topic, article, publisher);
+  }
+  if (language === 'EN') {
     return buildEnglishLearnerNewsQuestions(params);
   }
   return buildJapaneseNewsQuestions(setId, topic, article, publisher);
@@ -113,6 +116,77 @@ function buildEnglishLearnerNewsQuestions(params: {
   ];
 }
 
+/** 韩语轨道：主旨 / 요약 사실 / 출처（TOPIK 읽기 습관） */
+function buildKoreanNewsQuestions(
+  setId: string,
+  topic: string,
+  article: RssItem,
+  publisher: string
+) {
+  const lead = pickLeadSentence(article.description, 72);
+  const titleShort = pickLeadSentence(article.title, 48);
+  const keyword = topic.replace(/_/g, ' ');
+  return [
+    {
+      id: `${setId}_q1`,
+      prompt: '이 뉴스의 중심으로 가장 알맞은 것은?',
+      options: [
+        { key: 'A', text: titleShort },
+        {
+          key: 'B',
+          text: `전 세계 ${keyword} 연구가 영구 중단되었다`,
+        },
+        {
+          key: 'C',
+          text: '기사 전체가 사실 없는 광고뿐이다',
+        },
+        {
+          key: 'D',
+          text: '독자에게 국제 뉴스를 모두 무시하라고 한다',
+        },
+      ],
+      correctAnswer: 'A',
+      explanation: `제목 「${article.title}」이 주제를 가리킵니다.`,
+    },
+    {
+      id: `${setId}_q2`,
+      prompt: '요약/본문에 가장 가까운 사실은?',
+      options: [
+        { key: 'A', text: lead || titleShort },
+        {
+          key: 'B',
+          text: '문제가 이미 완전히 해결되어 위험이 없다고만 했다',
+        },
+        {
+          key: 'C',
+          text: '취재나 조사가 전혀 이뤄지지 않았다고 했다',
+        },
+        {
+          key: 'D',
+          text: '맞춤법 수정만 다룬 짧은 안내문이다',
+        },
+      ],
+      correctAnswer: 'A',
+      explanation: '앞부분·요약의 핵심 문장을 근거로 고르세요. 과도한 일반화는 함정입니다.',
+    },
+    {
+      id: `${setId}_q3`,
+      prompt: '이 자료의 출처로 올바른 것은?',
+      options: [
+        {
+          key: 'A',
+          text: `${publisher} 공개 RSS（개인 학습용 캐시）`,
+        },
+        { key: 'B', text: '익명 게시판 전재만' },
+        { key: 'C', text: '검증되지 않은 개인 블로그' },
+        { key: 'D', text: '광고 메일 제목 목록' },
+      ],
+      correctAnswer: 'A',
+      explanation: `본 앱은 ${publisher} 등 공개 RSS를 개인 학습용으로 가져와 원문 링크와 함께 제시합니다.`,
+    },
+  ];
+}
+
 function buildJapaneseNewsQuestions(
   setId: string,
   topic: string,
@@ -166,24 +240,30 @@ export function formatNewsBody(
   language: StudyContentLanguage,
   options?: { fullText?: string | undefined }
 ): string {
-  const isJa = language === 'JA';
   const dateLine = article.pubDate
-    ? isJa
+    ? language === 'JA'
       ? `公開：${article.pubDate}`
-      : `Published: ${article.pubDate}`
+      : language === 'KO'
+        ? `게시：${article.pubDate}`
+        : `Published: ${article.pubDate}`
     : '';
   // 原文 URL 由 ReadingPassageSet.sourceUrl + 阅读台「查看原文」按钮承载
   const tip =
-    language === 'EN' || language === 'KO'
+    language === 'EN'
       ? 'Study tip: Read the headline first, then the lead paragraphs — then check unknown collocations in context.'
-      : language === 'JA'
-        ? '学習ヒント：見出し→本文の順で読み、わからない語は文脈で推測してから辞書を開きましょう。'
-        : '';
+      : language === 'KO'
+        ? '학습 팁: 제목→앞부분 순으로 읽고, 모르는 표현은 문맥에서 추론한 뒤 사전을 여세요.'
+        : language === 'JA'
+          ? '学習ヒント：見出し→本文の順で読み、わからない語は文脈で推測してから辞書を開きましょう。'
+          : '';
 
   const summary = sanitizeRssText(article.description);
   const full = options?.fullText ? sanitizeRssText(options.fullText) : '';
+  // CJK 媒体摘要往往更短：阈值略降，便于采纳原文摘录
+  const minGain = language === 'EN' ? 80 : 40;
+  const minFull = language === 'EN' ? 280 : 160;
   const main =
-    full && full.length > Math.max(summary.length + 80, 280) ? full : summary;
+    full && full.length > Math.max(summary.length + minGain, minFull) ? full : summary;
 
   return [main, '', dateLine, tip].filter(Boolean).join('\n');
 }

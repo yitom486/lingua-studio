@@ -18,7 +18,7 @@ export interface NewsArticleFullText {
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** 阅读练习友好上限：过长不利于配题与朗读 */
 const MAX_CHARS = 2_400;
-const MIN_FULLTEXT_CHARS = 280;
+const MIN_FULLTEXT_CHARS = 180;
 
 /**
  * 抓取新闻原文页并抽取可读纯文本。
@@ -174,7 +174,9 @@ function collectParagraphs(chunk: string): string[] {
   return raw.filter((p) => {
     if (p.length < 42) return false;
     if (
-      /cookie|subscribe|sign in|newsletter|advertisement|隐私|クッキー|ログイン/i.test(p)
+      /cookie|subscribe|sign in|newsletter|advertisement|隐私|クッキー|ログイン|로그인|구독|뉴스레터|광고|개인정보/i.test(
+        p
+      )
     ) {
       return false;
     }
