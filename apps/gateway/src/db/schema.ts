@@ -287,6 +287,33 @@ export const practiceItems = sqliteTable('practice_items', {
 });
 
 /**
+ * 本地词典条目：仅收录本项目自有或已明确获授权再分发的数据。
+ * 未命中时由 Gateway 返回外部词典链接；不缓存、不抓取第三方页面内容。
+ */
+export const localDictionaryEntries = sqliteTable(
+  'local_dictionary_entries',
+  {
+    id: text('id').primaryKey(),
+    language: text('language').notNull(), // 'ja' | 'en' | 'ko'
+    headword: text('headword').notNull(),
+    reading: text('reading'),
+    romanization: text('romanization'),
+    meaningsJson: text('meanings_json').notNull(),
+    pronunciationJson: text('pronunciation_json'),
+    partOfSpeech: text('part_of_speech'),
+    sourceLabel: text('source_label').notNull(),
+    licenseNote: text('license_note').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    languageHeadwordIdx: index('idx_local_dictionary_language_headword').on(
+      table.language,
+      table.headword
+    ),
+  })
+);
+
+/**
  * learning.content 离线/冷启动内容模板库（工具运行时只读，不在 TS 内硬编码题干）
  */
 export const learningContentTemplates = sqliteTable(

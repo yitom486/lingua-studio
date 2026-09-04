@@ -5,6 +5,10 @@ import {
   lookupPitchEntries,
   tryPitchLexiconCoachReply,
 } from '../db/seeds/pitch-seed.js';
+import { buildOjadSearchUrl } from '../services/dictionary-external-links.js';
+import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { app } from '../index.js';
+import { isOk } from '@study-studio/shared';
 
 describe('pitch lexicon coach', () => {
   it('has at least 10 benchmark entries', () => {
@@ -34,5 +38,33 @@ describe('pitch lexicon coach', () => {
 
   it('returns null for non-pitch prompts', () => {
     expect(tryPitchLexiconCoachReply('今天天气怎么样')).toBeNull();
+  });
+
+  it('seeds curriculum entries into the local SQLite dictionary', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const result = await repo.searchLocalDictionary('ja', '雨');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    expect(result.value[0]?.headword).toBe('雨');
+    expect(result.value[0]?.sourceLabel).toBe('Study Studio curriculum seed');
+  });
+
+  it('only provides an OJAD deep link for a Japanese local-dictionary miss', async () => {
+    const hit = await app.request('/api/dictionary/ja?q=%E9%9B%A8');
+    expect(hit.status).toBe(200);
+    const hitBody = await hit.json();
+    expect(hitBody.entries).toHaveLength(1);
+    expect(hitBody.externalLookup).toBeUndefined();
+
+    const miss = await app.request('/api/dictionary/ja?q=%E7%81%AB%E6%98%9F%E8%AA%9E');
+    const missBody = await miss.json();
+    expect(miss.status).toBe(200);
+    expect(missBody.entries).toHaveLength(0);
+    expect(missBody.externalLookup?.provider).toBe('OJAD');
+    expect(missBody.externalLookup?.url).toBe(buildOjadSearchUrl('火星語'));
+
+    const englishMiss = await app.request('/api/dictionary/en?q=unlisted');
+    const englishBody = await englishMiss.json();
+    expect(englishBody.externalLookup).toBeUndefined();
   });
 });

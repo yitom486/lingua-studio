@@ -13,6 +13,7 @@ import {
   INITIAL_SKILL_METRIC_SEEDS,
 } from './seeds/learning-seed.js';
 import { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
+import { PITCH_LEXICON } from './seeds/pitch-seed.js';
 
 export * from './schema.js';
 export { KANA_SEEDS } from './seeds/kana-seed.js';
@@ -27,6 +28,7 @@ export {
   INITIAL_SKILL_METRIC_SEEDS,
 } from './seeds/learning-seed.js';
 export { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
+export { PITCH_LEXICON } from './seeds/pitch-seed.js';
 
 
 export type DrizzleDb = BunSQLiteDatabase<typeof schema>;
@@ -271,6 +273,23 @@ export function initSchema(sqlite: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_practice_items_collection ON practice_items(collection_id, sort_order);
+
+    CREATE TABLE IF NOT EXISTS local_dictionary_entries (
+      id TEXT PRIMARY KEY,
+      language TEXT NOT NULL,
+      headword TEXT NOT NULL,
+      reading TEXT,
+      romanization TEXT,
+      meanings_json TEXT NOT NULL,
+      pronunciation_json TEXT,
+      part_of_speech TEXT,
+      source_label TEXT NOT NULL,
+      license_note TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_local_dictionary_language_headword
+      ON local_dictionary_entries(language, headword);
 
     CREATE TABLE IF NOT EXISTS learning_content_templates (
       id TEXT PRIMARY KEY,
@@ -711,5 +730,45 @@ export function initSchema(sqlite: Database): void {
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed learning_content_templates:', e);
+    }
+
+    // 8. 课程自有声调基准词进入通用本地词典。这里绝不写入或抓取 OJAD 内容。
+    try {
+      const countRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM local_dictionary_entries')
+        .get();
+      if (!countRow || countRow.count === 0) {
+        const now = new Date().toISOString();
+        const insertEntry = sqlite.prepare(`
+          INSERT INTO local_dictionary_entries (
+            id, language, headword, reading, romanization, meanings_json,
+            pronunciation_json, part_of_speech, source_label, license_note, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const entry of PITCH_LEXICON) {
+          insertEntry.run(
+            `ja_pitch_${entry.id}`,
+            'ja',
+            entry.kanji,
+            entry.kana,
+            entry.romaji,
+            JSON.stringify([entry.meaning]),
+            JSON.stringify({
+              kind: 'TOKYO_PITCH_ACCENT',
+              pitchType: entry.pitchType,
+              pitchPattern: entry.pitchPattern,
+              moraList: entry.moraList,
+              tip: entry.tip,
+              contrastPair: entry.contrastPair ?? null,
+            }),
+            null,
+            'Study Studio curriculum seed',
+            'Project-authored curriculum demonstration data; not sourced from OJAD.',
+            now
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed local dictionary entries:', e);
     }
   }

@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { eq, and, desc, asc, lte, gte, or, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, lte, gte, or, inArray, like } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -50,9 +50,23 @@ import {
   INITIAL_EN_CARD_SEEDS,
   INITIAL_SKILL_METRIC_SEEDS,
   learningContentTemplates,
+  localDictionaryEntries,
 } from '../db/index.js';
 
 export type TrackLanguage = 'ja' | 'en' | 'ko';
+
+export interface LocalDictionaryEntry {
+  id: string;
+  language: TrackLanguage;
+  headword: string;
+  reading?: string | undefined;
+  romanization?: string | undefined;
+  meanings: string[];
+  pronunciation?: Record<string, unknown> | undefined;
+  partOfSpeech?: string | undefined;
+  sourceLabel: string;
+  licenseNote: string;
+}
 
 export function normalizeTrackLanguage(raw: string | null | undefined): TrackLanguage {
   const v = (raw || '').toLowerCase();
@@ -100,6 +114,64 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   public getRawDb(): Database {
     return this.sqlite;
+  }
+
+  /**
+   * 查询本地、可再分发的词典资产。第三方词典只可作为外链兜底，绝不在此抓取。
+   */
+  public async searchLocalDictionary(
+    language: TrackLanguage,
+    query: string,
+    limit = 20
+  ): Promise<Result<LocalDictionaryEntry[], BusinessError>> {
+    try {
+      const normalized = query.trim();
+      if (!normalized) return ok([]);
+
+      const pattern = `%${normalized}%`;
+      const rows = await this.db
+        .select()
+        .from(localDictionaryEntries)
+        .where(
+          and(
+            eq(localDictionaryEntries.language, language),
+            or(
+              like(localDictionaryEntries.headword, pattern),
+              like(localDictionaryEntries.reading, pattern),
+              like(localDictionaryEntries.romanization, pattern)
+            )
+          )
+        )
+        .limit(Math.min(Math.max(limit, 1), 50));
+
+      return ok(
+        rows.map((row): LocalDictionaryEntry => {
+          const entry: LocalDictionaryEntry = {
+            id: row.id,
+            language: row.language as TrackLanguage,
+            headword: row.headword,
+            meanings: JSON.parse(row.meaningsJson) as string[],
+            sourceLabel: row.sourceLabel,
+            licenseNote: row.licenseNote,
+          };
+          if (row.reading) entry.reading = row.reading;
+          if (row.romanization) entry.romanization = row.romanization;
+          if (row.pronunciationJson) {
+            entry.pronunciation = JSON.parse(row.pronunciationJson) as Record<string, unknown>;
+          }
+          if (row.partOfSpeech) entry.partOfSpeech = row.partOfSpeech;
+          return entry;
+        })
+      );
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'searchLocalDictionary',
+          entityId: query,
+        })
+      );
+    }
   }
 
   private async resolveActiveLanguage(userId: string): Promise<TrackLanguage> {
@@ -2376,4 +2448,3 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     };
   }
 }
-

@@ -20,6 +20,7 @@ import {
   normalizeContentLanguage,
   DEFAULT_CONTENT_LANGUAGE,
 } from './services/learning-language-policy.js';
+import { buildOjadSearchUrl } from './services/dictionary-external-links.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -83,6 +84,37 @@ export const app = new Hono()
       timestamp: Date.now(),
     })
   )
+  // 本地词典优先；仅在日语本地未命中时提供 OJAD 外链，不代理或抓取 OJAD。
+  .get('/api/dictionary/:language', async (c) => {
+    const language = c.req.param('language');
+    const query = c.req.query('q')?.trim() ?? '';
+    if (language !== 'ja' && language !== 'en' && language !== 'ko') {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', '暂不支持该词典语种。', 'VALIDATION'),
+        'dictionaryLookup'
+      );
+    }
+    if (!query) {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', '请输入要查询的词汇。', 'VALIDATION'),
+        'dictionaryLookup'
+      );
+    }
+
+    const result = await drizzleRepo.searchLocalDictionary(language, query);
+    if (!isOk(result)) return formatBusinessErrorResponse(c, result.error);
+    const externalUrl = result.value.length === 0 && language === 'ja'
+      ? buildOjadSearchUrl(query)
+      : undefined;
+    return c.json({
+      entries: result.value,
+      externalLookup: externalUrl
+        ? { provider: 'OJAD', url: externalUrl, opensExternally: true }
+        : undefined,
+    });
+  })
   // 1. 学习者全景画像与打卡进度
   .get('/api/profile/:userId', async (c) => {
     const userId = c.req.param('userId');

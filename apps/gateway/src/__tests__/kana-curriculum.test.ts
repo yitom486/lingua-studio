@@ -49,6 +49,10 @@ describe('Curriculum Kana Repository & Seeds (Companion Integration)', () => {
   });
 
   it('should record kana practice and update learner skill metrics & daily task activity', async () => {
+    // 假名练习属于日语轨道；默认轨道为英语时必须显式切换，避免跨语种读取断言。
+    const switchTrack = await repo.updateLearnerProfile(testUserId, { targetLanguage: 'ja' });
+    expect(isOk(switchTrack)).toBe(true);
+
     // 第一次练习答对
     const practice1 = await repo.recordKanaPractice(testUserId, 'kana_a', true, 'HIRAGANA');
     expect(isOk(practice1)).toBe(true);
