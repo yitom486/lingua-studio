@@ -78,7 +78,7 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-medium transition-colors border border-amber-900/10 dark:border-amber-500/15 bg-stone-100/70 dark:bg-stone-900/60">
             <span
               className={`w-2 h-2 rounded-full ${
-                gateway.isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+                gateway.isConnected ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-amber-400'
               }`}
             />
             <span className="hidden sm:inline text-stone-600 dark:text-stone-300">

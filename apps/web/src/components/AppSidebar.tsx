@@ -27,6 +27,7 @@ import { Progress } from './ui/progress.js';
 import { cn } from '../lib/utils.js';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { useStudySessionStore, type NavigationTab } from '../stores/useStudySessionStore.js';
 import {
   SIDEBAR_AST_SECTION,
@@ -183,7 +184,21 @@ function SidebarBody({
     setOpenGroups((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const profile = SIDEBAR_PROFILE_DEMO;
+  const userProfile = useUserProfileStore((s) => s.profile);
+  const dailyTask = useUserProfileStore((s) => s.dailyTask);
+  const setOpenProfileModal = useUserProfileStore((s) => s.setProfileModalOpen);
+
+  const todayCompleted = dailyTask.quizzesCount + dailyTask.cardsReviewedCount;
+  const todayTarget = dailyTask.dailyGoalQuizzes + dailyTask.dailyGoalCards;
+  const todayPercent = Math.min(100, Math.round((todayCompleted / Math.max(todayTarget, 1)) * 100));
+
+  const profile = {
+    displayName: userProfile.displayName || '学习者',
+    levelBadge: userProfile.studyGoal.replace('JLPT_', ''),
+    streakDays: userProfile.streakDays,
+    todayGoalLabel: dailyTask.isGoalCompleted ? '今日已打卡' : '今日目标进度',
+    todayGoalPercent: todayPercent,
+  };
 
   return (
     <aside
@@ -194,8 +209,13 @@ function SidebarBody({
       )}
     >
       <div
+        onClick={() => {
+          sound.playClick();
+          setOpenProfileModal(true);
+        }}
+        title="点击配置学员画像与每日打卡目标"
         className={cn(
-          'border-b border-stone-200/80 dark:border-stone-800',
+          'border-b border-stone-200/80 dark:border-stone-800 cursor-pointer hover:bg-stone-100/60 dark:hover:bg-stone-900/50 transition-colors',
           collapsed ? 'p-2.5' : 'p-3.5'
         )}
       >

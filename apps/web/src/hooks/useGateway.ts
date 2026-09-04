@@ -21,11 +21,13 @@ export function useGateway({
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const pingIntervalRef = useRef<Timer | null>(null);
+  const pingIntervalRef = useRef<any>(null);
   const pingSentTimeRef = useRef<number>(0);
+  const reconnectTimeoutRef = useRef<any>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
@@ -41,6 +43,7 @@ export function useGateway({
       ws.onopen = () => {
         setIsConnected(true);
         setIsConnecting(false);
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
 
         // 建立会话
         const initEnvelope: WsEnvelope = {
@@ -54,13 +57,14 @@ export function useGateway({
         ws.send(JSON.stringify(initEnvelope));
 
         // 启动心跳探测
+        if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             pingSentTimeRef.current = Date.now();
             const ping: WsEnvelope = {
               version: '1.0',
               id: generateId('msg'),
-              sessionId: sessionId ?? 'active_session',
+              sessionId: sessionIdRef.current ?? 'active_session',
               type: WsEventTypes.CLIENT_PING,
               payload: {},
               timestamp: Date.now(),
@@ -76,6 +80,7 @@ export function useGateway({
 
           if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
             if ((envelope.payload as any)?.status === 'INITIALIZED') {
+              sessionIdRef.current = envelope.sessionId;
               setSessionId(envelope.sessionId);
             } else if (Array.isArray((envelope.payload as any)?.questions)) {
               const resolver = pendingResolversRef.current.get(WsEventTypes.CLIENT_QUIZ_GENERATE);
@@ -102,6 +107,12 @@ export function useGateway({
         setIsConnected(false);
         setIsConnecting(false);
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+        if (autoConnect) {
+          if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, 3000);
+        }
       };
 
       ws.onerror = () => {
@@ -111,14 +122,22 @@ export function useGateway({
     } catch {
       setIsConnected(false);
       setIsConnecting(false);
+      if (autoConnect) {
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, 3000);
+      }
     }
-  }, [url, userId, sessionId]);
+  }, [url, userId, autoConnect]);
 
   const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
     if (wsRef.current) {
-      wsRef.current.close();
+      const ws = wsRef.current;
       wsRef.current = null;
+      ws.close();
     }
     setIsConnected(false);
     setIsConnecting(false);
@@ -131,7 +150,7 @@ export function useGateway({
       const envelope: WsEnvelope = {
         version: '1.0',
         id: generateId('msg'),
-        sessionId: sessionId ?? 'active_session',
+        sessionId: sessionIdRef.current ?? 'active_session',
         type,
         payload,
         timestamp: Date.now(),
@@ -140,7 +159,7 @@ export function useGateway({
       wsRef.current.send(JSON.stringify(envelope));
       return true;
     },
-    [sessionId]
+    []
   );
 
   const submitQuizToGateway = useCallback(
@@ -192,7 +211,7 @@ export function useGateway({
         const envelope: WsEnvelope = {
           version: '1.0',
           id: msgId,
-          sessionId: sessionId ?? 'active_session',
+          sessionId: sessionIdRef.current ?? 'active_session',
           type,
           payload,
           timestamp: Date.now(),
@@ -210,7 +229,7 @@ export function useGateway({
         }, 6000);
       });
     },
-    [sessionId]
+    []
   );
 
   const generateAdaptiveQuiz = useCallback(

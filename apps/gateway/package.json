@@ -10,7 +10,8 @@
     "@study-studio/protocol": "workspace:*",
     "@study-studio/shared": "workspace:*",
     "@study-studio/tool-core": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.5"
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",

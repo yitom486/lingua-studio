@@ -400,10 +400,25 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const dailyTaskRes = await this.getDailyTaskProgress(userId);
       const dailyTask = isOk(dailyTaskRes) ? dailyTaskRes.value : undefined;
 
-      const rows = await this.db
+      let rows = await this.db
         .select()
         .from(skillMetrics)
         .where(eq(skillMetrics.userId, userId));
+
+      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user')) {
+        const seedMetrics = [
+          { userId, skillId: 'jp.particle.destination_ni', dimension: 'GRAMMAR', name: '目的地到达点助词「に」', proficiency: 0.88, totalAttempts: 14, correctAttempts: 13, consecutiveErrors: 0, status: 'STRENGTH' },
+          { userId, skillId: 'jp.particle.action_de', dimension: 'GRAMMAR', name: '动作发生场所助词「で」', proficiency: 0.52, totalAttempts: 9, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
+          { userId, skillId: 'jp.listening.sokuon', dimension: 'LISTENING', name: '听力：促音与长音精细辨析', proficiency: 0.46, totalAttempts: 12, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
+          { userId, skillId: 'jp.grammar.conditional_tara', dimension: 'GRAMMAR', name: '假定条件「～たら」实际运用', proficiency: 0.65, totalAttempts: 10, correctAttempts: 7, consecutiveErrors: 0, status: 'NORMAL' },
+          { userId, skillId: 'jp.vocab.n3_verbs', dimension: 'VOCABULARY', name: 'N3 核心动词搭配与活用', proficiency: 0.94, totalAttempts: 32, correctAttempts: 30, consecutiveErrors: 0, status: 'STRENGTH' },
+          { userId, skillId: 'jp.nuance.polite_keigo', dimension: 'NUANCE_PRAGMATIC', name: '基础敬语与礼貌体语感', proficiency: 0.58, totalAttempts: 8, correctAttempts: 4, consecutiveErrors: 1, status: 'WEAKNESS' },
+        ];
+        for (const sm of seedMetrics) {
+          await this.db.insert(skillMetrics).values({ ...sm, lastPracticedAt: nowIso() });
+        }
+        rows = await this.db.select().from(skillMetrics).where(eq(skillMetrics.userId, userId));
+      }
 
       const allMetrics: SkillMetric[] = rows.map((r) => ({
         id: r.skillId,
@@ -512,11 +527,64 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   ): Promise<Result<Flashcard[], BusinessError>> {
     try {
       const now = nowIso();
-      const rows = await this.db
+      let rows = await this.db
         .select()
         .from(flashcards)
         .where(eq(flashcards.userId, userId))
         .limit(limit);
+
+      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user')) {
+        const seedCards = [
+          {
+            id: 'card_01',
+            userId,
+            type: 'VOCAB',
+            front: '約束',
+            back: '约定、诺言、契约',
+            phonetic: 'やくそく',
+            audioUrl: '',
+            tags: JSON.stringify(['N3词汇', '高频名词']),
+            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
+          },
+          {
+            id: 'card_02',
+            userId,
+            type: 'VOCAB',
+            front: '曖昧',
+            back: '含糊、暧昧、不明确',
+            phonetic: 'あいまい',
+            audioUrl: '',
+            tags: JSON.stringify(['N2词汇', '形容动词']),
+            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
+          },
+          {
+            id: 'card_03',
+            userId,
+            type: 'VOCAB',
+            front: '遠慮',
+            back: '客气、顾虑、推辞',
+            phonetic: 'えんりょ',
+            audioUrl: '',
+            tags: JSON.stringify(['N3核心', '日常交际']),
+            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
+          },
+          {
+            id: 'card_04',
+            userId,
+            type: 'GRAMMAR',
+            front: '「～わけにはいかない」',
+            back: '不能……、无法……（从情理/社会常识上不能这么做）',
+            phonetic: '',
+            audioUrl: '',
+            tags: JSON.stringify(['N2句型', '情态表达']),
+            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
+          },
+        ];
+        for (const sc of seedCards) {
+          await this.db.insert(flashcards).values(sc);
+        }
+        rows = await this.db.select().from(flashcards).where(eq(flashcards.userId, userId)).limit(limit);
+      }
 
       const cards: Flashcard[] = rows
         .map((r) => ({
@@ -683,7 +751,72 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .from(mistakes)
         .where(eq(mistakes.userId, userId));
 
-      const rows = await query;
+      let rows = await query;
+      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user')) {
+        const seedMistakes = [
+          {
+            id: 'm_01',
+            userId,
+            questionId: 'q_01',
+            question: JSON.stringify({
+              id: 'q_01',
+              type: 'CHOICE',
+              category: '助词辨析',
+              prompt: '选择最恰当的助词填入括号：',
+              content: '夏休みに、友だちと京都（　）行きました。',
+              correctAnswer: 'B',
+              explanation: '动词「行きました」为移动动词，表示移动目的地必须使用格助词「に」。',
+              testedSkillId: 'jp.particle.destination_ni',
+            }),
+            lastUserSubmission: 'A (で)',
+            lastGrading: JSON.stringify({
+              isCorrect: false,
+              score: 0,
+              correctAnswer: 'B (に)',
+              userSubmission: 'A (で)',
+              explanation: '「で」用于动作发生场所；移动目的地必须使用「に」。',
+            }),
+            recordedAt: nowIso(),
+            lastRetriedAt: null,
+            retryCount: 1,
+            consecutiveCorrect: 0,
+            isResolved: false,
+          },
+          {
+            id: 'm_02',
+            userId,
+            questionId: 'q_02',
+            question: JSON.stringify({
+              id: 'q_02',
+              type: 'FILL_BLANK',
+              category: '动词假定形',
+              prompt: '将括号中的动词变形为正确的假定形（～たら）：',
+              content: '明日、雨が（降る ──► 降ったら）、試合は中止です。',
+              correctAnswer: '降ったら',
+              explanation: '动词「降る」过去式为「降った」，后接「ら」构成假定。',
+              testedSkillId: 'jp.grammar.conditional_tara',
+            }),
+            lastUserSubmission: '降るたら',
+            lastGrading: JSON.stringify({
+              isCorrect: false,
+              score: 0,
+              correctAnswer: '降ったら',
+              userSubmission: '降るたら',
+              explanation: '动词「たら」前接必须是动词的「た形」（连用形音便）。',
+            }),
+            recordedAt: nowIso(),
+            lastRetriedAt: null,
+            retryCount: 1,
+            consecutiveCorrect: 0,
+            isResolved: false,
+          },
+        ];
+        for (const sm of seedMistakes) {
+          await this.db.insert(mistakes).values(sm);
+        }
+        rows = await this.db.select().from(mistakes).where(eq(mistakes.userId, userId));
+      }
+
       const filteredRows = filter?.resolved !== undefined
         ? rows.filter((r) => Boolean(r.isResolved) === filter.resolved)
         : rows;

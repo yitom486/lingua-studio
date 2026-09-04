@@ -22,7 +22,8 @@
       "@study-studio/learner-core": ["./packages/learner-core/src/index.ts"],
       "@study-studio/agent-core": ["./packages/agent-core/src/index.ts"],
       "@study-studio/tool-core": ["./packages/tool-core/src/index.ts"],
-      "@study-studio/agent-codex": ["./packages/agent-codex/src/index.ts"]
+      "@study-studio/agent-codex": ["./packages/agent-codex/src/index.ts"],
+      "@study-studio/gateway": ["./apps/gateway/src/index.ts"]
     }
   }
 }
