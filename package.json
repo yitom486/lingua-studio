@@ -1,0 +1,23 @@
+{
+  "name": "study-studio-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "bun --filter @study-studio/web dev",
+    "dev:gateway": "bun --filter @study-studio/gateway dev",
+    "build": "bun --filter \"*\" build",
+    "typecheck": "tsc -b --force",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.0",
+    "@types/node": "^22.10.7",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "zod": "^4.5.4"
+  }
+}

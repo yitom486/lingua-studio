@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/protocol" },
+    { "path": "../../packages/learner-core" },
+    { "path": "../../packages/agent-core" },
+    { "path": "../../packages/tool-core" },
+    { "path": "../../packages/agent-codex" }
+  ],
+  "include": ["src/**/*"]
+}

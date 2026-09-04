@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/protocol" },
+    { "path": "packages/learner-core" },
+    { "path": "packages/agent-core" },
+    { "path": "packages/tool-core" },
+    { "path": "packages/agent-codex" },
+    { "path": "apps/gateway" },
+    { "path": "apps/web" }
+  ]
+}
