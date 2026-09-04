@@ -313,7 +313,13 @@ export function ReadingComprehensionWorkbench({
                 : '日常生活与文化',
       });
       toast.success(
-        origin === 'ai' ? '自适应阅读长文与配套测试题生成成功！' : '真实新闻篇目抓取与排版完成！',
+        origin === 'ai'
+          ? genLanguage === 'KO'
+            ? '韩语轨道 interim 篇目与配题已生成'
+            : '自适应阅读长文与配套测试题生成成功！'
+          : genLanguage === 'KO'
+            ? '韩语轨道 interim 新闻脚手架已拉取（非完整韩语全文）'
+            : '真实新闻篇目抓取与排版完成！',
         { id: 'generate-reading' }
       );
       if (generated?.id) {
@@ -648,7 +654,9 @@ export function ReadingComprehensionWorkbench({
               </Badge>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
-              AI 分级篇目与真实合规新闻双源驱动 · 左文右题 · 划词转闪卡 · 自动同步学情
+              {shell.featureFlags.koreanInterim
+                ? '韩语 interim：AI 骨架篇目可用；新闻源暂为占位 RSS，不做真实韩语全文抓取'
+                : 'AI 分级篇目与真实合规新闻双源驱动 · 左文右题 · 划词转闪卡 · 自动同步学情'}
             </p>
           </div>
         </div>

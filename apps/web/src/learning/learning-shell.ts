@@ -6,6 +6,13 @@ import type { NavigationTab } from '../stores/useStudySessionStore.js';
 
 export type TrackLanguage = 'ja' | 'en' | 'ko';
 
+export interface LearningShellComingSoonModule {
+  tab: NavigationTab;
+  label: string;
+  hint: string;
+  icon: 'PenLine' | 'Headphones' | 'BookOpen';
+}
+
 export interface LearningShellConfig {
   track: TrackLanguage;
   trackName: string;
@@ -26,7 +33,14 @@ export interface LearningShellConfig {
     targetWeaknessLabel: string;
     readingEmptyHint: string;
     quizEmptyHint: string;
+    /** Wave G4：轨道 interim 顶栏提示；缺省不展示 */
+    interimBanner?: string;
   };
+  /**
+   * 当前轨道暂未开放、侧栏灰显的模块（如韩语写作/听力）
+   * 点击仅 toast 说明，不切换 Tab
+   */
+  comingSoonModules: LearningShellComingSoonModule[];
   /** 双源阅读默认语言 */
   defaultReadingLang: 'JA' | 'EN' | 'KO';
   /** 非法 Tab 自动跳回的降级兜底 Tab */
@@ -52,6 +66,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       readingEmptyHint: '暂无英语篇目，点击右上角生成或拉取最新外媒新闻',
       quizEmptyHint: '暂无英语示范题 · 可点「AI 针对弱项出题」组卷',
     },
+    comingSoonModules: [],
     defaultReadingLang: 'EN',
     fallbackTab: 'QUIZ',
   },
@@ -84,6 +99,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       readingEmptyHint: '暂无日语篇目，点击右上角生成或拉取 NHK 新闻',
       quizEmptyHint: '暂无日语示范题 · 可点「AI 针对弱项出题」组卷',
     },
+    comingSoonModules: [],
     defaultReadingLang: 'JA',
     fallbackTab: 'QUIZ',
   },
@@ -104,7 +120,23 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       targetWeaknessLabel: 'TOPIK 核心词汇与句式',
       readingEmptyHint: '韩语篇目骨架已接入 · 空列表时可点生成；完整 TOPIK 题库仍在筹备',
       quizEmptyHint: '暂无韩语示范题 · 可点「AI 针对弱项出题」从内容模板组卷',
+      interimBanner:
+        '韩语轨道为 TOPIK interim：题库与阅读为骨架示范；写作/听力灰显筹备中，暂不接入真实韩语新闻全文。',
     },
+    comingSoonModules: [
+      {
+        tab: 'WRITING',
+        label: '写作翻译',
+        hint: 'TOPIK 写作批改筹备中，敬请期待',
+        icon: 'PenLine',
+      },
+      {
+        tab: 'SHADOWING',
+        label: '听力跟读',
+        hint: '韩语听力材料接入前暂不可用',
+        icon: 'Headphones',
+      },
+    ],
     defaultReadingLang: 'KO',
     fallbackTab: 'READING',
   },

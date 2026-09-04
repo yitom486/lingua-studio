@@ -21,6 +21,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { NumberTicker } from './magicui/index.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -228,14 +229,19 @@ function SidebarBody({
   const todayTarget = dailyTask.dailyGoalQuizzes + dailyTask.dailyGoalCards;
   const todayPercent = Math.min(100, Math.round((todayCompleted / Math.max(todayTarget, 1)) * 100));
 
+  const goalMeta = findStudyGoalOption(userProfile.studyGoal);
   const goalBadge =
-    userProfile.studyGoal === 'KAOYAN_EN'
-      ? '考研英语'
-      : userProfile.studyGoal === 'CET6'
-      ? '六级 CET-6'
-      : userProfile.studyGoal === 'CET4'
-      ? '四级 CET-4'
-      : userProfile.studyGoal.replace('JLPT_', '');
+    goalMeta?.lang === 'ko'
+      ? goalMeta.id === 'TOPIK_I'
+        ? 'TOPIK I'
+        : 'TOPIK II'
+      : userProfile.studyGoal === 'KAOYAN_EN'
+        ? '考研英语'
+        : userProfile.studyGoal === 'CET6'
+          ? '六级 CET-6'
+          : userProfile.studyGoal === 'CET4'
+            ? '四级 CET-4'
+            : userProfile.studyGoal.replace('JLPT_', '');
 
   const profile = {
     displayName: userProfile.displayName || '学习者',
@@ -425,6 +431,50 @@ function SidebarBody({
             </div>
           );
         })}
+
+        {shell.comingSoonModules.length > 0 && (
+          <div>
+            {!collapsed && (
+              <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                即将推出 · {shell.trackName}
+              </div>
+            )}
+            <div className="space-y-0.5 mt-0.5">
+              {shell.comingSoonModules.map((mod) => {
+                const Icon = SIDEBAR_ICONS[mod.icon];
+                return (
+                  <button
+                    key={mod.tab}
+                    type="button"
+                    title={mod.hint}
+                    onClick={() => {
+                      sound.playClick();
+                      toast.message(mod.hint, {
+                        description: `${shell.trackName}轨道 interim · ${mod.label}`,
+                      });
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-2 rounded-lg text-[11px] transition-colors cursor-pointer',
+                      'text-stone-400 dark:text-stone-500 opacity-70',
+                      'hover:bg-stone-100/80 dark:hover:bg-stone-800/50',
+                      collapsed ? 'justify-center px-0 py-2' : 'px-2 py-1.5'
+                    )}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    {!collapsed && (
+                      <>
+                        <span className="truncate flex-1 text-left">{mod.label}</span>
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">
+                          即将
+                        </Badge>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {showDesktopCollapse && (

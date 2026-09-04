@@ -138,6 +138,14 @@ export function App() {
         <AppHeader gateway={gateway} onOpenMobileNav={() => setMobileNavOpen(true)} />
 
         <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
+          {shell.copy.interimBanner && (
+            <div
+              role="status"
+              className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-xs text-amber-950/90 dark:text-amber-100/90"
+            >
+              {shell.copy.interimBanner}
+            </div>
+          )}
           <ErrorBoundary
             key={`${shell.track}-${activeTab}`}
             variant="embedded"
