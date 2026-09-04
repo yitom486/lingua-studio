@@ -4,7 +4,10 @@
   "private": true,
   "description": "Tauri v2 desktop container for Study Studio",
   "scripts": {
-    "dev": "echo 'Run Tauri dev with web frontend'",
-    "build": "echo 'Run Tauri build with web frontend'"
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.4"
   }
 }
