@@ -112,6 +112,10 @@ const DICTATION_CHALLENGES: DictationItem[] = [
   },
 ];
 
+import { useTts } from '../hooks/useTts.js';
+import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
+import type { SupportedLanguage, TtsGender } from '../utils/audio.js';
+
 export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchProps> = ({
   onOpenTutor,
   onAddMistake,
@@ -119,16 +123,28 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
   // 模式切换: 'SHADOWING' (对话影子跟读) | 'DICTATION' (精听挖词听写)
   const [activeSubMode, setActiveSubMode] = useState<'SHADOWING' | 'DICTATION'>('SHADOWING');
 
-  // 对话精听状态
-  const allLessons: TextbookLesson[] = TEXTBOOK_BOOKS.flatMap((b) => b.lessons);
-  const [selectedLessonId, setSelectedLessonId] = useState<string>(allLessons[0]?.id ?? '');
-  const activeLesson: TextbookLesson = allLessons.find((l) => l.id === selectedLessonId) ?? allLessons[0]!;
+  // 对话精听状态 (集成多语种教材课次)
+  const allLessons = TEXTBOOK_BOOKS.flatMap((b) =>
+    b.lessons.map((l) => ({
+      lesson: l,
+      bookTitle: b.shortTitle,
+      language: (b.language || 'JA') as SupportedLanguage,
+    }))
+  );
+  const [selectedLessonId, setSelectedLessonId] = useState<string>(allLessons[0]?.lesson.id ?? '');
+  const activeLessonMeta = allLessons.find((item) => item.lesson.id === selectedLessonId) ?? allLessons[0]!;
+  const activeLesson: TextbookLesson = activeLessonMeta.lesson;
+  const currentLanguage: SupportedLanguage = activeLessonMeta.language;
   const [sentenceIndex, setSentenceIndex] = useState<number>(0);
 
-  // 播放状态与参数
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [playbackRate, setPlaybackRate] = useState<number>(1.0); // 0.75, 1.0, 1.25
+  // 统一的 TTS 调度与状态
+  const { isSpeaking, gender, rate, speak, stop, setGender, setRate } = useTts();
   const [isLooping, setIsLooping] = useState<boolean>(false);
+  const isLoopingRef = useRef<boolean>(isLooping);
+  useEffect(() => {
+    isLoopingRef.current = isLooping;
+  }, [isLooping]);
+
   const [showFurigana, setShowFurigana] = useState<boolean>(true);
   const [maskText, setMaskText] = useState<boolean>(false); // 盲听遮罩
   const [shadowStep, setShadowStep] = useState<'IDLE' | 'LISTENING' | 'SHADOWING'>('IDLE');
@@ -142,85 +158,52 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
   const activeSentence: TextbookSentence | undefined = activeLesson.dialogues[sentenceIndex];
   const activeDictation = DICTATION_CHALLENGES[dictationIndex]!;
 
-  // 语音合成引用
-  const synthRef = useRef<SpeechSynthesis | null>(null);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      synthRef.current = window.speechSynthesis;
-    }
-  }, []);
-
-  // 播放日语语音核心函数
-  const speakJapanese = (text: string, onEndCallback?: () => void) => {
-    if (!synthRef.current) {
-      toast.error('当前浏览器环境不支持 Web Speech 语音合成');
-      return;
-    }
-
-    synthRef.current.cancel(); // 停止当前正在播放的音频
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ja-JP';
-    utterance.rate = playbackRate;
-    utterance.pitch = 1.0;
-
-    // 寻找日本语音源
-    const voices = synthRef.current.getVoices();
-    const jaVoice = voices.find((v) => v.lang.startsWith('ja') || v.name.toLowerCase().includes('japan'));
-    if (jaVoice) {
-      utterance.voice = jaVoice;
-    }
-
-    utterance.onstart = () => {
-      setIsPlaying(true);
-      setShadowStep('LISTENING');
-    };
-
-    utterance.onend = () => {
-      setIsPlaying(false);
-      if (activeSubMode === 'SHADOWING') {
-        setShadowStep('SHADOWING');
-        // 影子跟读引导提示
-        setTimeout(() => {
-          if (isLooping) {
-            speakJapanese(text, onEndCallback);
-          } else {
-            setShadowStep('IDLE');
-          }
-        }, 1800);
-      } else {
+  // 播放当前句子并驱动影子跟读流程
+  const playActiveSentence = () => {
+    if (!activeSentence) return;
+    setShadowStep('LISTENING');
+    speak(activeSentence.japanese, {
+      lang: currentLanguage,
+      gender,
+      rate,
+      onStart: () => setShadowStep('LISTENING'),
+      onEnd: () => {
+        if (activeSubMode === 'SHADOWING') {
+          setShadowStep('SHADOWING');
+          setTimeout(() => {
+            if (isLoopingRef.current) {
+              playActiveSentence();
+            } else {
+              setShadowStep('IDLE');
+            }
+          }, 1800);
+        } else {
+          setShadowStep('IDLE');
+        }
+      },
+      onError: () => {
         setShadowStep('IDLE');
-      }
-      onEndCallback?.();
-    };
-
-    utterance.onerror = () => {
-      setIsPlaying(false);
-      setShadowStep('IDLE');
-    };
-
-    synthRef.current.speak(utterance);
+      },
+    });
   };
 
   const handleTogglePlay = () => {
     sound.playClick();
-    if (isPlaying) {
-      synthRef.current?.cancel();
-      setIsPlaying(false);
+    if (isSpeaking) {
+      stop();
       setShadowStep('IDLE');
     } else {
       if (activeSubMode === 'SHADOWING' && activeSentence) {
-        speakJapanese(activeSentence.japanese);
+        playActiveSentence();
       } else if (activeSubMode === 'DICTATION') {
-        speakJapanese(activeDictation.fullJapanese);
+        speak(activeDictation.fullJapanese, { lang: 'JA' });
       }
     }
   };
 
   const handleNextSentence = () => {
     sound.playClick();
-    synthRef.current?.cancel();
-    setIsPlaying(false);
+    stop();
     setShadowStep('IDLE');
     if (sentenceIndex < activeLesson.dialogues.length - 1) {
       setSentenceIndex((prev) => prev + 1);
@@ -231,8 +214,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
 
   const handlePrevSentence = () => {
     sound.playClick();
-    synthRef.current?.cancel();
-    setIsPlaying(false);
+    stop();
     setShadowStep('IDLE');
     if (sentenceIndex > 0) {
       setSentenceIndex((prev) => prev - 1);
@@ -357,73 +339,89 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                 value={selectedLessonId}
                 onChange={(e) => {
                   sound.playClick();
+                  stop();
+                  setShadowStep('IDLE');
                   setSelectedLessonId(e.target.value);
                   setSentenceIndex(0);
-                  synthRef.current?.cancel();
-                  setIsPlaying(false);
                 }}
                 aria-label="选择教材篇目"
                 className="bg-white dark:bg-[#211f1d] border border-amber-900/20 dark:border-amber-500/20 text-stone-900 dark:text-stone-100 rounded-lg px-2.5 py-1.5 font-medium outline-none focus:ring-1 focus:ring-amber-500"
               >
-                {allLessons.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    第 {l.lessonNumber} 课 · {l.title} ({l.targetLevel})
+                {allLessons.map((item) => (
+                  <option key={item.lesson.id} value={item.lesson.id}>
+                    《{item.bookTitle}》第 {item.lesson.lessonNumber} 课 · {item.lesson.title} ({item.lesson.targetLevel})
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* 辅助工具栏：语速 + 假名显示 + 纯盲听遮罩 */}
+            {/* 辅助工具栏：音色性别 + 语速 + 假名显示 + 纯盲听遮罩 */}
             <div className="flex items-center gap-2">
+              {/* 发音音色快速切换 */}
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playClick();
+                  setGender(gender === 'FEMALE' ? 'MALE' : 'FEMALE');
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-stone-300/80 dark:border-stone-700 bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 text-[11px] font-semibold hover:bg-amber-500/15 transition-all cursor-pointer"
+                title="一键切换自然男女声音色"
+              >
+                <span>{gender === 'FEMALE' ? '👩 女声' : '👨 男声'}</span>
+              </button>
+
               {/* 语速调节 */}
               <div className="flex items-center gap-1 bg-stone-200/60 dark:bg-stone-800 p-1 rounded-lg">
-                {[0.75, 1.0, 1.25].map((rate) => (
+                {[0.75, 1.0, 1.25].map((spd) => (
                   <button
-                    key={rate}
+                    key={spd}
+                    type="button"
                     onClick={() => {
                       sound.playClick();
-                      setPlaybackRate(rate);
+                      setRate(spd);
                     }}
-                    className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                      playbackRate === rate
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer transition-all ${
+                      Math.abs(rate - spd) < 0.05
                         ? 'bg-amber-500 text-stone-950 shadow-xs'
                         : 'text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
                     }`}
                   >
-                    {rate}x
+                    {spd}x
                   </button>
                 ))}
               </div>
 
               {/* 假名标注开关 */}
               <button
+                type="button"
                 onClick={() => {
                   sound.playClick();
                   setShowFurigana(!showFurigana);
                 }}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-medium transition-colors cursor-pointer ${
                   showFurigana
                     ? 'border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-300'
                     : 'border-stone-300 dark:border-stone-700 text-stone-500'
                 }`}
               >
                 {showFurigana ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                <span>{showFurigana ? '假名标注 开' : '纯汉字 关'}</span>
+                <span>{showFurigana ? '注音: 开' : '注音: 关'}</span>
               </button>
 
               {/* 盲听遮罩开关 */}
               <button
+                type="button"
                 onClick={() => {
                   sound.playClick();
                   setMaskText(!maskText);
                 }}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-medium transition-colors cursor-pointer ${
                   maskText
                     ? 'border-purple-500/30 bg-purple-500/10 text-purple-900 dark:text-purple-300'
                     : 'border-stone-300 dark:border-stone-700 text-stone-500'
                 }`}
               >
-                <span>{maskText ? '🙈 盲听磨耳朵中' : '👀 查看原文'}</span>
+                <span>{maskText ? '🙈 盲听中' : '👀 看原文'}</span>
               </button>
             </div>
           </div>
@@ -457,7 +455,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                   {shadowStep === 'LISTENING' && (
                     <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500 text-stone-950 animate-pulse flex items-center gap-1">
                       <Volume2 className="w-3.5 h-3.5" />
-                      正在聆听原声 ({playbackRate}x)
+                      正在聆听原声 ({rate}x)
                     </span>
                   )}
                   {shadowStep === 'SHADOWING' && (
@@ -478,8 +476,8 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                   <motion.div
                     key={i}
                     animate={{
-                      height: isPlaying ? [baseH * 0.4, baseH * 1.2, baseH * 0.6] : 4,
-                      backgroundColor: isPlaying ? '#f59e0b' : '#d6d3d1',
+                      height: isSpeaking ? [baseH * 0.4, baseH * 1.2, baseH * 0.6] : 4,
+                      backgroundColor: isSpeaking ? '#f59e0b' : '#d6d3d1',
                     }}
                     transition={{
                       repeat: Infinity,
@@ -500,7 +498,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                 ) : (
                   <div className="space-y-3">
                     {/* 带假名的 Ruby 文本 */}
-                    <div className="text-2xl sm:text-3xl font-serif text-stone-900 dark:text-stone-100 tracking-wider flex flex-wrap justify-center gap-x-2 gap-y-1">
+                    <div className="text-2xl sm:text-3xl font-serif text-stone-900 dark:text-stone-100 tracking-wider flex flex-wrap justify-center items-center gap-x-2 gap-y-1">
                       {activeSentence.furiganaTokens.map((token, idx) => {
                         if (showFurigana && token.reading) {
                           return (
@@ -518,6 +516,12 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                           </span>
                         );
                       })}
+                      <UnifiedTtsPlayer
+                        variant="inline"
+                        text={activeSentence.japanese}
+                        lang={currentLanguage}
+                        className="ml-1"
+                      />
                     </div>
 
                     {/* 中文翻译 */}
@@ -576,12 +580,12 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                     whileTap={{ scale: 0.94 }}
                     onClick={handleTogglePlay}
                     className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold shadow-md transition-all cursor-pointer ${
-                      isPlaying
+                      isSpeaking
                         ? 'bg-amber-600 text-stone-950'
                         : 'bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 hover:brightness-105'
                     }`}
                   >
-                    {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+                    {isSpeaking ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
                   </motion.button>
 
                   <button
@@ -642,14 +646,13 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
                 </span>
               </div>
 
-              {/* 播放原声语音按钮 */}
-              <button
-                onClick={() => speakJapanese(activeDictation.fullJapanese)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 text-stone-950 text-xs font-bold hover:bg-amber-600 transition-all shadow-xs cursor-pointer"
-              >
-                <Volume2 className="w-4 h-4" />
-                <span>播报录音原声</span>
-              </button>
+              {/* 播放原声语音按钮 (统一 TTS 组件) */}
+              <UnifiedTtsPlayer
+                variant="button"
+                text={activeDictation.fullJapanese}
+                lang="JA"
+                label="播报录音原声"
+              />
             </div>
 
             {/* 听力挖空展示 */}

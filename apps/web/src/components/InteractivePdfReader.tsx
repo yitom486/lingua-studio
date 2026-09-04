@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
+import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../data/textbook-data.js';
 
 
@@ -267,13 +268,11 @@ export function InteractivePdfReader({
                       <div className="flex-1 space-y-1">
                         <div className="text-stone-900 dark:text-stone-100 text-base flex flex-wrap items-center gap-x-2">
                           <span>{dlg.japanese}</span>
-                          <button
-                            onClick={() => handleSpeak(dlg.japanese)}
-                            className="inline-flex p-1 text-stone-400 hover:text-amber-600 transition-colors"
-                            title="朗读"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" />
-                          </button>
+                          <UnifiedTtsPlayer
+                            variant="inline"
+                            text={dlg.japanese}
+                            lang={book.language || 'JA'}
+                          />
                         </div>
                         {showChineseTranslation && (
                           <div className="text-xs text-stone-500 dark:text-stone-400 font-sans">
@@ -377,13 +376,12 @@ export function InteractivePdfReader({
                     <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-amber-600 text-white">
                       第 {idx + 1} 句 · {dlg.speaker}
                     </span>
-                    <button
-                      onClick={() => handleSpeak(dlg.japanese)}
-                      className="p-1.5 rounded-lg text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 transition-colors flex items-center gap-1 text-xs"
-                    >
-                      <Volume2 className="w-4 h-4" />
-                      朗读
-                    </button>
+                    <UnifiedTtsPlayer
+                      variant="button"
+                      text={dlg.japanese}
+                      lang={book.language || 'JA'}
+                      label="朗读"
+                    />
                   </div>
                   <div className="text-lg font-serif text-stone-900 dark:text-stone-100">
                     {dlg.japanese}
@@ -417,8 +415,13 @@ export function InteractivePdfReader({
               {activeWordDetail && (
                 <div className="space-y-0.5 border-b border-stone-700 pb-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-amber-400 text-xs">
+                    <span className="font-bold text-amber-400 text-xs flex items-center gap-1">
                       {activeWordDetail.word}
+                      <UnifiedTtsPlayer
+                        variant="inline"
+                        text={activeWordDetail.word}
+                        lang={book.language || 'JA'}
+                      />
                     </span>
                     {activeWordDetail.reading && (
                       <span className="text-[10px] text-stone-400">

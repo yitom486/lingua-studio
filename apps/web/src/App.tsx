@@ -63,6 +63,7 @@ import { SubjectiveWritingWorkbench } from './components/SubjectiveWritingWorkbe
 import { ListeningShadowingWorkbench } from './components/ListeningShadowingWorkbench.js';
 import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { VoiceSettingsPopover } from './components/VoiceSettingsPopover.js';
+import { UnifiedTtsPlayer } from './components/UnifiedTtsPlayer.js';
 import { useGateway } from './hooks/useGateway.js';
 
 
@@ -1144,7 +1145,7 @@ export function App() {
                           FSRS 稳定性: {activeCard.stability}d · 复习 {activeCard.reps} 次
                         </span>
                       </div>
-                      <div className="text-center py-8">
+                      <div className="text-center py-8 flex flex-col items-center">
                         <h2 className="text-4xl sm:text-5xl font-bold font-serif text-stone-900 dark:text-stone-100 tracking-wide">
                           {activeCard.frontWord}
                         </h2>
@@ -1153,6 +1154,14 @@ export function App() {
                             {activeCard.reading}
                           </p>
                         )}
+                        <div className="mt-4" onClick={(e) => e.stopPropagation()}>
+                          <UnifiedTtsPlayer
+                            variant="button"
+                            text={activeCard.frontWord}
+                            lang="JA"
+                            label="听发音"
+                          />
+                        </div>
                       </div>
                       <div className="text-center text-xs text-stone-400">
                         点击卡片或按 <kbd className="font-mono bg-stone-200 dark:bg-stone-800 px-1.5 py-0.5 rounded">Space</kbd> 翻转查看释义
@@ -1169,9 +1178,16 @@ export function App() {
                           {activeCard.backMeaning}
                         </h3>
                         <div className="p-3.5 rounded-xl bg-amber-500/10 dark:bg-stone-900/60 border border-amber-900/5 text-xs space-y-1">
-                          <p className="font-medium text-stone-900 dark:text-stone-100">
-                            {activeCard.exampleJp}
-                          </p>
+                          <div className="font-medium text-stone-900 dark:text-stone-100 flex items-center justify-between">
+                            <span>{activeCard.exampleJp}</span>
+                            <span onClick={(e) => e.stopPropagation()}>
+                              <UnifiedTtsPlayer
+                                variant="inline"
+                                text={activeCard.exampleJp}
+                                lang="JA"
+                              />
+                            </span>
+                          </div>
                           <p className="text-stone-500 dark:text-stone-400 font-serif">
                             {activeCard.exampleZh}
                           </p>

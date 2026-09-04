@@ -279,6 +279,19 @@ class SpeechStudioEngine {
     return langVoices[0] ?? null;
   }
 
+  private isSpeaking: boolean = false;
+  private currentText: string = '';
+  private currentUtterance: SpeechSynthesisUtterance | null = null;
+  private currentAudio: HTMLAudioElement | null = null;
+
+  public getIsSpeaking(): boolean {
+    return this.isSpeaking;
+  }
+
+  public getCurrentText(): string {
+    return this.currentText;
+  }
+
   /**
    * 执行朗读：优先尝试小外挂，回退至原生高清声音
    */
@@ -288,12 +301,32 @@ class SpeechStudioEngine {
       lang?: SupportedLanguage;
       gender?: TtsGender;
       rate?: number;
+      onStart?: () => void;
       onEnd?: () => void;
+      onError?: (err?: unknown) => void;
     }
   ) {
+    // 先停止当前正在播放的声音
+    this.stop();
+
+    if (!text || !text.trim()) return;
+
     const lang = options?.lang || 'JA';
     const gender = options?.gender || this.gender;
     const rate = options?.rate || this.rate;
+
+    this.isSpeaking = true;
+    this.currentText = text;
+    this.notify();
+    options?.onStart?.();
+
+    const cleanup = () => {
+      this.isSpeaking = false;
+      this.currentText = '';
+      this.currentUtterance = null;
+      this.currentAudio = null;
+      this.notify();
+    };
 
     // 1. 若配置并启用了本地小外挂（如 Piper / Kokoro / OpenAI 兼容 TTS 端点）
     if (this.isCustomPluginEnabled && this.customPluginUrl) {
@@ -312,10 +345,17 @@ class SpeechStudioEngine {
           const blob = await res.blob();
           const audioUrl = URL.createObjectURL(blob);
           const audio = new Audio(audioUrl);
+          this.currentAudio = audio;
           audio.playbackRate = rate;
           audio.onended = () => {
             URL.revokeObjectURL(audioUrl);
+            cleanup();
             options?.onEnd?.();
+          };
+          audio.onerror = (e) => {
+            URL.revokeObjectURL(audioUrl);
+            cleanup();
+            options?.onError?.(e);
           };
           await audio.play();
           return;
@@ -326,34 +366,69 @@ class SpeechStudioEngine {
     }
 
     // 2. 原生 Web Speech 引擎优选播放
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-
-    const voice = this.getBestVoice(lang, gender);
-    if (voice) {
-      utterance.voice = voice;
-      utterance.lang = voice.lang;
-    } else {
-      utterance.lang = lang === 'EN' ? 'en-US' : lang === 'KO' ? 'ko-KR' : 'ja-JP';
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      cleanup();
+      options?.onError?.(new Error('SpeechSynthesis not supported'));
+      return;
     }
 
-    utterance.rate = rate;
-    utterance.pitch = gender === 'FEMALE' ? 1.05 : 0.95;
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      this.currentUtterance = utterance; // 防止垃圾回收导致发音被掐断
 
-    if (options?.onEnd) {
-      utterance.onend = () => options.onEnd?.();
+      const voice = this.getBestVoice(lang, gender);
+      if (voice) {
+        utterance.voice = voice;
+        utterance.lang = voice.lang;
+      } else {
+        utterance.lang = lang === 'EN' ? 'en-US' : lang === 'KO' ? 'ko-KR' : 'ja-JP';
+      }
+
+      utterance.rate = rate;
+      utterance.pitch = gender === 'FEMALE' ? 1.05 : 0.95;
+
+      utterance.onstart = () => {
+        this.isSpeaking = true;
+        this.notify();
+      };
+
+      utterance.onend = () => {
+        cleanup();
+        options?.onEnd?.();
+      };
+
+      utterance.onerror = (e) => {
+        cleanup();
+        options?.onError?.(e);
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      cleanup();
+      options?.onError?.(err);
     }
-
-    window.speechSynthesis.speak(utterance);
   }
 
   public stop() {
+    if (this.currentAudio) {
+      try {
+        this.currentAudio.pause();
+        this.currentAudio.currentTime = 0;
+      } catch {}
+      this.currentAudio = null;
+    }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+    }
+    this.currentUtterance = null;
+    if (this.isSpeaking) {
+      this.isSpeaking = false;
+      this.currentText = '';
+      this.notify();
     }
   }
 }
 
 export const speechStudio = new SpeechStudioEngine();
+
