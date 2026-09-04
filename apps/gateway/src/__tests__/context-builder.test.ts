@@ -5,6 +5,8 @@ import type { Flashcard } from '@study-studio/protocol';
 import { ok } from '@study-studio/shared';
 
 function mockRepo(overrides: {
+  targetLanguage?: 'ja' | 'en' | 'ko';
+  overallLevel?: string;
   dueCards?: Flashcard[];
   mistakes?: Array<{
     id: string;
@@ -13,12 +15,14 @@ function mockRepo(overrides: {
   }>;
   metrics?: Array<{ id: string; name: string; proficiency: number }>;
 }): LearnerRepository {
+  const targetLanguage = overrides.targetLanguage ?? 'ja';
+  const overallLevel = overrides.overallLevel ?? (targetLanguage === 'en' ? 'B1' : 'N5');
   const profile: LearnerProfile = {
     userId: 'u1',
     displayName: '测',
-    targetLanguage: 'ja',
-    overallLevel: 'N5',
-    studyGoal: 'JLPT_N5',
+    targetLanguage,
+    overallLevel,
+    studyGoal: targetLanguage === 'en' ? 'KAOYAN_EN' : 'JLPT_N5',
     learnerLevel: 'BEGINNER',
     dailyGoalQuizzes: 5,
     dailyGoalCards: 10,
@@ -39,8 +43,8 @@ function mockRepo(overrides: {
 
   const snapshot: LearnerProfileSnapshot = {
     userId: 'u1',
-    targetLanguage: 'ja',
-    overallLevel: 'N5',
+    targetLanguage,
+    overallLevel,
     strengths: [],
     weaknesses: metrics.filter((m) => m.status === 'WEAKNESS'),
     allMetrics: metrics,
@@ -165,6 +169,48 @@ describe('ContextBuilder.buildTurnSnapshot', () => {
     );
     // 不以客户端假数据覆盖 digest 计数
     expect(snapshot.learnerDigest?.unresolvedMistakesCount).not.toBe(0);
+    expect(snapshot.targetLanguage).toBe('ja');
+    expect(snapshot.metadata?.coachTrack).toBe('ja');
+    expect(Array.isArray(snapshot.metadata?.coachHints)).toBe(true);
+  });
+
+  it('omits kana mastery and filters jp skills when track is en', async () => {
+    const builder = new ContextBuilder();
+    const snapshot = await builder.buildTurnSnapshot(
+      'u1',
+      mockRepo({
+        targetLanguage: 'en',
+        overallLevel: 'B1',
+        mistakes: [
+          {
+            id: 'm1',
+            question: { testedSkillId: 'jp.particle.ni_vs_de', category: '助词' },
+            isResolved: false,
+          },
+          {
+            id: 'm2',
+            question: { testedSkillId: 'en.grammar.subjunctive', category: '虚拟语气' },
+            isResolved: false,
+          },
+        ],
+        metrics: [
+          { id: 'jp.particle.ni_vs_de', name: 'に/で', proficiency: 0.4 },
+          { id: 'en.grammar.subjunctive', name: '虚拟语气', proficiency: 0.35 },
+          { id: 'jp.kana.hiragana', name: '平假名', proficiency: 0.72 },
+        ],
+      }),
+      {
+        targetLanguage: 'en',
+        ui: { activeTab: 'QUIZ' },
+      }
+    );
+
+    expect(snapshot.targetLanguage).toBe('en');
+    expect(snapshot.metadata?.coachTrack).toBe('en');
+    expect(snapshot.learnerDigest?.kanaMastery).toBeUndefined();
+    expect(snapshot.learnerDigest?.topWeaknesses.every((w) => w.skillId.startsWith('en.'))).toBe(
+      true
+    );
   });
 });
 

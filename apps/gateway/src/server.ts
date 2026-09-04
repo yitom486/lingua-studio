@@ -32,6 +32,13 @@ import { LearningProgressTool } from './tools/learning-progress-tool.js';
 import { LearningCurriculumTool } from './tools/learning-curriculum-tool.js';
 import { LearningLibraryTool } from './tools/learning-library-tool.js';
 import { UiNavigateTool, UiPresentTool } from './tools/ui-command-tools.js';
+import {
+  buildGenericCoachReply,
+  defaultCoachTopic,
+  defaultExplainTopic,
+  defaultQuizSkillId,
+  normalizeTrackLanguage,
+} from './services/learning-language-policy.js';
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -372,7 +379,7 @@ export class GatewayServer {
               skillIds: rawPayload.weaknessSkillId
                 ? [String(rawPayload.weaknessSkillId)]
                 : undefined,
-              language: rawPayload.targetLanguage === 'ja' ? 'ja' : rawPayload.targetLanguage === 'ko' ? 'ko' : 'en',
+              language: normalizeTrackLanguage(rawPayload.targetLanguage),
               collect: true,
             },
             { userId, sessionId: envelope.sessionId }
@@ -407,12 +414,7 @@ export class GatewayServer {
         // 动态生成的题目属于学习资产；在发送给客户端前先写入 SQLite，刷新后仍可恢复。
         if (this.learnerRepo instanceof DrizzleLearnerRepository) {
           const generatedOutput = toolRes.value as { questions?: unknown[]; targetSkillName?: string };
-          const partitionLang =
-            rawPayload.targetLanguage === 'ja'
-              ? 'ja'
-              : rawPayload.targetLanguage === 'ko'
-                ? 'ko'
-                : 'en';
+          const partitionLang = normalizeTrackLanguage(rawPayload.targetLanguage);
           const questions = (generatedOutput.questions ?? []).map(
             (question) => {
               const generated = question as Record<string, unknown>;
@@ -498,6 +500,7 @@ export class GatewayServer {
         let toolResults: any = undefined;
 
         try {
+          const track = normalizeTrackLanguage(snapshot.targetLanguage);
           // 根据意图或用户自然语言分发到参数化工具或专家教学大纲
           if (userPrompt.includes('例句') || userPrompt.includes('造句')) {
             const tool = this.toolRegistry.get('learning.content');
@@ -505,13 +508,8 @@ export class GatewayServer {
               const res = await tool.execute(
                 {
                   action: 'example_set',
-                  topic: snapshot.focus?.skillTag || '助词与谓语动词搭配',
-                  language:
-                    snapshot.targetLanguage === 'ja'
-                      ? 'ja'
-                      : snapshot.targetLanguage === 'ko'
-                        ? 'ko'
-                        : 'en',
+                  topic: snapshot.focus?.skillTag || defaultCoachTopic(track),
+                  language: track,
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -543,13 +541,8 @@ export class GatewayServer {
               const res = await tool.execute(
                 {
                   action: 'explain',
-                  topic: snapshot.focus?.skillTag || '格助词辨析',
-                  language:
-                    snapshot.targetLanguage === 'ja'
-                      ? 'ja'
-                      : snapshot.targetLanguage === 'ko'
-                        ? 'ko'
-                        : 'en',
+                  topic: snapshot.focus?.skillTag || defaultExplainTopic(track),
+                  language: track,
                 },
                 { userId, sessionId: envelope.sessionId }
               );
@@ -579,18 +572,13 @@ export class GatewayServer {
                 ? [snapshot.focus.skillTag]
                 : snapshot.learnerDigest?.topWeaknesses?.[0]?.skillId
                   ? [snapshot.learnerDigest.topWeaknesses[0].skillId]
-                  : ['jp.particle.ni_vs_de'];
+                  : [defaultQuizSkillId(track)];
               const res = await tool.execute(
                 {
                   action: 'generate_quiz',
                   count: Math.min(3, snapshot.constraints?.maxQuestions ?? 3),
                   difficulty: 2,
-                  language:
-                    snapshot.targetLanguage === 'ja'
-                      ? 'ja'
-                      : snapshot.targetLanguage === 'ko'
-                        ? 'ko'
-                        : 'en',
+                  language: track,
                   skillIds,
                   collect: true,
                   collectionTitle: '导师即时练习',
@@ -628,14 +616,11 @@ export class GatewayServer {
           }
 
           if (!reply) {
-            // 通用导师对话与聚焦答疑
-            const focusInfo = snapshot.focus
-              ? `针对你正在学习的【${snapshot.focus.skillTag || snapshot.focus.surface}】`
-              : '针对你的学情进度';
-            reply =
-              `你好！我是你的自适应学习专属导师。${focusInfo}：\n\n` +
-              `你刚刚提到：“${userPrompt}”。在外语习得过程中，把孤立的语法点放入完整语境中体会情感色彩是攻克瓶颈最高效的途径。\n\n` +
-              `建议结合我们刚刚复习的例句和错题，如果对某一句有疑惑，你可以随时点击「给出例句」或让我「讲透考点」！`;
+            reply = buildGenericCoachReply({
+              track,
+              userPrompt,
+              focusLabel: snapshot.focus?.skillTag || snapshot.focus?.surface,
+            });
           }
 
           // 4. 真流式逐块推流 (Text Delta)

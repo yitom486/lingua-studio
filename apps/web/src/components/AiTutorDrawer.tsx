@@ -15,6 +15,13 @@ import {
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
+import {
+  buildTutorBootstrapPrompt,
+  buildTutorOfflineReply,
+  buildTutorOpeningGreeting,
+  getTutorTrackCopy,
+} from '../data/tutor-track-copy.js';
+import { normalizeTrackLanguage, type TrackLanguage } from '../learning/learning-shell.js';
 
 export interface AiTutorContext {
   questionText: string;
@@ -39,10 +46,8 @@ interface AiTutorDrawerProps {
   gateway?: ReturnType<typeof useGateway>;
 }
 
-function normalizeTutorLanguage(lang: string): 'ja' | 'en' | 'ko' {
-  if (lang === 'en') return 'en';
-  if (lang === 'ko') return 'ko';
-  return 'ja';
+function normalizeTutorLanguage(lang: string): TrackLanguage {
+  return normalizeTrackLanguage(lang);
 }
 
 function buildTutorClientSnapshot(
@@ -146,7 +151,8 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
       return;
     }
 
-    const sessionKey = `${context.skillTag}|${context.questionText}`;
+    const track = normalizeTutorLanguage(profile.targetLanguage);
+    const sessionKey = `${track}|${context.skillTag}|${context.questionText}`;
     if (bootstrappedRef.current === sessionKey) return;
     bootstrappedRef.current = sessionKey;
 
@@ -168,18 +174,14 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
         },
       ]);
       setIsTyping(true);
-      const prompt =
-        `请根据当前题目做简短导入讲解（3–6 句），点明考点「${context.skillTag}」，` +
-        `并邀请我继续追问。题干：${context.questionText}。` +
-        (context.userAnswer ? `我的作答：${context.userAnswer}。` : '') +
-        `参考解析：${context.explanation}`;
+      const prompt = buildTutorBootstrapPrompt(track, context);
       const sent = attachStreamToMessage(aiMsgId, prompt, 'EXPLAIN');
       if (!sent) {
         setMessages([
           {
             id: 'msg-init-offline',
             sender: 'ai',
-            text: `你好！我是你的专属 AI 导师。针对「${context.skillTag}」：\n\n📌 ${context.questionText}\n\n💡 ${context.explanation}\n\n（Gateway 未连通，可先离线追问。）`,
+            text: buildTutorOpeningGreeting(track, context, true),
             timestamp: '刚刚',
           },
         ]);
@@ -192,11 +194,11 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
       {
         id: 'msg-init',
         sender: 'ai',
-        text: `你好！我是你的专属 AI 导师。针对刚刚在「${context.skillTag}」中的题目：\n\n📌 **题目**：\n${context.questionText}\n\n💡 **标准解析**：\n${context.explanation}\n\n你可以直接点击下方快捷追问，或输入你的疑问！`,
+        text: buildTutorOpeningGreeting(track, context, false),
         timestamp: '刚刚',
       },
     ]);
-  }, [isOpen, context, gateway?.isConnected, attachStreamToMessage]);
+  }, [isOpen, context, gateway?.isConnected, attachStreamToMessage, profile.targetLanguage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -258,33 +260,8 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
     }
 
     setTimeout(() => {
-      let replyText = '';
-      const track = profile.targetLanguage;
-
-      if (content.includes('例句') || content.includes('造句')) {
-        if (track === 'en') {
-          replyText = `为您提供 3 个考研/学术向地道例句：\n1. **The rapid advancement of technology has profoundly altered our daily routines.**\n2. **Recent studies illustrate a compelling correlation between sleep and memory.**\n3. **Scholars have long debated the philosophical implications of artificial intelligence.**`;
-        } else if (track === 'ko') {
-          replyText = `为你提供 3 个韩语生活常用例句：\n1. **내일 친구와 도书관에 가기로 했어요.**\n2. **주말에는 집에서 푹 쉬고 싶어요.**\n3. **한국어 공부가 점점 재미있어지고 있어요.**`;
-        } else {
-          replyText = `为你提供 3 个地道生活化例句：\n1. **日曜日、図書館へ行きます。**\n2. **友達とカフェで勉強します。**\n3. **明日の朝、会議に参加します。**`;
-        }
-      } else if (
-        content.includes('为什么') ||
-        content.includes('辨析') ||
-        content.includes('区分') ||
-        content.includes('结构')
-      ) {
-        if (track === 'en') {
-          replyText = `核心考点剖析与逻辑辨析：\n- **主干拆解**：优先锁定句子谓语动词与从属从句连词。\n- **陷阱提示**：注意介词短语作后置定语时的分隔修饰。\n- **真题建议**：结合长难句切分，避免字面逐词直译。`;
-        } else if (track === 'ko') {
-          replyText = `韩语核心辨析与词尾要点：\n- **「-이/가」 vs 「-은/는」**：新信息焦点主语 vs 已知主题/对比。\n- **提示**：关注终结词尾的敬体等级与语境连贯。`;
-        } else {
-          replyText = `这是最容易混淆的痛点！\n- **「で」**：动作发生场所或手段。\n- **「に」**：静态存在/归着点。\n移动方向也可用「へ」(读え)。`;
-        }
-      } else {
-        replyText = `收到你的追问！关于「${content}」：建议结合当前考点「${context?.skillTag ?? ''}」做对照练习，并把易错点加入错题本。`;
-      }
+      const track = normalizeTutorLanguage(profile.targetLanguage);
+      const replyText = buildTutorOfflineReply(track, content, context?.skillTag);
 
       sound.playCorrect();
       setMessages((prev) =>
@@ -303,24 +280,9 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
     }, 650);
   };
 
-  const quickPrompts =
-    profile.targetLanguage === 'en'
-      ? [
-          '请分析该长难句的主干结构',
-          '请提供 3 个地道学术/真比例句',
-          '考研/六级中最易混淆的词义辨析？',
-        ]
-      : profile.targetLanguage === 'ko'
-      ? [
-          '该语法对应的终结词尾是什么？',
-          '请提供 3 个韩语生活例句',
-          'TOPIK 核心辨析考点有哪些？',
-        ]
-      : [
-          '为什么不能用别的助词？',
-          '请给我造三个地道例句',
-          '请总结该考点的速记口诀',
-        ];
+  const track = normalizeTutorLanguage(profile.targetLanguage);
+  const tutorCopy = getTutorTrackCopy(track);
+  const quickPrompts = tutorCopy.quickPrompts;
 
   const isGatewayConnected = gateway?.isConnected ?? false;
 
@@ -340,7 +302,9 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
                       AI 智能导师专属追问室
                       <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                     </SheetTitle>
-                    <SheetDescription className="text-xs">当前聚焦：{context.skillTag}</SheetDescription>
+                    <SheetDescription className="text-xs">
+                      {tutorCopy.headerHint} · 聚焦：{context.skillTag}
+                    </SheetDescription>
                   </div>
                 </div>
                 <Badge

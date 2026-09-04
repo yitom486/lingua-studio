@@ -2,6 +2,13 @@ import type { ContextSnapshot, ContextFocusItem } from '@study-studio/agent-core
 import type { LearnerProfileSnapshot, LearnerRepository } from '@study-studio/learner-core';
 import type { GeneratedQuestion, Flashcard } from '@study-studio/protocol';
 import { isOk } from '@study-studio/shared';
+import {
+  buildTrackCoachMetadata,
+  defaultLearnerLevelLabel,
+  normalizeTrackLanguage,
+  skillMatchesTrack,
+  type TrackLanguage,
+} from '../services/learning-language-policy.js';
 
 export interface BuildTurnContextParams {
   profile: LearnerProfileSnapshot;
@@ -54,21 +61,31 @@ export function deriveRecentErrorTags(
   return tags.slice(0, 8);
 }
 
+function resolveTrack(
+  client?: Partial<ContextSnapshot>,
+  profileLang?: string | null
+): TrackLanguage {
+  return normalizeTrackLanguage(client?.targetLanguage || profileLang);
+}
+
 export class ContextBuilder {
   /**
    * 组装每轮对话的不可变 Context Snapshot (支持经典入参)
    */
   public build(params: BuildTurnContextParams): ContextSnapshot {
     const { profile, currentQuestion, userAnswer, selectedWord, focus, ui } = params;
+    const track = normalizeTrackLanguage(profile.targetLanguage);
 
     const topWeaknesses = profile.weaknesses
+      .filter((w) => skillMatchesTrack(w.id, track))
       .slice(0, 5)
       .map((w) => ({ skillId: w.id, name: w.name, proficiency: w.proficiency }));
 
-    const kanaMastery = extractKanaMastery(profile.allMetrics ?? []);
+    const kanaMastery =
+      track === 'ja' ? extractKanaMastery(profile.allMetrics ?? []) : undefined;
 
     return {
-      targetLanguage: profile.targetLanguage,
+      targetLanguage: track,
       learnerLevel: profile.overallLevel,
       locale: 'zh-CN',
       ui: ui || { activeTab: 'TUTOR' },
@@ -95,6 +112,7 @@ export class ContextBuilder {
           }
         : undefined,
       selectedWord,
+      metadata: buildTrackCoachMetadata(track),
     };
   }
 
@@ -117,6 +135,7 @@ export class ContextBuilder {
     const profile = isOk(profileRes) ? profileRes.value : null;
     const snapshot = isOk(snapshotRes) ? snapshotRes.value : null;
     const nowIso = new Date().toISOString();
+    const track = resolveTrack(clientSnapshot, profile?.targetLanguage);
 
     const dueCardsCount = isOk(dueCardsRes)
       ? countDueCards(dueCardsRes.value, nowIso)
@@ -125,32 +144,38 @@ export class ContextBuilder {
     const unresolvedMistakes = isOk(mistakesRes) ? mistakesRes.value : [];
     const unresolvedMistakesCount = unresolvedMistakes.length;
 
-    const weaknesses = (snapshot?.weaknesses || []).slice(0, 5).map((w) => ({
-      skillId: w.id,
-      name: w.name,
-      proficiency: w.proficiency,
-    }));
+    const weaknesses = (snapshot?.weaknesses || [])
+      .filter((w) => skillMatchesTrack(w.id, track))
+      .slice(0, 5)
+      .map((w) => ({
+        skillId: w.id,
+        name: w.name,
+        proficiency: w.proficiency,
+      }));
 
     const allMetrics = snapshot?.allMetrics ?? [];
     const kanaMastery =
-      (clientSnapshot?.targetLanguage || profile?.targetLanguage) === 'ja'
-        ? extractKanaMastery(allMetrics)
-        : undefined;
+      track === 'ja' ? extractKanaMastery(allMetrics) : undefined;
     const recentErrorTags = deriveRecentErrorTags(
-      unresolvedMistakes.map((m) => ({
-        question: {
-          testedSkillId: m.question?.testedSkillId,
-          category: (m.question as { category?: string } | undefined)?.category,
-        },
-      })),
+      unresolvedMistakes
+        .filter((m) => skillMatchesTrack(String(m.question?.testedSkillId || ''), track))
+        .map((m) => ({
+          question: {
+            testedSkillId: m.question?.testedSkillId,
+            category: (m.question as { category?: string } | undefined)?.category,
+          },
+        })),
       weaknesses
     );
 
+    const coachMeta = buildTrackCoachMetadata(track);
+
     return {
-      targetLanguage: (clientSnapshot?.targetLanguage ||
-        profile?.targetLanguage ||
-        'ja') as 'ja' | 'en' | 'ko',
-      learnerLevel: clientSnapshot?.learnerLevel || profile?.overallLevel || 'N3',
+      targetLanguage: track,
+      learnerLevel:
+        clientSnapshot?.learnerLevel ||
+        profile?.overallLevel ||
+        defaultLearnerLevelLabel(track),
       locale: clientSnapshot?.locale || 'zh-CN',
       ui: clientSnapshot?.ui || { activeTab: 'TUTOR' },
       focus: clientSnapshot?.focus,
@@ -165,7 +190,10 @@ export class ContextBuilder {
       userIntentHint: clientSnapshot?.userIntentHint || 'EXPLAIN',
       constraints: clientSnapshot?.constraints,
       topWeaknesses: weaknesses.map((w) => `${w.skillId} (${w.name})`),
-      metadata: clientSnapshot?.metadata,
+      metadata: {
+        ...(clientSnapshot?.metadata || {}),
+        ...coachMeta,
+      },
       currentQuestion: clientSnapshot?.currentQuestion,
       selectedWord: clientSnapshot?.selectedWord,
     };
