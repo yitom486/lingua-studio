@@ -61,6 +61,35 @@ describe('Result<T, E> & Error Translation Chain', () => {
     expect(bizErr.userMessage).toContain('响应超时');
   });
 
+  it('should translate SQLite database errors to friendly user message', () => {
+    const raw = new Error('SQLite error: database is locked (SQLITE_BUSY)');
+    const bizErr = translateToBusinessError(raw, 'DB_OPS');
+
+    expect(bizErr.code).toBe('E_DATABASE_ERROR');
+    expect(bizErr.category).toBe('DATABASE');
+    expect(bizErr.userMessage).toContain('本地学习数据库存储遇到临时冲突或锁定');
+    expect(bizErr.retryable).toBe(true);
+  });
+
+  it('should translate SQLite unique constraint violations', () => {
+    const raw = new Error('UNIQUE constraint failed: flashcards.id');
+    const bizErr = translateToBusinessError(raw, 'DB_INSERT');
+
+    expect(bizErr.code).toBe('E_DATABASE_CONSTRAINT');
+    expect(bizErr.category).toBe('DATABASE');
+    expect(bizErr.userMessage).toContain('无法重复写入');
+    expect(bizErr.retryable).toBe(false);
+  });
+
+  it('should translate tool execution errors', () => {
+    const raw = new Error('TOOL_EXECUTION: dictionary lookup failed');
+    const bizErr = translateToBusinessError(raw, 'TOOL_ROUTER');
+
+    expect(bizErr.code).toBe('E_TOOL_EXECUTION_FAILED');
+    expect(bizErr.category).toBe('TOOL_EXECUTION');
+    expect(bizErr.retryable).toBe(true);
+  });
+
   it('should preserve existing BusinessError without re-wrapping', () => {
     const original = new BusinessError('E_CUSTOM', '自定义错误', 'SECURITY');
     const result = translateToBusinessError(original);

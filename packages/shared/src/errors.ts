@@ -28,7 +28,7 @@ export class BusinessError extends Error {
 }
 
 /**
- * 将底层不可预期的异常（网络报错、进程崩溃、JSON解析错误等）
+ * 将底层不可预期的异常（网络报错、进程崩溃、数据库异常、JSON解析错误等）
  * 统一翻译为用户友好的业务领域错误
  */
 export function translateToBusinessError(
@@ -40,9 +40,14 @@ export function translateToBusinessError(
   }
 
   const errMessage = rawError instanceof Error ? rawError.message : String(rawError);
+  const errName = rawError instanceof Error ? rawError.name : '';
 
   // 1. 网络与连接拒绝翻译
-  if (errMessage.includes('ECONNREFUSED') || errMessage.includes('Failed to fetch')) {
+  if (
+    errMessage.includes('ECONNREFUSED') ||
+    errMessage.includes('Failed to fetch') ||
+    errMessage.includes('fetch failed')
+  ) {
     return new BusinessError(
       'E_NETWORK_DISCONNECTED',
       '无法连接到学习助手服务，请检查本地网络或确认服务是否已启动。',
@@ -63,18 +68,57 @@ export function translateToBusinessError(
     );
   }
 
-  // 3. 数据解析/格式错误翻译
-  if (rawError instanceof SyntaxError || errMessage.includes('JSON')) {
+  // 3. 数据库与持久化异常翻译 (SQLite, Drizzle)
+  if (
+    errMessage.includes('SQLITE_') ||
+    errMessage.includes('sqlite') ||
+    errMessage.includes('Drizzle') ||
+    errMessage.includes('UNIQUE constraint failed') ||
+    errMessage.includes('FOREIGN KEY constraint failed') ||
+    errMessage.includes('database is locked') ||
+    errMessage.includes('no such table')
+  ) {
+    const isConstraint = errMessage.includes('UNIQUE') || errMessage.includes('constraint');
+    return new BusinessError(
+      isConstraint ? 'E_DATABASE_CONSTRAINT' : 'E_DATABASE_ERROR',
+      isConstraint
+        ? '学习记录已存在或冲突，无法重复写入。'
+        : '本地学习数据库存储遇到临时冲突或锁定，系统已保护您的数据，请稍后重试。',
+      'DATABASE',
+      !isConstraint,
+      { raw: errMessage, context: contextTag }
+    );
+  }
+
+  // 4. 数据解析/校验格式错误翻译 (Zod, JSON)
+  if (
+    rawError instanceof SyntaxError ||
+    errName === 'ZodError' ||
+    errMessage.includes('JSON') ||
+    errMessage.includes('validation') ||
+    errMessage.includes('invalid_type')
+  ) {
     return new BusinessError(
       'E_DATA_FORMAT_INVALID',
-      '返回的学习数据格式异常，无法解析，已通知系统记录。',
+      '提交或返回的学习数据格式不符合规范，请检查后重新提交。',
       'VALIDATION',
       false,
       { raw: errMessage, context: contextTag }
     );
   }
 
-  // 4. 底层 Codex / AI 引擎异常翻译
+  // 5. 工具执行错误翻译
+  if (errMessage.includes('TOOL_EXECUTION') || errMessage.includes('tool execution failed')) {
+    return new BusinessError(
+      'E_TOOL_EXECUTION_FAILED',
+      '执行学习辅助工具时遇到异常，请稍后重试。',
+      'TOOL_EXECUTION',
+      true,
+      { raw: errMessage, context: contextTag }
+    );
+  }
+
+  // 6. 底层 Codex / AI 引擎异常翻译
   if (errMessage.includes('codex') || errMessage.includes('app-server')) {
     return new BusinessError(
       'E_AGENT_ENGINE_ERROR',
@@ -85,7 +129,7 @@ export function translateToBusinessError(
     );
   }
 
-  // 5. 兜底未知异常
+  // 7. 兜底未知异常
   return new BusinessError(
     'E_UNKNOWN_INTERNAL',
     '系统遇到了一点小问题，请稍后重试。',

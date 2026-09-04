@@ -2,12 +2,12 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Study Studio",
   "version": "0.1.0",
-  "identifier": "com.studystudio.app",
+  "identifier": "com.studystudio.desktop",
   "build": {
     "beforeDevCommand": "bun run --filter @study-studio/web dev",
     "devUrl": "http://localhost:3000",
     "beforeBuildCommand": "bun run --filter @study-studio/web build",
-    "frontendDist": "../web/dist"
+    "frontendDist": "../../web/dist"
   },
   "app": {
     "windows": [

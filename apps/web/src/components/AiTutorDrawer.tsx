@@ -11,6 +11,7 @@ import {
 } from './ui/sheet.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
+import { ErrorBoundary } from './common/ErrorBoundary.js';
 
 export interface AiTutorContext {
   questionText: string;
@@ -278,7 +279,12 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((msg) => {
+              <ErrorBoundary
+                variant="embedded"
+                title="对话渲染遇到临时异常"
+                message="导师气泡渲染出现异常，已保护对话资产，可点击重新加载。"
+              >
+                {messages.map((msg) => {
                 const isAi = msg.sender === 'ai';
                 return (
                   <div
@@ -328,6 +334,7 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
                 </div>
               )}
               <div ref={messagesEndRef} />
+              </ErrorBoundary>
             </div>
 
             <div className="px-4 py-2 bg-stone-100/60 dark:bg-stone-900/40 border-t border-amber-900/10 dark:border-amber-500/10 flex flex-wrap gap-1.5 shrink-0">
