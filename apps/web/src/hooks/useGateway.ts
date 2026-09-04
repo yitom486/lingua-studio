@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { toast } from 'sonner';
 import {
   WsEventTypes,
   type WsEventType,
@@ -99,6 +100,13 @@ export function useGateway({
             if (pingSentTimeRef.current > 0) {
               setLatencyMs(Date.now() - pingSentTimeRef.current);
             }
+          } else if (envelope.type === WsEventTypes.AGENT_ERROR) {
+            const errPayload = (envelope.payload as any)?.error;
+            const userMsg =
+              typeof errPayload === 'string'
+                ? errPayload
+                : errPayload?.userMessage || 'AI 学习助手遇到了一点小问题，请稍后重试。';
+            toast.error(userMsg);
           }
         } catch {}
       };

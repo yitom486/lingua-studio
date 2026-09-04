@@ -15,6 +15,7 @@ import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
 import { ReadingComprehensionWorkbench } from './components/ReadingComprehensionWorkbench.js';
 import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
+import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useGateway } from './hooks/useGateway.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
@@ -119,109 +120,116 @@ export function App() {
         <AppHeader gateway={gateway} onOpenMobileNav={() => setMobileNavOpen(true)} />
 
         <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
-        {activeTab === 'QUIZ' && (
-          <AdaptiveQuizWorkbench
-            onOpenTutor={(ctx) => {
-              sound.playClick();
-              openTutor(ctx);
-            }}
-            onGradeSubjective={gateway.gradeSubjectiveQuiz}
-            onSubmitQuizToGateway={handleSubmitQuiz}
-            isGatewayConnected={gateway.isConnected}
-            onGenerateAdaptiveQuizApi={gateway.generateAdaptiveQuiz}
-          />
-        )}
-
-        {activeTab === 'CARDS' && (
-          <FsrsCardWorkbench onReviewCardToGateway={handleReviewCard} />
-        )}
-
-        {activeTab === 'READING' && (
-          <ReadingComprehensionWorkbench
-            onOpenTutor={(ctx) => {
-              sound.playClick();
-              openTutor(ctx);
-            }}
-          />
-        )}
-
-        {activeTab === 'WRITING' && (
-          <WritingStudioWorkbench onGradeSubjective={gateway.gradeSubjectiveQuiz} />
-        )}
-
-        {activeTab === 'TEXTBOOK' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
+          <ErrorBoundary
+            key={activeTab}
+            variant="embedded"
+            title="当前工作区遇到临时渲染异常"
+            message="此模块由于外部数据或音频上下文发生了临时异常。您的个人学情资产已安全持久化，可点击下方按钮重新加载。"
           >
-            <TextbookCurriculum
-              onStartLessonQuiz={startLessonQuiz}
-              onAddCardFromTextbook={(vocab) => addCards.mutate([vocabToStudyCard(vocab)])}
-              onAddCardsBatch={(list) =>
-                addCards.mutate(list.map((v, i) => vocabToStudyCard(v, i)))
-              }
-              onAskAiTutor={(selectedText, contextPrompt) => {
-                sound.playClick();
-                openTutor({
-                  questionText: `${contextPrompt} “${selectedText}”`,
-                  correctAnswer: selectedText,
-                  skillTag: '教材精读 · 句法剖析',
-                  explanation: `当前选中教材句段：“${selectedText}”。重点关注助词接续与语境敬体/简体用法。`,
-                });
-              }}
-            />
-          </motion.div>
-        )}
+            {activeTab === 'QUIZ' && (
+              <AdaptiveQuizWorkbench
+                onOpenTutor={(ctx) => {
+                  sound.playClick();
+                  openTutor(ctx);
+                }}
+                onGradeSubjective={gateway.gradeSubjectiveQuiz}
+                onSubmitQuizToGateway={handleSubmitQuiz}
+                isGatewayConnected={gateway.isConnected}
+                onGenerateAdaptiveQuizApi={gateway.generateAdaptiveQuiz}
+              />
+            )}
 
-        {activeTab === 'SHADOWING' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-          >
-            <ListeningShadowingWorkbench
-              onOpenTutor={(ctx) => {
-                sound.playClick();
-                openTutor(ctx);
-              }}
-              onAddMistake={(item) => addMistake.mutate(item)}
-            />
-          </motion.div>
-        )}
+            {activeTab === 'CARDS' && (
+              <FsrsCardWorkbench onReviewCardToGateway={handleReviewCard} />
+            )}
 
-        {activeTab === 'PITCH' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-          >
-            <PitchAccentCoach />
-          </motion.div>
-        )}
+            {activeTab === 'READING' && (
+              <ReadingComprehensionWorkbench
+                onOpenTutor={(ctx) => {
+                  sound.playClick();
+                  openTutor(ctx);
+                }}
+              />
+            )}
 
-        {activeTab === 'MISTAKES' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.25 }}
-          >
-            <MistakeSprintWorkbench
-              onOpenTutor={(ctx) => {
-                sound.playClick();
-                openTutor(ctx);
-              }}
-            />
-          </motion.div>
-        )}
+            {activeTab === 'WRITING' && (
+              <WritingStudioWorkbench onGradeSubjective={gateway.gradeSubjectiveQuiz} />
+            )}
 
-        {activeTab === 'RADAR' && (
-          <LearnerRadarDashboard
-            metrics={metrics}
-            activeCardsCount={cards.length}
-            unresolvedMistakesCount={unresolvedMistakesCount}
-          />
-        )}
+            {activeTab === 'TEXTBOOK' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <TextbookCurriculum
+                  onStartLessonQuiz={startLessonQuiz}
+                  onAddCardFromTextbook={(vocab) => addCards.mutate([vocabToStudyCard(vocab)])}
+                  onAddCardsBatch={(list) =>
+                    addCards.mutate(list.map((v, i) => vocabToStudyCard(v, i)))
+                  }
+                  onAskAiTutor={(selectedText, contextPrompt) => {
+                    sound.playClick();
+                    openTutor({
+                      questionText: `${contextPrompt} “${selectedText}”`,
+                      correctAnswer: selectedText,
+                      skillTag: '教材精读 · 句法剖析',
+                      explanation: `当前选中教材句段：“${selectedText}”。重点关注助词接续与语境敬体/简体用法。`,
+                    });
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'SHADOWING' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <ListeningShadowingWorkbench
+                  onOpenTutor={(ctx) => {
+                    sound.playClick();
+                    openTutor(ctx);
+                  }}
+                  onAddMistake={(item) => addMistake.mutate(item)}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'PITCH' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <PitchAccentCoach />
+              </motion.div>
+            )}
+
+            {activeTab === 'MISTAKES' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <MistakeSprintWorkbench
+                  onOpenTutor={(ctx) => {
+                    sound.playClick();
+                    openTutor(ctx);
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'RADAR' && (
+              <LearnerRadarDashboard
+                metrics={metrics}
+                activeCardsCount={cards.length}
+                unresolvedMistakesCount={unresolvedMistakesCount}
+              />
+            )}
+          </ErrorBoundary>
         </main>
       </div>
     </div>

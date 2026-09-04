@@ -9,7 +9,8 @@ import {
   type LearnerProfile,
   WsEventTypes,
 } from '@study-studio/protocol';
-import { isOk, generateId } from '@study-studio/shared';
+import { isOk, generateId, BusinessError } from '@study-studio/shared';
+import { formatBusinessErrorResponse } from './errors/http-error-handler.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -18,6 +19,7 @@ export * from './router/tool-router.js';
 export * from './db/index.js';
 export * from './repository/drizzle-learner-repository.js';
 export * from './repository/sqlite-learner-repository.js';
+export * from './errors/http-error-handler.js';
 
 // 持久化存储实例：在生产/开发环境下持久化到本地 study-studio.db，或使用环境变量
 const dbPath = process.env.STUDY_STUDIO_DB || 'study-studio.db';
@@ -28,7 +30,7 @@ export const gatewayServer = new GatewayServer(drizzleRepo);
 const PORT = Number(process.env.GATEWAY_PORT || 8080);
 
 /**
- * Hono API 路由定义 (提供全栈 RPC 类型安全契约 GatewayAppType)
+ * Hono API 路由定义 (提供全栈 RPC 类型安全契约 GatewayAppType 与统一错误拦截闭环)
  */
 export const app = new Hono()
   .use(
@@ -39,6 +41,19 @@ export const app = new Hono()
       allowHeaders: ['Content-Type', 'Authorization'],
     })
   )
+  // 全局异常拦截兜底过滤器
+  .onError((err, c) => {
+    console.error('[Gateway Hono onError]', err);
+    return formatBusinessErrorResponse(c, err, 'HONO_UNCAUGHT');
+  })
+  // 404 资源未找到统一友好响应
+  .notFound((c) => {
+    return formatBusinessErrorResponse(
+      c,
+      new BusinessError('E_NOT_FOUND', '请求的 API 资源不存在或已被迁移。', 'LEARNER_STATE'),
+      'HONO_NOT_FOUND'
+    );
+  })
   .get('/health', (c) =>
     c.json({
       status: 'ok',
@@ -60,7 +75,7 @@ export const app = new Hono()
     const userId = c.req.param('userId');
     const res = await drizzleRepo.getProfileSnapshot(userId);
     if (isOk(res)) return c.json(res.value);
-    return c.json({ error: res.error }, 400);
+    return formatBusinessErrorResponse(c, res.error);
   })
   .post(
     '/api/profile/:userId',
@@ -71,9 +86,9 @@ export const app = new Hono()
         const body = c.req.valid('json');
         const res = await drizzleRepo.updateLearnerProfile(userId, body);
         if (isOk(res)) return c.json(res.value);
-        return c.json({ error: res.error }, 400);
+        return formatBusinessErrorResponse(c, res.error);
       } catch (e: any) {
-        return c.json({ error: e?.message || 'Invalid JSON' }, 400);
+        return formatBusinessErrorResponse(c, e, 'updateLearnerProfile');
       }
     }
   )
@@ -83,7 +98,7 @@ export const app = new Hono()
     const date = c.req.query('date') || undefined;
     const res = await drizzleRepo.getDailyTaskProgress(userId, date);
     if (isOk(res)) return c.json(res.value);
-    return c.json({ error: res.error }, 400);
+    return formatBusinessErrorResponse(c, res.error);
   })
   .post(
     '/api/task/activity/:userId',
@@ -100,9 +115,9 @@ export const app = new Hono()
         const body = c.req.valid('json');
         const res = await drizzleRepo.recordDailyActivity(userId, body);
         if (isOk(res)) return c.json(res.value);
-        return c.json({ error: res.error }, 400);
+        return formatBusinessErrorResponse(c, res.error);
       } catch (e: any) {
-        return c.json({ error: e?.message || 'Invalid JSON' }, 400);
+        return formatBusinessErrorResponse(c, e, 'recordDailyActivity');
       }
     }
   )
@@ -111,7 +126,7 @@ export const app = new Hono()
     const userId = c.req.param('userId');
     const res = await drizzleRepo.getDueCards(userId);
     if (isOk(res)) return c.json(res.value);
-    return c.json({ error: res.error }, 400);
+    return formatBusinessErrorResponse(c, res.error);
   })
   .post(
     '/api/cards/:userId',
@@ -125,7 +140,7 @@ export const app = new Hono()
         }
         return c.json({ success: true, count: cardsToSave.length });
       } catch (e: any) {
-        return c.json({ error: e?.message || 'Invalid JSON' }, 400);
+        return formatBusinessErrorResponse(c, e, 'saveCards');
       }
     }
   )
@@ -134,7 +149,7 @@ export const app = new Hono()
     const userId = c.req.param('userId');
     const res = await drizzleRepo.getMistakes(userId);
     if (isOk(res)) return c.json(res.value);
-    return c.json({ error: res.error }, 400);
+    return formatBusinessErrorResponse(c, res.error);
   })
   .post(
     '/api/mistakes/:userId',
@@ -144,9 +159,9 @@ export const app = new Hono()
         const body = c.req.valid('json');
         const res = await drizzleRepo.saveMistake(body as any);
         if (isOk(res)) return c.json({ success: true });
-        return c.json({ error: res.error }, 400);
+        return formatBusinessErrorResponse(c, res.error);
       } catch (e: any) {
-        return c.json({ error: e?.message || 'Invalid JSON' }, 400);
+        return formatBusinessErrorResponse(c, e, 'saveMistake');
       }
     }
   )
@@ -154,7 +169,7 @@ export const app = new Hono()
     const mistakeId = c.req.param('mistakeId');
     const res = await drizzleRepo.resolveMistake(mistakeId);
     if (isOk(res)) return c.json({ success: true, mistakeId });
-    return c.json({ error: res.error }, 400);
+    return formatBusinessErrorResponse(c, res.error);
   })
   // 5. AI 自适应靶向弱项出题
   .get('/api/questions/:userId', async (c) => {
@@ -168,6 +183,7 @@ export const app = new Hono()
       if (isOk(toolRes)) {
         return c.json(((toolRes.value as any).questions ?? []) as any[]);
       }
+      return formatBusinessErrorResponse(c, toolRes.error);
     }
     return c.json([]);
   });
@@ -210,13 +226,36 @@ export function startGatewayServer(port = PORT) {
               id: generateId('err'),
               sessionId: envelope.sessionId,
               type: WsEventTypes.AGENT_ERROR,
-              payload: { error: res.error },
+              payload: {
+                error: {
+                  code: res.error.code,
+                  userMessage: res.error.userMessage,
+                  category: res.error.category,
+                  retryable: res.error.retryable,
+                },
+              },
               timestamp: Date.now(),
             };
             ws.send(JSON.stringify(errorEnvelope));
           }
         } catch (e) {
           console.error('[Gateway WS] Failed to process message:', e);
+          const errorEnvelope: WsEnvelope = {
+            version: '1.0',
+            id: generateId('err'),
+            sessionId: 'ws_err',
+            type: WsEventTypes.AGENT_ERROR,
+            payload: {
+              error: {
+                code: 'E_WS_INTERNAL',
+                userMessage: '系统通信遇到了微小波动，正在自动恢复…',
+                category: 'NETWORK',
+                retryable: true,
+              },
+            },
+            timestamp: Date.now(),
+          };
+          ws.send(JSON.stringify(errorEnvelope));
         }
       },
       close(ws) {
