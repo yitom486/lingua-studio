@@ -107,9 +107,10 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
 };
 
 export function normalizeTrackLanguage(lang: string | undefined | null): TrackLanguage {
-  if (lang === 'en') return 'en';
-  if (lang === 'ko') return 'ko';
-  return 'ja';
+  if (lang === 'ja' || lang === 'jp') return 'ja';
+  if (lang === 'ko' || lang === 'kr') return 'ko';
+  // 产品初期默认英语轨道
+  return 'en';
 }
 
 export function getLearningShellConfig(track: string | undefined | null): LearningShellConfig {

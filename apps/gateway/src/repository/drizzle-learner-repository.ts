@@ -47,7 +47,9 @@ import {
   curriculumKana,
   quizQuestions,
   INITIAL_CARD_SEEDS,
+  INITIAL_EN_CARD_SEEDS,
   INITIAL_SKILL_METRIC_SEEDS,
+  learningContentTemplates,
 } from '../db/index.js';
 
 export type TrackLanguage = 'ja' | 'en' | 'ko';
@@ -782,16 +784,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .from(skillMetrics)
         .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.language, language)));
 
-      // 仅在未指定语言重载且当前语言无指标时，允许提取已有指标（兼容单项练习测试用户）
-      if (rows.length === 0 && !langOverride) {
-        const anyRows = await this.db
-          .select()
-          .from(skillMetrics)
-          .where(eq(skillMetrics.userId, userId));
-        if (anyRows.length > 0) {
-          rows = anyRows;
-        }
-      }
+      // 严禁跨语种回退：英语轨道空雷达应显示空态，不得混入日语 jp.* 指标
 
       const allMetrics: SkillMetric[] = rows.map((r) => ({
         id: r.skillId,
@@ -912,8 +905,10 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
         .limit(limit);
 
-      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user') && language === 'ja') {
-        for (const c of INITIAL_CARD_SEEDS) {
+      const demoUser = userId === 'student_web_01' || userId === 'default_user';
+      if (rows.length === 0 && demoUser && (language === 'ja' || language === 'en')) {
+        const seeds = language === 'en' ? INITIAL_EN_CARD_SEEDS : INITIAL_CARD_SEEDS;
+        for (const c of seeds) {
           const fsrsObj = {
             stability: c.stability,
             difficulty: 5.0,
@@ -929,7 +924,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           await this.db.insert(flashcards).values({
             id: c.id,
             userId,
-            language: 'ja',
+            language,
             type: c.type,
             front: c.front,
             back: c.back,
@@ -942,7 +937,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         rows = await this.db
           .select()
           .from(flashcards)
-          .where(and(eq(flashcards.userId, userId), eq(flashcards.language, 'ja')))
+          .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
           .limit(limit);
       }
 
@@ -1734,6 +1729,88 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           category: 'DATABASE',
           action: 'getCurriculumKana',
           entityId: type ?? 'ALL',
+        })
+      );
+    }
+  }
+
+  /**
+   * 读取 learning.content 内容模板（按 action / language / skill / format 过滤）
+   */
+  public async listContentTemplates(options: {
+    action: string;
+    language: string;
+    skillId?: string | undefined;
+    format?: string | undefined;
+    genre?: string | undefined;
+    limit?: number | undefined;
+  }): Promise<
+    Result<
+      Array<{
+        id: string;
+        language: string;
+        action: string;
+        format: string | null;
+        skillId: string | null;
+        difficulty: number;
+        topic: string | null;
+        genre: string | null;
+        sortOrder: number;
+        payload: Record<string, unknown>;
+      }>,
+      BusinessError
+    >
+  > {
+    try {
+      const language = normalizeTrackLanguage(options.language);
+      let rows = await this.db
+        .select()
+        .from(learningContentTemplates)
+        .where(
+          and(
+            eq(learningContentTemplates.action, options.action),
+            eq(learningContentTemplates.language, language)
+          )
+        )
+        .orderBy(asc(learningContentTemplates.sortOrder));
+
+      if (options.format) {
+        rows = rows.filter((r) => r.format === options.format);
+      }
+      if (options.genre) {
+        const byGenre = rows.filter((r) => r.genre === options.genre);
+        if (byGenre.length > 0) rows = byGenre;
+      }
+      if (options.skillId) {
+        const bySkill = rows.filter((r) => r.skillId === options.skillId);
+        if (bySkill.length > 0) {
+          rows = bySkill;
+        } else if (options.skillId.includes('particle')) {
+          const particleRows = rows.filter((r) => r.skillId?.includes('particle'));
+          if (particleRows.length > 0) rows = particleRows;
+        }
+      }
+
+      const mapped = rows.map((r) => ({
+        id: r.id,
+        language: r.language,
+        action: r.action,
+        format: r.format,
+        skillId: r.skillId,
+        difficulty: r.difficulty,
+        topic: r.topic,
+        genre: r.genre,
+        sortOrder: r.sortOrder,
+        payload: JSON.parse(r.payload) as Record<string, unknown>,
+      }));
+
+      return ok(options.limit ? mapped.slice(0, options.limit) : mapped);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'listContentTemplates',
+          entityId: options.action,
         })
       );
     }

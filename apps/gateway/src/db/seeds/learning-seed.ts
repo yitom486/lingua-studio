@@ -91,6 +91,38 @@ export const INITIAL_CARD_SEEDS: CardSeed[] = [
 ];
 
 /**
+ * 官方精选出厂英语 FSRS 示范卡片（六级/考研核心范例）
+ */
+export const INITIAL_EN_CARD_SEEDS: CardSeed[] = [
+  {
+    id: 'card_en_01',
+    type: 'VOCAB',
+    front: 'ambiguity',
+    phonetic: '/ˌæmbɪˈɡjuːəti/',
+    back: 'n. 模棱两可、歧义、含糊不清',
+    tags: ['考研英语', '核心词汇'],
+    exampleJp: 'There is some ambiguity in the contract regarding the exact delivery deadline.',
+    exampleHighlight: 'ambiguity',
+    exampleZh: '合同中关于确切交货截止日期的条款存在一定歧义。',
+    stability: 1.0,
+    reps: 0,
+  },
+  {
+    id: 'card_en_02',
+    type: 'VOCAB',
+    front: 'subtle',
+    phonetic: '/ˈsʌt(ə)l/',
+    back: 'adj. 微妙的、细微的、敏锐的',
+    tags: ['六级高频', '核心形容词'],
+    exampleJp: 'There are subtle differences between the two theories that only experts can identify.',
+    exampleHighlight: 'subtle',
+    exampleZh: '这两种理论之间存在只有专家才能识别的细微差异。',
+    stability: 1.0,
+    reps: 0,
+  },
+];
+
+/**
  * 官方精选自适应题库示范题（克制保留 2 道标准示范题供学员开启练习）
  */
 export const INITIAL_QUESTION_SEEDS: QuestionSeed[] = [
@@ -127,6 +159,42 @@ export const INITIAL_QUESTION_SEEDS: QuestionSeed[] = [
 ];
 
 /**
+ * 官方精选英语自适应题库示范题（考研/六级核心语法）
+ */
+export const INITIAL_EN_QUESTION_SEEDS: QuestionSeed[] = [
+  {
+    id: 'q_en_01',
+    type: 'CHOICE',
+    category: '虚拟语气',
+    prompt: '选择最恰当的动词形式填入括号（虚拟语气）：',
+    content: 'The committee insisted that the new safety regulations ( ) into effect immediately.',
+    options: [
+      { key: 'A', text: 'be put', note: '虚拟语气 (should) + 动词原形' },
+      { key: 'B', text: 'were put', note: '一般过去时' },
+      { key: 'C', text: 'are put', note: '一般现在时' },
+      { key: 'D', text: 'have been put', note: '现在完成时' },
+    ],
+    correctAnswer: 'A',
+    explanation:
+      '动词 insist 表示“坚决主张/要求”时，其后宾语从句必须使用虚拟语气结构 (should) + 动词原形，此处为被动语态，故用 (should) be put。',
+    testedSkillId: 'en.grammar.subjunctive',
+    difficulty: 3,
+  },
+  {
+    id: 'q_en_02',
+    type: 'FILL_BLANK',
+    category: '部分倒装',
+    prompt: '将否定副词 Not only 置于句首，填入助动词与主语构成倒装：',
+    content: 'Not only ( ) pass the challenging exam, but he also achieved the highest score in the province.',
+    correctAnswer: 'did he',
+    explanation:
+      'Not only ... but also ... 结构中，Not only 置于句首时前句必须使用部分倒装；由后半句 achieved 可知时态为一般过去时，助动词用 did，故为 did he。',
+    testedSkillId: 'en.grammar.inversion',
+    difficulty: 3,
+  },
+];
+
+/**
  * 错题记录：新用户出厂默认零错题，待学员真实作答触发记录
  */
 export const INITIAL_MISTAKE_SEEDS: MistakeSeed[] = [];
@@ -135,3 +203,4 @@ export const INITIAL_MISTAKE_SEEDS: MistakeSeed[] = [];
  * 技能画像指标：新用户出厂初始为空，完成自适应做题后动态生成专属真实评测
  */
 export const INITIAL_SKILL_METRIC_SEEDS: SkillMetricSeed[] = [];
+

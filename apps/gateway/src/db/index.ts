@@ -5,20 +5,26 @@ import { KANA_SEEDS } from './seeds/kana-seed.js';
 import { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
 import {
   INITIAL_CARD_SEEDS,
+  INITIAL_EN_CARD_SEEDS,
   INITIAL_QUESTION_SEEDS,
+  INITIAL_EN_QUESTION_SEEDS,
   INITIAL_MISTAKE_SEEDS,
   INITIAL_SKILL_METRIC_SEEDS,
 } from './seeds/learning-seed.js';
+import { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
 
 export * from './schema.js';
 export { KANA_SEEDS } from './seeds/kana-seed.js';
 export { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
 export {
   INITIAL_CARD_SEEDS,
+  INITIAL_EN_CARD_SEEDS,
   INITIAL_QUESTION_SEEDS,
+  INITIAL_EN_QUESTION_SEEDS,
   INITIAL_MISTAKE_SEEDS,
   INITIAL_SKILL_METRIC_SEEDS,
 } from './seeds/learning-seed.js';
+export { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
 
 
 export type DrizzleDb = BunSQLiteDatabase<typeof schema>;
@@ -263,6 +269,23 @@ export function initSchema(sqlite: Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_practice_items_collection ON practice_items(collection_id, sort_order);
+
+    CREATE TABLE IF NOT EXISTS learning_content_templates (
+      id TEXT PRIMARY KEY,
+      language TEXT NOT NULL,
+      action TEXT NOT NULL,
+      format TEXT,
+      skill_id TEXT,
+      difficulty INTEGER NOT NULL DEFAULT 2,
+      topic TEXT,
+      genre TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_templates_action_lang
+      ON learning_content_templates(action, language, sort_order);
     CREATE INDEX IF NOT EXISTS idx_practice_items_user ON practice_items(user_id, collected_at);
   `);
 
@@ -392,17 +415,18 @@ export function initSchema(sqlite: Database): void {
       console.warn('[initSchema] Failed to auto-seed reading passages:', e);
     }
 
-    // 3. 自动填充 FSRS 闪卡初始种子（若空）
+    // 3. 自动填充 FSRS 闪卡初始种子（按语种分仓）
     try {
-      const cardCountRow = sqlite
-        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM flashcards')
+      const now = new Date().toISOString();
+      const insertCardStmt = sqlite.prepare(`
+        INSERT INTO flashcards (id, user_id, language, type, front, back, phonetic, audio_url, tags, fsrs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const jaCardCount = sqlite
+        .query<{ count: number }, []>("SELECT COUNT(*) as count FROM flashcards WHERE language = 'ja'")
         .get();
-      if (!cardCountRow || cardCountRow.count === 0) {
-        const now = new Date().toISOString();
-        const insertCardStmt = sqlite.prepare(`
-          INSERT INTO flashcards (id, user_id, language, type, front, back, phonetic, audio_url, tags, fsrs)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
+      if (!jaCardCount || jaCardCount.count === 0) {
         for (const c of INITIAL_CARD_SEEDS) {
           const fsrsObj = {
             stability: c.stability,
@@ -430,26 +454,83 @@ export function initSchema(sqlite: Database): void {
           );
         }
       }
+
+      const enCardCount = sqlite
+        .query<{ count: number }, []>("SELECT COUNT(*) as count FROM flashcards WHERE language = 'en'")
+        .get();
+      if (!enCardCount || enCardCount.count === 0) {
+        for (const c of INITIAL_EN_CARD_SEEDS) {
+          const fsrsObj = {
+            stability: c.stability,
+            difficulty: 5.0,
+            reps: c.reps,
+            lapses: 0,
+            dueAt: now,
+            state: c.reps > 0 ? 'REVIEW' : 'NEW',
+          };
+          const tags = [...c.tags];
+          if (c.exampleJp) tags.push(c.exampleJp);
+          if (c.exampleZh) tags.push(c.exampleZh);
+
+          insertCardStmt.run(
+            c.id,
+            'student_web_01',
+            'en',
+            c.type,
+            c.front,
+            c.back,
+            c.phonetic ?? null,
+            c.audioUrl ?? null,
+            JSON.stringify(tags),
+            JSON.stringify(fsrsObj)
+          );
+        }
+      }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed flashcards:', e);
     }
 
-    // 4. 自动填充初始测评与自适应题库（若空）
+    // 4. 自动填充初始测评与自适应题库（按语种分仓）
     try {
-      const qCountRow = sqlite
-        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM quiz_questions')
+      const now = new Date().toISOString();
+      const insertQStmt = sqlite.prepare(`
+        INSERT INTO quiz_questions (id, user_id, language, type, category, prompt, content, options, chunks, correct_answer, explanation, tested_skill_id, difficulty, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const jaQCount = sqlite
+        .query<{ count: number }, []>("SELECT COUNT(*) as count FROM quiz_questions WHERE language = 'ja'")
         .get();
-      if (!qCountRow || qCountRow.count === 0) {
-        const now = new Date().toISOString();
-        const insertQStmt = sqlite.prepare(`
-          INSERT INTO quiz_questions (id, user_id, language, type, category, prompt, content, options, chunks, correct_answer, explanation, tested_skill_id, difficulty, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
+      if (!jaQCount || jaQCount.count === 0) {
         for (const q of INITIAL_QUESTION_SEEDS) {
           insertQStmt.run(
             q.id,
             'student_web_01',
             'ja',
+            q.type,
+            q.category,
+            q.prompt,
+            q.content,
+            q.options ? JSON.stringify(q.options) : null,
+            q.chunks ? JSON.stringify(q.chunks) : null,
+            q.correctAnswer,
+            q.explanation,
+            q.testedSkillId,
+            q.difficulty,
+            now
+          );
+        }
+      }
+
+      const enQCount = sqlite
+        .query<{ count: number }, []>("SELECT COUNT(*) as count FROM quiz_questions WHERE language = 'en'")
+        .get();
+      if (!enQCount || enQCount.count === 0) {
+        for (const q of INITIAL_EN_QUESTION_SEEDS) {
+          insertQStmt.run(
+            q.id,
+            'student_web_01',
+            'en',
             q.type,
             q.category,
             q.prompt,
@@ -551,5 +632,37 @@ export function initSchema(sqlite: Database): void {
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed skill_metrics:', e);
+    }
+
+    // 7. learning.content 内容模板库（工具离线兜底 SSOT）
+    try {
+      const tplCount = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM learning_content_templates')
+        .get();
+      if (!tplCount || tplCount.count === 0) {
+        const now = new Date().toISOString();
+        const insertTpl = sqlite.prepare(`
+          INSERT INTO learning_content_templates
+            (id, language, action, format, skill_id, difficulty, topic, genre, sort_order, payload, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const t of LEARNING_CONTENT_TEMPLATE_SEEDS) {
+          insertTpl.run(
+            t.id,
+            t.language,
+            t.action,
+            t.format ?? null,
+            t.skillId ?? null,
+            t.difficulty,
+            t.topic ?? null,
+            t.genre ?? null,
+            t.sortOrder,
+            JSON.stringify(t.payload),
+            now
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed learning_content_templates:', e);
     }
   }

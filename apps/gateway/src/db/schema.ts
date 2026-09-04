@@ -285,3 +285,30 @@ export const practiceItems = sqliteTable('practice_items', {
   sortOrder: integer('sort_order').notNull().default(0),
   collectedAt: text('collected_at').notNull(),
 });
+
+/**
+ * learning.content 离线/冷启动内容模板库（工具运行时只读，不在 TS 内硬编码题干）
+ */
+export const learningContentTemplates = sqliteTable(
+  'learning_content_templates',
+  {
+    id: text('id').primaryKey(),
+    language: text('language').notNull(),
+    action: text('action').notNull(),
+    format: text('format'),
+    skillId: text('skill_id'),
+    difficulty: integer('difficulty').notNull().default(2),
+    topic: text('topic'),
+    genre: text('genre'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    payload: text('payload').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    actionLangIdx: index('idx_content_templates_action_lang').on(
+      table.action,
+      table.language,
+      table.sortOrder
+    ),
+  })
+);
