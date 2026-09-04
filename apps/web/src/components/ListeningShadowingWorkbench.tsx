@@ -115,6 +115,14 @@ const DICTATION_CHALLENGES: DictationItem[] = [
 import { useTts } from '../hooks/useTts.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select.js';
+import { BorderBeam } from './magicui/index.js';
 import type { SupportedLanguage, TtsGender } from '../utils/audio.js';
 
 export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchProps> = ({
@@ -339,24 +347,28 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
           <div className="flex flex-wrap items-center justify-between gap-3 bg-[#fdfcfb] dark:bg-[#181615] p-3.5 rounded-xl border border-amber-900/10 dark:border-amber-500/15 text-xs">
             <div className="flex items-center gap-2">
               <span className="text-stone-500 font-medium">当前教材篇目：</span>
-              <select
+              <Select
                 value={selectedLessonId}
-                onChange={(e) => {
+                onValueChange={(value) => {
+                  if (!value) return;
                   sound.playClick();
                   stop();
                   setShadowStep('IDLE');
-                  setSelectedLessonId(e.target.value);
+                  setSelectedLessonId(value);
                   setSentenceIndex(0);
                 }}
-                aria-label="选择教材篇目"
-                className="bg-white dark:bg-[#211f1d] border border-amber-900/20 dark:border-amber-500/20 text-stone-900 dark:text-stone-100 rounded-lg px-2.5 py-1.5 font-medium outline-none focus:ring-1 focus:ring-amber-500"
               >
-                {allLessons.map((item) => (
-                  <option key={item.lesson.id} value={item.lesson.id}>
-                    《{item.bookTitle}》第 {item.lesson.lessonNumber} 课 · {item.lesson.title} ({item.lesson.targetLevel})
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-[280px] sm:w-[320px]">
+                  <SelectValue placeholder="选择教材篇目" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allLessons.map((item) => (
+                    <SelectItem key={item.lesson.id} value={item.lesson.id}>
+                      《{item.bookTitle}》第 {item.lesson.lessonNumber} 课 · {item.lesson.title} ({item.lesson.targetLevel})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* 辅助工具栏：音色性别 + 语速 + 假名显示 + 纯盲听遮罩 */}
@@ -438,6 +450,13 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
               animate={{ opacity: 1, scale: 1 }}
               className="p-6 sm:p-8 rounded-2xl bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6 relative overflow-hidden"
             >
+              {/* Magic UI 流光边框增强：发音与跟读反馈 */}
+              {shadowStep === 'SHADOWING' && (
+                <BorderBeam size={220} duration={6} colorFrom="#10b981" colorTo="#f59e0b" />
+              )}
+              {shadowStep === 'LISTENING' && (
+                <BorderBeam size={180} duration={8} colorFrom="#f59e0b" colorTo="#0ea5e9" />
+              )}
               {/* 顶部说话者与进度 */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
