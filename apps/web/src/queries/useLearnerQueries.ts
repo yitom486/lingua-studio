@@ -25,6 +25,8 @@ export const QUERY_KEYS = {
   MISTAKES: ['learner', 'mistakes'] as const,
   QUESTIONS: ['learner', 'questions'] as const,
   CARDS: ['learner', 'cards'] as const,
+  PRACTICE_COLLECTIONS: ['learner', 'practiceCollections'] as const,
+  PRACTICE_ITEMS: ['learner', 'practiceItems'] as const,
   DAILY_TASK: ['learner', 'dailyTask'] as const,
   ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
 };
@@ -653,6 +655,84 @@ export function useAnnotationToCardMutation(userId = DEFAULT_USER_ID) {
       queryClient.invalidateQueries({
         queryKey: [...QUERY_KEYS.ANNOTATIONS, userId, variables.documentId],
       });
+    },
+  });
+}
+
+/** 练习队列集合列表（≠ FSRS 卡） */
+export function usePracticeCollectionsQuery(userId = DEFAULT_USER_ID) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(profileLang);
+  return useQuery({
+    queryKey: [...QUERY_KEYS.PRACTICE_COLLECTIONS, userId, targetLanguage],
+    queryFn: async () => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/practice/collections/${userId}?lang=${targetLanguage}`
+      );
+      if (!res.ok) throw new Error('加载练习队列失败');
+      return (await res.json()) as Array<{
+        id: string;
+        title: string;
+        intent: string;
+        createdAt: string;
+      }>;
+    },
+  });
+}
+
+/** 某集合下的练习条目 */
+export function usePracticeItemsQuery(collectionId: string | null, userId = DEFAULT_USER_ID) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(profileLang);
+  return useQuery({
+    queryKey: [...QUERY_KEYS.PRACTICE_ITEMS, userId, collectionId, targetLanguage],
+    enabled: Boolean(collectionId),
+    queryFn: async () => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/practice/collections/${userId}/${collectionId}/items`
+      );
+      if (!res.ok) throw new Error('加载练习条目失败');
+      return (await res.json()) as Array<{
+        id: string;
+        collectionId: string;
+        question: {
+          prompt: string;
+          content: string;
+          correctAnswer: string;
+          explanation: string;
+          testedSkillId: string;
+        };
+        skillIds: string[];
+        sortOrder: number;
+      }>;
+    },
+  });
+}
+
+/** 勾选练习条目 → 显式转入 FSRS */
+export function usePracticeItemsToCardsMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (itemIds: string[]) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/items/${userId}/to-cards`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemIds }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { userMessage?: string } | null;
+        throw new Error(body?.userMessage || '转入复习失败');
+      }
+      return (await res.json()) as {
+        createdCount: number;
+        cardIds: string[];
+        skippedItemIds: string[];
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PRACTICE_COLLECTIONS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PRACTICE_ITEMS });
     },
   });
 }

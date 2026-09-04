@@ -13,6 +13,7 @@ import { trackToSpeechLang } from '../data/tts-voice-personas.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
 import type { StudyCardItem } from '../data/learning-data.js';
 
 interface FsrsCardWorkbenchProps {
@@ -89,6 +90,8 @@ export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchPr
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col gap-5 max-w-2xl"
     >
+      <PracticeQueueToCardsPanel />
+
       <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 gap-3">
         <span>
           当前卡片: {filteredCards.length ? currentCardIndex + 1 : 0} / {filteredCards.length}

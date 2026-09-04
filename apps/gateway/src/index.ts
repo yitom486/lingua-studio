@@ -168,6 +168,38 @@ export const app = new Hono()
       }
     }
   )
+  // 3b. 练习队列浏览与勾选转入 FSRS（collect ≠ 自动建卡）
+  .get('/api/practice/collections/:userId', async (c) => {
+    const userId = c.req.param('userId');
+    const res = await drizzleRepo.listPracticeCollections(userId);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .get('/api/practice/collections/:userId/:collectionId/items', async (c) => {
+    const userId = c.req.param('userId');
+    const collectionId = c.req.param('collectionId');
+    const res = await drizzleRepo.listPracticeItems(userId, collectionId);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .post(
+    '/api/practice/items/:userId/to-cards',
+    validator('json', (value) => value as { itemIds?: string[] }),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json');
+        const itemIds = Array.isArray(body.itemIds)
+          ? body.itemIds.map((id) => String(id))
+          : [];
+        const res = await drizzleRepo.convertPracticeItemsToCards(userId, itemIds);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'convertPracticeItemsToCards');
+      }
+    }
+  )
   // 4. 错题本存取与消除
   .get('/api/mistakes/:userId', async (c) => {
     const userId = c.req.param('userId');

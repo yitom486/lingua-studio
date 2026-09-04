@@ -2222,15 +2222,20 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         .limit(limit);
 
       return ok(
-        rows.map((r) => ({
-          id: r.id,
-          userId: r.userId,
-          title: r.title,
-          intent: r.intent,
-          layoutHint: (r.layoutHint as PracticeCollection['layoutHint']) ?? undefined,
-          sourceRef: r.sourceRef ?? undefined,
-          createdAt: r.createdAt,
-        }))
+        rows.map((r) => {
+          const col: PracticeCollection = {
+            id: r.id,
+            userId: r.userId,
+            title: r.title,
+            intent: r.intent,
+            createdAt: r.createdAt,
+          };
+          if (r.layoutHint) {
+            col.layoutHint = r.layoutHint as PracticeCollection['layoutHint'];
+          }
+          if (r.sourceRef) col.sourceRef = r.sourceRef;
+          return col;
+        })
       );
     } catch (error) {
       return err(
@@ -2256,19 +2261,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         )
         .orderBy(asc(practiceItems.sortOrder));
 
-      return ok(
-        rows.map((r) => ({
-          id: r.id,
-          userId: r.userId,
-          collectionId: r.collectionId,
-          question: JSON.parse(r.questionJson) as GeneratedQuestion,
-          skillIds: r.skillIds ? (JSON.parse(r.skillIds) as string[]) : [],
-          sourceRef: r.sourceRef ?? undefined,
-          passageDocumentId: r.passageDocumentId ?? undefined,
-          sortOrder: r.sortOrder,
-          collectedAt: r.collectedAt,
-        }))
-      );
+      return ok(rows.map((r) => this.mapPracticeItemRow(r)));
     } catch (error) {
       return err(
         translateToBusinessError(error, {
@@ -2278,6 +2271,109 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         })
       );
     }
+  }
+
+  /**
+   * 用户勾选练习队列条目 → 显式写入 FSRS 闪卡（collect 本身不建卡）
+   */
+  public async convertPracticeItemsToCards(
+    userId: string,
+    itemIds: string[]
+  ): Promise<
+    Result<{ createdCount: number; cardIds: string[]; skippedItemIds: string[] }, BusinessError>
+  > {
+    try {
+      const uniqueIds = [...new Set(itemIds.map((id) => id.trim()).filter(Boolean))];
+      if (uniqueIds.length === 0) {
+        return err(
+          new BusinessError('E_INVALID_INPUT', '请至少勾选一条练习队列条目再转入复习。', 'VALIDATION')
+        );
+      }
+      if (uniqueIds.length > 50) {
+        return err(
+          new BusinessError('E_INVALID_INPUT', '单次最多转入 50 张闪卡。', 'VALIDATION')
+        );
+      }
+
+      const rows = await this.db
+        .select()
+        .from(practiceItems)
+        .where(and(eq(practiceItems.userId, userId), inArray(practiceItems.id, uniqueIds)));
+
+      const found = new Set(rows.map((r) => r.id));
+      const skippedItemIds = uniqueIds.filter((id) => !found.has(id));
+      const cardIds: string[] = [];
+
+      for (const row of rows) {
+        const item = this.mapPracticeItemRow(row);
+        const card = this.practiceItemToFlashcard(item);
+        const saveRes = await this.saveCard(card);
+        if (!isOk(saveRes)) {
+          return saveRes;
+        }
+        cardIds.push(card.id);
+      }
+
+      return ok({
+        createdCount: cardIds.length,
+        cardIds,
+        skippedItemIds,
+      });
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'convertPracticeItemsToCards',
+          entityId: userId,
+        })
+      );
+    }
+  }
+
+  private mapPracticeItemRow(r: typeof practiceItems.$inferSelect): PracticeItem {
+    const item: PracticeItem = {
+      id: r.id,
+      userId: r.userId,
+      collectionId: r.collectionId,
+      question: JSON.parse(r.questionJson) as GeneratedQuestion,
+      skillIds: r.skillIds ? (JSON.parse(r.skillIds) as string[]) : [],
+      sortOrder: r.sortOrder,
+      collectedAt: r.collectedAt,
+    };
+    if (r.sourceRef) item.sourceRef = r.sourceRef;
+    if (r.passageDocumentId) item.passageDocumentId = r.passageDocumentId;
+    return item;
+  }
+
+  private practiceItemToFlashcard(item: PracticeItem): Flashcard {
+    const q = item.question;
+    const front = (q.content?.trim() || q.prompt).trim().slice(0, 240);
+    const backParts = [
+      q.correctAnswer ? `答案：${q.correctAnswer}` : '',
+      q.explanation?.trim() || '',
+    ].filter(Boolean);
+    const back = (backParts.join('\n') || q.prompt).slice(0, 800);
+    const tags = [
+      '练习队列',
+      ...(item.skillIds.length > 0 ? item.skillIds.slice(0, 3) : [q.testedSkillId || 'review']),
+    ].filter(Boolean);
+
+    return {
+      id: generateId('card_pq'),
+      userId: item.userId,
+      type: 'VOCABULARY',
+      front,
+      back,
+      tags,
+      fsrs: {
+        stability: 1.0,
+        difficulty: 5.0,
+        reps: 0,
+        lapses: 0,
+        dueAt: nowIso(),
+        state: 'NEW',
+      },
+    };
   }
 }
 

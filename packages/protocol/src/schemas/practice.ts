@@ -42,3 +42,20 @@ export const CreatePracticeCollectionInputSchema = z.object({
 export type CreatePracticeCollectionInput = z.infer<
   typeof CreatePracticeCollectionInputSchema
 >;
+
+/** 用户勾选练习队列条目 → 显式转入 FSRS（≠ collect 自动建卡） */
+export const ConvertPracticeItemsToCardsInputSchema = z.object({
+  itemIds: z.array(z.string().min(1)).min(1).max(50),
+});
+export type ConvertPracticeItemsToCardsInput = z.infer<
+  typeof ConvertPracticeItemsToCardsInputSchema
+>;
+
+export const ConvertPracticeItemsToCardsResultSchema = z.object({
+  createdCount: z.number().int().nonnegative(),
+  cardIds: z.array(z.string()),
+  skippedItemIds: z.array(z.string()).default([]),
+});
+export type ConvertPracticeItemsToCardsResult = z.infer<
+  typeof ConvertPracticeItemsToCardsResultSchema
+>;
