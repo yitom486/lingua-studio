@@ -17,11 +17,13 @@ import {
   HelpCircle,
   Play,
   RotateCcw,
+  Highlighter,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../data/textbook-data.js';
+import { useAnnotationsQuery, useAddAnnotationMutation } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -60,6 +62,10 @@ export function InteractivePdfReader({
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // 划线批注持久化查询与新增
+  const { data: annotationsList = [] } = useAnnotationsQuery(book.id);
+  const addAnnotation = useAddAnnotationMutation();
 
   // 处理文本划选
   const handleMouseUp = (e: React.MouseEvent) => {
@@ -129,6 +135,18 @@ export function InteractivePdfReader({
     );
     setSelectionPopupPosition(null);
     toast.info(`已将选句提交给 AI 导师进行深度解析`);
+  };
+
+  const handleSaveAnnotation = () => {
+    sound.playCorrect();
+    addAnnotation.mutate({
+      documentId: book.id,
+      kind: activeWordDetail ? 'VOCAB' : 'KEY_POINT',
+      quote: selectedText,
+      note: activeWordDetail?.meaning || `课文划线批注: 《${book.shortTitle}》${lesson.title}`,
+    });
+    toast.success(`已沉淀课文重点批注：${selectedText}`);
+    setSelectionPopupPosition(null);
   };
 
 
@@ -206,6 +224,13 @@ export function InteractivePdfReader({
                 <ZoomIn className="w-3.5 h-3.5" />
               </Button>
             </div>
+          )}
+
+          {annotationsList.length > 0 && (
+            <Badge variant="amber" className="text-[11px] gap-1 px-2.5 py-1">
+              <Highlighter className="w-3 h-3" />
+              <span>{annotationsList.length} 条重点批注</span>
+            </Badge>
           )}
 
           <Button
@@ -444,13 +469,22 @@ export function InteractivePdfReader({
                   转为闪卡
                 </Button>
                 <Button
+                  onClick={handleSaveAnnotation}
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1 border-stone-700 text-stone-300 hover:bg-stone-800 text-[11px]"
+                >
+                  <Highlighter className="w-3.5 h-3.5 text-amber-400" />
+                  划线重点
+                </Button>
+                <Button
                   onClick={handleAskTutorForSelection}
                   size="sm"
                   variant="secondary"
                   className="flex-1 h-8 gap-1 bg-stone-800 hover:bg-stone-700 text-[11px] text-amber-300"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  AI 导师深度点拨
+                  导师点拨
                 </Button>
               </div>
             </motion.div>

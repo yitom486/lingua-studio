@@ -110,3 +110,41 @@ export const mistakes = sqliteTable('mistakes', {
   consecutiveCorrect: integer('consecutive_correct').notNull(),
   isResolved: integer('is_resolved', { mode: 'boolean' }).notNull(),
 });
+
+/**
+ * 教材与导入文档表 (Documents)
+ */
+export const documents = sqliteTable('documents', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  title: text('title').notNull(),
+  sourceKind: text('source_kind').notNull(), // 'user_import' | 'system' | 'ai_generated' | 'news'
+  language: text('language').notNull().default('ja'),
+  content: text('content').notNull(),
+  astJson: text('ast_json'),
+  topic: text('topic'),
+  difficulty: integer('difficulty'),
+  sourceUrl: text('source_url'),
+  sourcePublisher: text('source_publisher'),
+  examTag: text('exam_tag'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+/**
+ * 划线批注与重点表 (Annotations)
+ */
+export const annotations = sqliteTable('annotations', {
+  id: text('id').primaryKey(),
+  documentId: text('document_id').notNull(),
+  userId: text('user_id').notNull(),
+  kind: text('kind').notNull(), // 'KEY_POINT' | 'VOCAB' | 'GRAMMAR' | 'EXAM_TRAP' | 'PARAPHRASE'
+  quote: text('quote').notNull(),
+  note: text('note'),
+  startOffset: integer('start_offset').notNull().default(0),
+  endOffset: integer('end_offset').notNull().default(0),
+  createdBy: text('created_by').notNull().default('USER'), // 'USER' | 'AGENT'
+  flashcardId: text('flashcard_id'),
+  createdAt: text('created_at').notNull(),
+});
+

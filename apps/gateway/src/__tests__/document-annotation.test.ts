@@ -1,0 +1,215 @@
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { app } from '../index.js';
+import { isOk, isErr } from '@study-studio/shared';
+import type { DocumentItem, AnnotationItem } from '@study-studio/protocol';
+
+describe('Document & Annotation Repository (Companion Integration)', () => {
+  let repo: DrizzleLearnerRepository;
+  const testUserId = 'test_user_ast_01';
+
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  it('should save and retrieve a textbook AST document', async () => {
+    const doc: DocumentItem = {
+      id: 'doc_shinpen_01',
+      userId: testUserId,
+      title: '新编日语 第一册',
+      sourceKind: 'user_import',
+      language: 'ja',
+      content: '第1課 五十音図と挨拶\nおはようございます。',
+      astJson: JSON.stringify({
+        id: 'shinpen-nihongo-1',
+        title: '新编日语 第一册',
+        lessons: [
+          {
+            id: 'l1',
+            lessonNumber: 1,
+            title: '第1課',
+            vocabularies: [
+              {
+                id: 'v1',
+                kanji: 'おはようございます',
+                kana: 'おはようございます',
+                chinese: '早上好',
+                pos: '寒暄语',
+                pitchAccent: '④',
+              },
+            ],
+            grammarPoints: [],
+            dialogues: [],
+          },
+        ],
+      }),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const saveRes = await repo.saveDocument(doc);
+    expect(isOk(saveRes)).toBe(true);
+
+    const listRes = await repo.listDocuments(testUserId);
+    expect(isOk(listRes)).toBe(true);
+    if (isOk(listRes)) {
+      expect(listRes.value.length).toBe(1);
+      expect(listRes.value[0]!.title).toBe('新编日语 第一册');
+      expect(listRes.value[0]!.astJson).toBeDefined();
+    }
+
+    const getRes = await repo.getDocumentById('doc_shinpen_01');
+    expect(isOk(getRes)).toBe(true);
+    if (isOk(getRes)) {
+      expect(getRes.value?.id).toBe('doc_shinpen_01');
+      expect(getRes.value?.language).toBe('ja');
+    }
+  });
+
+  it('should save an annotation and convert it atomically to a flashcard', async () => {
+    // 1. 先保存文档
+    await repo.saveDocument({
+      id: 'doc_read_01',
+      userId: testUserId,
+      title: '日语精读散文',
+      sourceKind: 'ai_generated',
+      language: 'ja',
+      content: '春の夜の夢の浮橋とだえして、峰にわかるる横雲の空。',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // 2. 划线批注
+    const ann: AnnotationItem = {
+      id: 'ann_test_01',
+      documentId: 'doc_read_01',
+      userId: testUserId,
+      kind: 'VOCAB',
+      quote: '浮桥（うきはし）',
+      note: '比喻虚浮不实的事物或短暂相聚',
+      startOffset: 6,
+      endOffset: 8,
+      createdBy: 'USER',
+      createdAt: new Date().toISOString(),
+    };
+    const annRes = await repo.saveAnnotation(ann);
+    expect(isOk(annRes)).toBe(true);
+
+    const listAnnRes = await repo.listAnnotations('doc_read_01', testUserId);
+    expect(isOk(listAnnRes)).toBe(true);
+    if (isOk(listAnnRes)) {
+      expect(listAnnRes.value.length).toBe(1);
+      expect(listAnnRes.value[0]!.quote).toBe('浮桥（うきはし）');
+    }
+
+    // 3. 一键转化为 FSRS 记忆闪卡
+    const toCardRes = await repo.convertAnnotationToCard('ann_test_01', testUserId, {
+      front: '浮橋（うきはし）',
+      back: '虚幻之桥；浮桥',
+      tag: '古典散文',
+      pos: '名词',
+    });
+    expect(isOk(toCardRes)).toBe(true);
+    if (isOk(toCardRes)) {
+      expect(toCardRes.value.front).toBe('浮橋（うきはし）');
+      expect(toCardRes.value.fsrs.state).toBe('NEW');
+    }
+
+    // 4. 验证批注已回填 flashcardId
+    const updatedAnns = await repo.listAnnotations('doc_read_01', testUserId);
+    if (isOk(updatedAnns)) {
+      expect(updatedAnns.value[0]!.flashcardId).toBeDefined();
+    }
+
+    // 5. 验证闪卡库中已存在该卡片
+    const cardsRes = await repo.getDueCards(testUserId);
+    expect(isOk(cardsRes)).toBe(true);
+    if (isOk(cardsRes)) {
+      expect(cardsRes.value.some((c) => c.front === '浮橋（うきはし）')).toBe(true);
+    }
+  });
+
+  it('should handle deletion of annotations and documents', async () => {
+    await repo.saveDocument({
+      id: 'doc_del_01',
+      userId: testUserId,
+      title: '待删除教材',
+      sourceKind: 'user_import',
+      language: 'ja',
+      content: '测试内容',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await repo.saveAnnotation({
+      id: 'ann_del_01',
+      documentId: 'doc_del_01',
+      userId: testUserId,
+      kind: 'KEY_POINT',
+      quote: '测试内容',
+      startOffset: 0,
+      endOffset: 4,
+      createdBy: 'USER',
+      createdAt: new Date().toISOString(),
+    });
+
+    // 删除批注
+    const delAnnRes = await repo.deleteAnnotation('ann_del_01', testUserId);
+    expect(isOk(delAnnRes)).toBe(true);
+
+    const anns = await repo.listAnnotations('doc_del_01', testUserId);
+    if (isOk(anns)) {
+      expect(anns.value.length).toBe(0);
+    }
+
+    // 删除文档
+    const delDocRes = await repo.deleteDocument('doc_del_01', testUserId);
+    expect(isOk(delDocRes)).toBe(true);
+
+    const doc = await repo.getDocumentById('doc_del_01');
+    if (isOk(doc)) {
+      expect(doc.value).toBeNull();
+    }
+  });
+});
+
+describe('Document & Annotation Hono RPC Routes', () => {
+  const testUserId = 'test_http_user_02';
+
+  it('should post and get document via HTTP endpoints', async () => {
+    const postRes = await app.request(`/api/documents/${testUserId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'doc_http_test_01',
+        title: 'HTTP 测试教材',
+        sourceKind: 'user_import',
+        language: 'ja',
+        content: '第一课课文',
+      }),
+    });
+    expect(postRes.status).toBe(200);
+
+    const getRes = await app.request(`/api/documents/${testUserId}`);
+    expect(getRes.status).toBe(200);
+    const docs = (await getRes.json()) as any[];
+    expect(Array.isArray(docs)).toBe(true);
+    expect(docs.some((d) => d.id === 'doc_http_test_01')).toBe(true);
+  });
+
+  it('should reject invalid annotation input with friendly BusinessError', async () => {
+    const postRes = await app.request(`/api/annotations/${testUserId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        documentId: '', // 空文档 ID
+        quote: '', // 空摘录
+      }),
+    });
+    expect(postRes.status).toBe(400);
+    const body = (await postRes.json()) as any;
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe('E_INVALID_INPUT');
+    expect(body.error.userMessage).toContain('批注必须包含所属文档与划线摘录');
+  });
+});

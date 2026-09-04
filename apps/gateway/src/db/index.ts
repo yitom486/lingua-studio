@@ -123,5 +123,41 @@ export function initSchema(sqlite: Database): void {
       consecutive_correct INTEGER NOT NULL,
       is_resolved INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'ja',
+      content TEXT NOT NULL,
+      ast_json TEXT,
+      topic TEXT,
+      difficulty INTEGER,
+      source_url TEXT,
+      source_publisher TEXT,
+      exam_tag TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id, source_kind);
+
+    CREATE TABLE IF NOT EXISTS annotations (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      quote TEXT NOT NULL,
+      note TEXT,
+      start_offset INTEGER NOT NULL DEFAULT 0,
+      end_offset INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT NOT NULL DEFAULT 'USER',
+      flashcard_id TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_annotations_doc_user ON annotations(document_id, user_id);
   `);
 }
+
