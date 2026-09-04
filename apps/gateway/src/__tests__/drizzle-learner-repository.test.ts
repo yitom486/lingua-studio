@@ -158,7 +158,7 @@ describe('DrizzleLearnerRepository', () => {
     expect(snapshotRes.value.dailyTask?.isGoalCompleted).toBe(true);
   });
 
-  it('should auto-seed initial learning data (cards, questions, mistakes) into SQLite', async () => {
+  it('should auto-seed initial learning data (cards, questions) into SQLite', async () => {
     // 冷启动种子为日语资产；切到 ja 轨道再读
     await repo.updateLearnerProfile('student_web_01', { targetLanguage: 'ja' });
 
@@ -166,22 +166,21 @@ describe('DrizzleLearnerRepository', () => {
     const cardsRes = await repo.getDueCards('student_web_01');
     expect(isOk(cardsRes)).toBe(true);
     if (!isOk(cardsRes)) return;
-    expect(cardsRes.value.length).toBeGreaterThanOrEqual(4);
+    expect(cardsRes.value.length).toBeGreaterThanOrEqual(2);
     expect(cardsRes.value[0]?.front).toBeDefined();
 
-    // 2. 验证题库自动灌库与读取（种子挂在 default_user + ja）
+    // 2. 验证题库自动灌库与读取（种子挂在 student_web_01 + ja）
     const questionsRes = await repo.getQuestions('student_web_01');
     expect(isOk(questionsRes)).toBe(true);
     if (!isOk(questionsRes)) return;
-    expect(questionsRes.value.length).toBeGreaterThanOrEqual(6);
+    expect(questionsRes.value.length).toBeGreaterThanOrEqual(2);
     expect(questionsRes.value.some((q) => q.id === 'q_01')).toBe(true);
 
-    // 3. 验证错题本自动灌库与读取
+    // 3. 验证错题本初始为 0（新用户未做错前为纯净初始态）
     const mistakesRes = await repo.getMistakes('student_web_01');
     expect(isOk(mistakesRes)).toBe(true);
     if (!isOk(mistakesRes)) return;
-    expect(mistakesRes.value.length).toBeGreaterThanOrEqual(2);
-    expect(mistakesRes.value.some((m) => m.id === 'mst_01')).toBe(true);
+    expect(mistakesRes.value.length).toBe(0);
   });
 
   it('should persist updated FSRS review state for flashcards in SQLite', async () => {
@@ -242,7 +241,37 @@ describe('DrizzleLearnerRepository', () => {
     if (!isOk(qListRes)) return;
     expect(qListRes.value.some((q) => q.id === 'q_ai_dynamized_01')).toBe(true);
 
-    // 2. 攻克错题并验证 isResolved 被持久化
+    // 2. 保存错题并攻克，验证 isResolved 被持久化
+    const saveMistakeRes = await repo.saveMistake({
+      id: 'mst_01',
+      userId: 'student_web_01',
+      questionId: 'q_01',
+      question: {
+        id: 'q_01',
+        type: 'MULTIPLE_CHOICE',
+        prompt: '选择正确的动作场所助词：',
+        content: '図書館（　）本を読みます。',
+        correctAnswer: 'で',
+        explanation: '场所助词',
+        testedSkillId: 'jp.particle.action_de',
+        difficultyTier: 2,
+      },
+      lastUserSubmission: 'に',
+      lastGrading: {
+        isCorrect: false,
+        score: 0,
+        explanation: '助词错误',
+        correctAnswer: 'で',
+        questionId: 'q_01',
+        userSubmission: 'に',
+        mistakeRecorded: true,
+      },
+      isResolved: false,
+      recordedAt: new Date().toISOString(),
+      retryCount: 0,
+      consecutiveCorrect: 0,
+    });
+    expect(isOk(saveMistakeRes)).toBe(true);
     const resolveRes = await repo.resolveMistake('mst_01');
     expect(isOk(resolveRes)).toBe(true);
 

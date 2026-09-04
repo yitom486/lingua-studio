@@ -30,6 +30,8 @@ import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { useStudySessionStore, type NavigationTab } from '../stores/useStudySessionStore.js';
+import { useLearningShell } from '../hooks/useLearningShell.js';
+import { findStudyGoalOption } from '../data/learner-profile-options.js';
 import {
   SIDEBAR_AST_SECTION,
   SIDEBAR_AST_TREE,
@@ -165,6 +167,7 @@ function SidebarBody({
 }) {
   const setSidebarCollapsed = usePreferencesStore((s) => s.setSidebarCollapsed);
   const activeTab = useStudySessionStore((s) => s.activeTab);
+  const shell = useLearningShell();
 
   const [openGroups, setOpenGroups] = useState(buildSidebarOpenState);
   const [astOpen, setAstOpen] = useState(buildAstOpenState);
@@ -181,12 +184,36 @@ function SidebarBody({
 
   const groups = useMemo(
     () =>
-      SIDEBAR_NAV_GROUPS.map((group) => ({
-        ...group,
-        items: group.items.map((item) => resolveNavItem(item, runtime)),
-      })),
-    [runtime]
+      SIDEBAR_NAV_GROUPS.map((group) => {
+        const filteredItems = group.items.filter((item) => {
+          if (item.tracks && !item.tracks.includes(shell.track)) return false;
+          return shell.allowedTabs.includes(item.id);
+        });
+        return {
+          ...group,
+          items: filteredItems.map((item) => resolveNavItem(item, runtime)),
+        };
+      }).filter((group) => group.items.length > 0),
+    [runtime, shell.track, shell.allowedTabs]
   );
+
+  const astTree = useMemo(() => {
+    const result: SidebarAstNodeDef[] = [];
+    for (const node of SIDEBAR_AST_TREE) {
+      if (node.tracks && !node.tracks.includes(shell.track)) continue;
+      const filteredChildren = node.children?.filter((child) => {
+        if (child.tracks && !child.tracks.includes(shell.track)) return false;
+        if (child.tab && !shell.allowedTabs.includes(child.tab)) return false;
+        return true;
+      });
+      if (node.children && filteredChildren && filteredChildren.length === 0) continue;
+      result.push({
+        ...node,
+        children: filteredChildren,
+      });
+    }
+    return result;
+  }, [shell.track, shell.allowedTabs]);
 
   const toggleGroup = (id: string) => {
     sound.playClick();
@@ -201,9 +228,18 @@ function SidebarBody({
   const todayTarget = dailyTask.dailyGoalQuizzes + dailyTask.dailyGoalCards;
   const todayPercent = Math.min(100, Math.round((todayCompleted / Math.max(todayTarget, 1)) * 100));
 
+  const goalBadge =
+    userProfile.studyGoal === 'KAOYAN_EN'
+      ? '考研英语'
+      : userProfile.studyGoal === 'CET6'
+      ? '六级 CET-6'
+      : userProfile.studyGoal === 'CET4'
+      ? '四级 CET-4'
+      : userProfile.studyGoal.replace('JLPT_', '');
+
   const profile = {
     displayName: userProfile.displayName || '学习者',
-    levelBadge: userProfile.studyGoal.replace('JLPT_', ''),
+    levelBadge: goalBadge,
     streakDays: userProfile.streakDays,
     todayGoalLabel: dailyTask.isGoalCompleted ? '今日已打卡' : '今日目标进度',
     todayGoalPercent: todayPercent,
@@ -279,7 +315,7 @@ function SidebarBody({
             </button>
           )}
           {(collapsed || openGroups[SIDEBAR_AST_SECTION.id]) &&
-            SIDEBAR_AST_TREE.map((node) => {
+            astTree.map((node) => {
               const NodeIcon = SIDEBAR_ICONS[node.icon];
               const expanded = astOpen[node.id] !== false;
               return (

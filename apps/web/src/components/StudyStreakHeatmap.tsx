@@ -130,7 +130,7 @@ export function StudyStreakHeatmap() {
               </span>
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400">
-              保持每日习惯，记忆衰减率降低 64%
+              保持每日习惯，提升长期记忆留存
             </p>
           </div>
         </div>

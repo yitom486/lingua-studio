@@ -25,7 +25,7 @@ export interface QuizAttemptRecord {
  */
 export interface LearnerRepository {
   // 画像与学情大盘
-  getProfileSnapshot(userId: string): Promise<Result<LearnerProfileSnapshot, BusinessError>>;
+  getProfileSnapshot(userId: string, langOverride?: string): Promise<Result<LearnerProfileSnapshot, BusinessError>>;
   getLearnerProfile(userId: string): Promise<Result<LearnerProfile, BusinessError>>;
   updateLearnerProfile(userId: string, input: Partial<LearnerProfile>): Promise<Result<LearnerProfile, BusinessError>>;
 
@@ -46,11 +46,18 @@ export interface LearnerRepository {
   saveSkillMetric(userId: string, metric: SkillMetric): Promise<Result<void, BusinessError>>;
 
   // FSRS 卡片
-  getDueCards(userId: string, limit?: number): Promise<Result<Flashcard[], BusinessError>>;
+  getDueCards(
+    userId: string,
+    limit?: number,
+    options?: { dueOnly?: boolean; language?: string }
+  ): Promise<Result<Flashcard[], BusinessError>>;
   saveCard(card: Flashcard): Promise<Result<void, BusinessError>>;
 
   // 做题与错题
   recordQuizAttempt(attempt: QuizAttemptRecord): Promise<Result<void, BusinessError>>;
   saveMistake(mistake: MistakeEntry): Promise<Result<void, BusinessError>>;
-  getMistakes(userId: string, filter?: { resolved?: boolean }): Promise<Result<MistakeEntry[], BusinessError>>;
+  getMistakes(
+    userId: string,
+    filter?: { resolved?: boolean; language?: string }
+  ): Promise<Result<MistakeEntry[], BusinessError>>;
 }

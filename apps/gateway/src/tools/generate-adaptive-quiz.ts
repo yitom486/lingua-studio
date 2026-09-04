@@ -130,7 +130,10 @@ export class GenerateAdaptiveQuizTool
 
       // 如果未指定薄弱项，从学习者画像数据库提取首要弱项
       if (!targetSkillId) {
-        const snapshotRes = await this.learnerRepo.getProfileSnapshot(context.userId);
+        const snapshotRes = await this.learnerRepo.getProfileSnapshot(
+          context.userId,
+          input.targetLanguage
+        );
         if (isOk(snapshotRes) && snapshotRes.value.weaknesses.length > 0) {
           const topWeakness = snapshotRes.value.weaknesses[0];
           if (topWeakness) {

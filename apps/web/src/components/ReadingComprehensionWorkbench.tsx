@@ -34,6 +34,7 @@ import {
 } from './ui/select.js';
 import { Progress } from './ui/progress.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
+import { useLearningShell } from '../hooks/useLearningShell.js';
 import {
   DEMO_READING_SETS,
   NEWS_TOPIC_OPTIONS,
@@ -57,15 +58,21 @@ interface ReadingComprehensionWorkbenchProps {
 export function ReadingComprehensionWorkbench({
   onOpenTutor,
 }: ReadingComprehensionWorkbenchProps) {
+  const shell = useLearningShell();
   const splitRatio = usePreferencesStore((s) => s.readingSplitRatio);
   const setReadingSplitRatio = usePreferencesStore((s) => s.setReadingSplitRatio);
   const furiganaEnabled = usePreferencesStore((s) => s.furiganaEnabled);
   const toggleFurigana = usePreferencesStore((s) => s.toggleFurigana);
 
   const [origin, setOrigin] = useState<PassageOrigin>('ai');
-  const [langFilter, setLangFilter] = useState<'ALL' | 'JA' | 'EN' | 'KO'>('EN');
+  const [langFilter, setLangFilter] = useState<'ALL' | 'JA' | 'EN' | 'KO'>(shell.defaultReadingLang);
   const [aiDifficulty, setAiDifficulty] = useState('2');
   const [newsTopic, setNewsTopic] = useState('world');
+
+  // 当学习轨道切换时响应式同步阅读语言过滤器
+  useEffect(() => {
+    setLangFilter(shell.defaultReadingLang);
+  }, [shell.defaultReadingLang]);
 
   // TanStack Query 服务端状态对接
   const { data: newsTopics = NEWS_TOPIC_OPTIONS } = useNewsTopicsQuery();

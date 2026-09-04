@@ -113,6 +113,12 @@ export class GatewayServer {
           return err(sessionRes.error);
         }
 
+        // 初始化或更新该用户的学习目标与语种
+        await this.learnerRepo.updateLearnerProfile(payload.userId, {
+          targetLanguage: payload.targetLanguage,
+          studyGoal: payload.targetLanguage === 'ja' ? 'JLPT_N2' : 'CET6',
+        });
+
         // 获取该学习者的最新画像快照
         const snapshotRes = await this.learnerRepo.getProfileSnapshot(payload.userId);
         const snapshot = isOk(snapshotRes) ? snapshotRes.value : undefined;

@@ -132,7 +132,10 @@ export class ContextBuilder {
     }));
 
     const allMetrics = snapshot?.allMetrics ?? [];
-    const kanaMastery = extractKanaMastery(allMetrics);
+    const kanaMastery =
+      (clientSnapshot?.targetLanguage || profile?.targetLanguage) === 'ja'
+        ? extractKanaMastery(allMetrics)
+        : undefined;
     const recentErrorTags = deriveRecentErrorTags(
       unresolvedMistakes.map((m) => ({
         question: {

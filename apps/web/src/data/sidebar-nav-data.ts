@@ -3,6 +3,7 @@
  * 运行时 badge / 薄弱项文案由 AppSidebar 注入，勿在 TSX 内再写死菜单树。
  */
 import type { NavigationTab } from '../stores/useStudySessionStore.js';
+import type { TrackLanguage } from '../learning/learning-shell.js';
 
 /** 角标：静态文案，或由运行时计数/进度填充 */
 export type SidebarBadgeSpec =
@@ -38,6 +39,8 @@ export interface SidebarNavItemDef {
   label: string;
   icon: SidebarIconKey;
   badge?: SidebarBadgeSpec | undefined;
+  /** 限定可见轨道；缺省时全轨道通用 */
+  tracks?: TrackLanguage[] | undefined;
 }
 
 export interface SidebarNavGroupDef {
@@ -56,6 +59,8 @@ export interface SidebarAstNodeDef {
   meta?: SidebarBadgeSpec | undefined;
   defaultOpen?: boolean | undefined;
   children?: SidebarAstNodeDef[] | undefined;
+  /** 限定可见轨道；缺省时全轨道通用 */
+  tracks?: TrackLanguage[] | undefined;
 }
 
 /** 资料 AST 区块标题与默认展开 */
@@ -88,9 +93,9 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
     label: '课程与记忆',
     defaultOpen: true,
     items: [
-      { id: 'KANA', label: '五十音工作室', icon: 'Sparkles', badge: { kind: 'static', value: '假名' } },
+      { id: 'KANA', label: '五十音工作室', icon: 'Sparkles', badge: { kind: 'static', value: '假名' }, tracks: ['ja'] },
       { id: 'CARDS', label: 'FSRS 闪卡', icon: 'Layers', badge: { kind: 'cardCount' } },
-      { id: 'TEXTBOOK', label: '教材精读', icon: 'BookOpen', badge: { kind: 'static', value: 'AST' } },
+      { id: 'TEXTBOOK', label: '教材精读', icon: 'BookOpen', badge: { kind: 'static', value: 'AST' }, tracks: ['ja'] },
     ],
   },
   {
@@ -98,8 +103,8 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
     label: '听说专项',
     defaultOpen: true,
     items: [
-      { id: 'SHADOWING', label: '听力跟读', icon: 'Headphones', badge: { kind: 'static', value: '原声' } },
-      { id: 'PITCH', label: '声调纠音', icon: 'Mic', badge: { kind: 'static', value: 'AI' } },
+      { id: 'SHADOWING', label: '听力跟读', icon: 'Headphones', badge: { kind: 'static', value: '原声' }, tracks: ['ja'] },
+      { id: 'PITCH', label: '声调纠音', icon: 'Mic', badge: { kind: 'static', value: 'AI' }, tracks: ['ja'] },
     ],
   },
 ];
@@ -154,6 +159,7 @@ export const SIDEBAR_AST_TREE: SidebarAstNodeDef[] = [
         icon: 'BookOpen',
         tab: 'TEXTBOOK',
         meta: { kind: 'static', value: '标日' },
+        tracks: ['ja'],
       },
       {
         id: 'read',
@@ -179,7 +185,7 @@ export const SIDEBAR_PROFILE_DEMO = {
   streakDays: 0,
   todayGoalPercent: 0,
   todayGoalLabel: '今日目标',
-  defaultWeaknessLabel: '助词で/に',
+  defaultWeaknessLabel: '待测验',
 } as const;
 
 export interface SidebarRuntimeCounts {

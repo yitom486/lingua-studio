@@ -18,6 +18,7 @@ import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
 import { KanaStudioWorkbench } from './components/KanaStudioWorkbench.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useGateway } from './hooks/useGateway.js';
+import { useLearningShell } from './hooks/useLearningShell.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
 import { useStudySessionStore } from './stores/useStudySessionStore.js';
@@ -35,7 +36,9 @@ import { sound } from './utils/audio.js';
 export function App() {
   const gateway = useGateway();
   const theme = usePreferencesStore((s) => s.theme);
+  const shell = useLearningShell();
   const activeTab = useStudySessionStore((s) => s.activeTab);
+  const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
   const isCommandOpen = useStudySessionStore((s) => s.isCommandOpen);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
   const isTutorOpen = useStudySessionStore((s) => s.isTutorOpen);
@@ -43,6 +46,13 @@ export function App() {
   const openTutor = useStudySessionStore((s) => s.openTutor);
   const closeTutor = useStudySessionStore((s) => s.closeTutor);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Tab 路由守卫：当目标语种切换后当前活跃 Tab 若不合法，自动降级跳回 fallbackTab
+  useEffect(() => {
+    if (!shell.allowedTabs.includes(activeTab)) {
+      setActiveTab(shell.fallbackTab);
+    }
+  }, [activeTab, shell.allowedTabs, shell.fallbackTab, setActiveTab]);
 
   const fetchProfile = useUserProfileStore((s) => s.fetchProfile);
   const recordActivity = useUserProfileStore((s) => s.recordActivity);

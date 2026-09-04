@@ -41,5 +41,9 @@ export function NumberTicker({
     });
   }, [springValue, decimalPlaces]);
 
-  return <span className={className} ref={ref} />;
+  return (
+    <span className={className} ref={ref}>
+      {Number(value).toFixed(decimalPlaces)}
+    </span>
+  );
 }

@@ -68,23 +68,45 @@ export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
   });
 }
 
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { normalizeTrackLanguage } from '../learning/learning-shell.js';
+
 /**
- * 学习者技能画像雷达指标查询 (依托 Hono RPC 端到端强类型系统)
+ * 集中失效全部学习域 Query（在切换轨道或批量更新后使用）
  */
-export function useLearnerProfileQuery(userId = DEFAULT_USER_ID) {
+export async function invalidateAllLearningQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.QUESTIONS }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.MISTAKES }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.READING }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ACTIVITY_HISTORY }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK }),
+  ]);
+}
+
+/**
+ * 学习者技能画像雷达指标查询 (依托 Hono RPC / Gateway，带语种作用域隔离)
+ */
+export function useLearnerProfileQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
   return useQuery<SkillMetric[]>({
-    queryKey: [...QUERY_KEYS.PROFILE, userId],
+    queryKey: [...QUERY_KEYS.PROFILE, userId, targetLanguage],
     queryFn: async () => {
       try {
-        const res = await apiClient.api.profile[':userId'].$get({ param: { userId } });
+        const url = `${GATEWAY_BASE_URL}/api/profile/${userId}?lang=${targetLanguage}`;
+        const res = await fetch(url);
         if (res.ok) {
           const data = await res.json();
-          if ('allMetrics' in data && Array.isArray(data.allMetrics) && data.allMetrics.length > 0) {
+          if ('allMetrics' in data && Array.isArray(data.allMetrics)) {
             return data.allMetrics as SkillMetric[];
           }
         }
       } catch (e) {
-        console.warn('[useLearnerProfileQuery] Hono RPC failed to load profile', e);
+        console.warn('[useLearnerProfileQuery] failed to load profile', e);
       }
       return [];
     },
@@ -93,14 +115,18 @@ export function useLearnerProfileQuery(userId = DEFAULT_USER_ID) {
 }
 
 /**
- * 错题本查询 (依托 Hono RPC 端到端强类型系统)
+ * 错题本查询 (依托 Gateway，带语种作用域隔离)
  */
-export function useMistakesQuery(userId = DEFAULT_USER_ID) {
+export function useMistakesQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
   return useQuery<MistakeNotebookItem[]>({
-    queryKey: [...QUERY_KEYS.MISTAKES, userId],
+    queryKey: [...QUERY_KEYS.MISTAKES, userId, targetLanguage],
     queryFn: async () => {
       try {
-        const res = await apiClient.api.mistakes[':userId'].$get({ param: { userId } });
+        const url = `${GATEWAY_BASE_URL}/api/mistakes/${userId}?lang=${targetLanguage}`;
+        const res = await fetch(url);
         if (res.ok) {
           const list = await res.json();
           if (Array.isArray(list)) {
@@ -119,7 +145,7 @@ export function useMistakesQuery(userId = DEFAULT_USER_ID) {
           }
         }
       } catch (e) {
-        console.warn('[useMistakesQuery] Hono RPC failed to load mistakes', e);
+        console.warn('[useMistakesQuery] failed to load mistakes', e);
       }
       return [];
     },
@@ -128,14 +154,18 @@ export function useMistakesQuery(userId = DEFAULT_USER_ID) {
 }
 
 /**
- * 自适应题库查询 (依托 Hono RPC 端到端强类型系统)
+ * 自适应题库查询 (依托 Gateway，带语种作用域隔离)
  */
-export function useQuestionsQuery(userId = DEFAULT_USER_ID) {
+export function useQuestionsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
   return useQuery<QuizQuestionItem[]>({
-    queryKey: [...QUERY_KEYS.QUESTIONS, userId],
+    queryKey: [...QUERY_KEYS.QUESTIONS, userId, targetLanguage],
     queryFn: async () => {
       try {
-        const res = await apiClient.api.questions[':userId'].$get({ param: { userId } });
+        const url = `${GATEWAY_BASE_URL}/api/questions/${userId}?lang=${targetLanguage}`;
+        const res = await fetch(url);
         if (res.ok) {
           const dynamicQuestions = await res.json();
           if (Array.isArray(dynamicQuestions)) {
@@ -160,7 +190,7 @@ export function useQuestionsQuery(userId = DEFAULT_USER_ID) {
           }
         }
       } catch (e) {
-        console.warn('[useQuestionsQuery] Hono RPC failed to load questions', e);
+        console.warn('[useQuestionsQuery] failed to load questions', e);
       }
       return [];
     },
@@ -169,14 +199,18 @@ export function useQuestionsQuery(userId = DEFAULT_USER_ID) {
 }
 
 /**
- * FSRS 卡片库查询 (依托 Hono RPC 端到端强类型系统)
+ * FSRS 卡片库查询 (依托 Gateway，带语种作用域隔离)
  */
-export function useCardsQuery(userId = DEFAULT_USER_ID) {
+export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
   return useQuery<StudyCardItem[]>({
-    queryKey: [...QUERY_KEYS.CARDS, userId],
+    queryKey: [...QUERY_KEYS.CARDS, userId, targetLanguage],
     queryFn: async () => {
       try {
-        const res = await apiClient.api.cards[':userId'].$get({ param: { userId } });
+        const url = `${GATEWAY_BASE_URL}/api/cards/${userId}?lang=${targetLanguage}`;
+        const res = await fetch(url);
         if (res.ok) {
           const list = await res.json();
           if (Array.isArray(list)) {
@@ -198,7 +232,7 @@ export function useCardsQuery(userId = DEFAULT_USER_ID) {
           }
         }
       } catch (e) {
-        console.warn('[useCardsQuery] Hono RPC failed to load cards', e);
+        console.warn('[useCardsQuery] failed to load cards', e);
       }
       return [];
     },
@@ -207,15 +241,19 @@ export function useCardsQuery(userId = DEFAULT_USER_ID) {
 }
 
 /**
- * 学习者每日打卡与足迹进度查询 (实时 SQLite 同步)
+ * 学习者每日打卡与足迹进度查询 (实时 SQLite 同步，带语种作用域)
  */
-export function useDailyTaskQuery(userId = DEFAULT_USER_ID, date?: string) {
+export function useDailyTaskQuery(userId = DEFAULT_USER_ID, date?: string, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
   return useQuery<DailyTaskProgress | null>({
-    queryKey: [...QUERY_KEYS.DAILY_TASK, userId, date ?? 'today'],
+    queryKey: [...QUERY_KEYS.DAILY_TASK, userId, date ?? 'today', targetLanguage],
     queryFn: async () => {
       try {
         const url = new URL(`${GATEWAY_BASE_URL}/api/task/progress/${userId}`);
         if (date) url.searchParams.set('date', date);
+        url.searchParams.set('lang', targetLanguage);
         const res = await fetch(url.toString());
         if (res.ok) {
           return (await res.json()) as DailyTaskProgress;

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { validator } from 'hono/validator';
@@ -29,9 +30,10 @@ export * from './repository/drizzle-learner-repository.js';
 export * from './repository/sqlite-learner-repository.js';
 export * from './errors/http-error-handler.js';
 
-// 持久化存储实例：在生产/开发环境下持久化到本地 study-studio.db，或使用环境变量；测试环境下自动隔离使用 :memory: 避免污染真实数据
+// 持久化存储实例：在生产/开发环境下持久化到根目录 study-studio.db，测试环境下自动隔离使用 :memory: 避免污染真实数据
 const isTestEnv = process.env.NODE_ENV === 'test' || process.env.BUN_ENV === 'test';
-const defaultDbPath = isTestEnv ? ':memory:' : 'study-studio.db';
+const rootDbFile = path.resolve(import.meta.dir, '../../..', 'study-studio.db');
+const defaultDbPath = isTestEnv ? ':memory:' : rootDbFile;
 const dbPath = process.env.STUDY_STUDIO_DB || defaultDbPath;
 export const drizzleRepo = new DrizzleLearnerRepository(dbPath);
 export const sqliteRepo = drizzleRepo; // 保持向前兼容别名
@@ -83,7 +85,8 @@ export const app = new Hono()
   // 1. 学习者全景画像与打卡进度
   .get('/api/profile/:userId', async (c) => {
     const userId = c.req.param('userId');
-    const res = await drizzleRepo.getProfileSnapshot(userId);
+    const lang = c.req.query('lang');
+    const res = await drizzleRepo.getProfileSnapshot(userId, lang);
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error);
   })
@@ -143,7 +146,8 @@ export const app = new Hono()
   // 3. FSRS 闪卡存取
   .get('/api/cards/:userId', async (c) => {
     const userId = c.req.param('userId');
-    const res = await drizzleRepo.getDueCards(userId);
+    const lang = c.req.query('lang');
+    const res = await drizzleRepo.getDueCards(userId, undefined, lang ? { language: lang } : undefined);
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error);
   })
@@ -166,7 +170,8 @@ export const app = new Hono()
   // 4. 错题本存取与消除
   .get('/api/mistakes/:userId', async (c) => {
     const userId = c.req.param('userId');
-    const res = await drizzleRepo.getMistakes(userId);
+    const lang = c.req.query('lang');
+    const res = await drizzleRepo.getMistakes(userId, lang ? { language: lang } : undefined);
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error);
   })
@@ -193,16 +198,19 @@ export const app = new Hono()
   // 5. AI 自适应靶向弱项出题与题库持久化
   .get('/api/questions/:userId', async (c) => {
     const userId = c.req.param('userId');
+    const lang = c.req.query('lang');
     // 优先从 SQLite quiz_questions 获取持久化的题目列表
-    const existingRes = await drizzleRepo.getQuestions(userId);
+    const existingRes = await drizzleRepo.getQuestions(userId, undefined, lang);
     if (isOk(existingRes) && existingRes.value.length > 0) {
       return c.json(existingRes.value);
     }
+    const profileRes = await drizzleRepo.getLearnerProfile(userId);
+    const targetLanguage = lang || (isOk(profileRes) ? profileRes.value.targetLanguage : 'ja');
     // C5：优先 learning.content；旧 quiz.generateAdaptive 仅兼容回退
     const contentTool = gatewayServer.toolRegistry.get('learning.content');
     if (contentTool) {
       const toolRes = await contentTool.execute(
-        { action: 'generate_quiz', count: 6, language: 'ja', collect: true },
+        { action: 'generate_quiz', count: 2, language: targetLanguage, collect: true },
         { userId, sessionId: 'http_req' }
       );
       if (isOk(toolRes)) {
@@ -215,7 +223,7 @@ export const app = new Hono()
     const tool = gatewayServer.toolRegistry.get('quiz.generateAdaptive');
     if (tool) {
       const toolRes = await tool.execute(
-        { targetLanguage: 'ja', count: 6 },
+        { targetLanguage, count: 2 },
         { userId, sessionId: 'http_req' }
       );
       if (isOk(toolRes)) {

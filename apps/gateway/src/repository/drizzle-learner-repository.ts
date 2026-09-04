@@ -46,6 +46,8 @@ import {
   practiceItems,
   curriculumKana,
   quizQuestions,
+  INITIAL_CARD_SEEDS,
+  INITIAL_SKILL_METRIC_SEEDS,
 } from '../db/index.js';
 
 export type TrackLanguage = 'ja' | 'en' | 'ko';
@@ -245,12 +247,12 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         targetLanguage: 'en',
         studyGoal: 'CET6',
         learnerLevel: 'BEGINNER',
-        overallLevel: 'B1',
-        overallProficiency: 0.55,
+        overallLevel: '待评测',
+        overallProficiency: 0,
         streakDays: 0,
         maxStreakDays: 0,
         lastActiveDate: null,
-        retentionRate: 0.85,
+        retentionRate: 1.0,
         dailyGoalQuizzes: 5,
         dailyGoalCards: 10,
         totalStudyMinutes: 0,
@@ -761,7 +763,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
    * 获取学习者全景画像快照 (融合雷达技能、基础档案与每日任务进度)
    */
   public async getProfileSnapshot(
-    userId: string
+    userId: string,
+    langOverride?: string
   ): Promise<Result<LearnerProfileSnapshot, BusinessError>> {
     try {
       const profileRes = await this.getLearnerProfile(userId);
@@ -770,29 +773,24 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const dailyTaskRes = await this.getDailyTaskProgress(userId);
       const dailyTask = isOk(dailyTaskRes) ? dailyTaskRes.value : undefined;
 
-      const language = normalizeTrackLanguage(profile?.targetLanguage);
+      const language = langOverride
+        ? normalizeTrackLanguage(langOverride)
+        : normalizeTrackLanguage(profile?.targetLanguage);
 
       let rows = await this.db
         .select()
         .from(skillMetrics)
         .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.language, language)));
 
-      if (rows.length === 0 && language === 'ja' && (userId === 'student_web_01' || userId === 'default_user')) {
-        const seedMetrics = [
-          { userId, skillId: 'jp.particle.destination_ni', language: 'ja', dimension: 'GRAMMAR', name: '目的地到达点助词「に」', proficiency: 0.88, totalAttempts: 14, correctAttempts: 13, consecutiveErrors: 0, status: 'STRENGTH' },
-          { userId, skillId: 'jp.particle.action_de', language: 'ja', dimension: 'GRAMMAR', name: '动作发生场所助词「で」', proficiency: 0.52, totalAttempts: 9, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
-          { userId, skillId: 'jp.listening.sokuon', language: 'ja', dimension: 'LISTENING', name: '听力：促音与长音精细辨析', proficiency: 0.46, totalAttempts: 12, correctAttempts: 5, consecutiveErrors: 2, status: 'WEAKNESS' },
-          { userId, skillId: 'jp.grammar.conditional_tara', language: 'ja', dimension: 'GRAMMAR', name: '假定条件「～たら」实际运用', proficiency: 0.65, totalAttempts: 10, correctAttempts: 7, consecutiveErrors: 0, status: 'NORMAL' },
-          { userId, skillId: 'jp.vocab.n3_verbs', language: 'ja', dimension: 'VOCABULARY', name: 'N3 核心动词搭配与活用', proficiency: 0.94, totalAttempts: 32, correctAttempts: 30, consecutiveErrors: 0, status: 'STRENGTH' },
-          { userId, skillId: 'jp.nuance.polite_keigo', language: 'ja', dimension: 'NUANCE_PRAGMATIC', name: '基础敬语与礼貌体语感', proficiency: 0.58, totalAttempts: 8, correctAttempts: 4, consecutiveErrors: 1, status: 'WEAKNESS' },
-        ];
-        for (const sm of seedMetrics) {
-          await this.db.insert(skillMetrics).values({ ...sm, lastPracticedAt: nowIso() });
-        }
-        rows = await this.db
+      // 仅在未指定语言重载且当前语言无指标时，允许提取已有指标（兼容单项练习测试用户）
+      if (rows.length === 0 && !langOverride) {
+        const anyRows = await this.db
           .select()
           .from(skillMetrics)
-          .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.language, language)));
+          .where(eq(skillMetrics.userId, userId));
+        if (anyRows.length > 0) {
+          rows = anyRows;
+        }
       }
 
       const allMetrics: SkillMetric[] = rows.map((r) => ({
@@ -901,75 +899,50 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   public async getDueCards(
     userId: string,
     limit: number = 500,
-    options?: { dueOnly?: boolean }
+    options?: { dueOnly?: boolean; language?: string }
   ): Promise<Result<Flashcard[], BusinessError>> {
     try {
       const now = nowIso();
-      const language = await this.resolveActiveLanguage(userId);
+      const language = options?.language
+        ? normalizeTrackLanguage(options.language)
+        : await this.resolveActiveLanguage(userId);
       let rows = await this.db
         .select()
         .from(flashcards)
         .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
         .limit(limit);
 
-      if (rows.length === 0 && language === 'ja' && (userId === 'student_web_01' || userId === 'default_user')) {
-        const seedCards = [
-          {
-            id: 'card_01',
+      if (rows.length === 0 && (userId === 'student_web_01' || userId === 'default_user') && language === 'ja') {
+        for (const c of INITIAL_CARD_SEEDS) {
+          const fsrsObj = {
+            stability: c.stability,
+            difficulty: 5.0,
+            reps: c.reps,
+            lapses: 0,
+            dueAt: nowIso(),
+            state: c.reps > 0 ? 'REVIEW' : 'NEW',
+          };
+          const tags = [...c.tags];
+          if (c.exampleJp) tags.push(c.exampleJp);
+          if (c.exampleZh) tags.push(c.exampleZh);
+
+          await this.db.insert(flashcards).values({
+            id: c.id,
             userId,
             language: 'ja',
-            type: 'VOCAB',
-            front: '約束',
-            back: '约定、诺言、契约',
-            phonetic: 'やくそく',
-            audioUrl: '',
-            tags: JSON.stringify(['N3词汇', '高频名词']),
-            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
-          },
-          {
-            id: 'card_02',
-            userId,
-            language: 'ja',
-            type: 'VOCAB',
-            front: '曖昧',
-            back: '含糊、暧昧、不明确',
-            phonetic: 'あいまい',
-            audioUrl: '',
-            tags: JSON.stringify(['N2词汇', '形容动词']),
-            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
-          },
-          {
-            id: 'card_03',
-            userId,
-            language: 'ja',
-            type: 'VOCAB',
-            front: '遠慮',
-            back: '客气、顾虑、推辞',
-            phonetic: 'えんりょ',
-            audioUrl: '',
-            tags: JSON.stringify(['N3核心', '日常交际']),
-            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
-          },
-          {
-            id: 'card_04',
-            userId,
-            language: 'ja',
-            type: 'GRAMMAR',
-            front: '「～わけにはいかない」',
-            back: '不能……、无法……（从情理/社会常识上不能这么做）',
-            phonetic: '',
-            audioUrl: '',
-            tags: JSON.stringify(['N2句型', '情态表达']),
-            fsrs: JSON.stringify({ stability: 1.0, difficulty: 5.0, reps: 0, lapses: 0, dueAt: nowIso(), state: 'NEW' }),
-          },
-        ];
-        for (const sc of seedCards) {
-          await this.db.insert(flashcards).values(sc);
+            type: c.type,
+            front: c.front,
+            back: c.back,
+            phonetic: c.phonetic ?? null,
+            audioUrl: c.audioUrl ?? null,
+            tags: JSON.stringify(tags),
+            fsrs: JSON.stringify(fsrsObj),
+          });
         }
         rows = await this.db
           .select()
           .from(flashcards)
-          .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
+          .where(and(eq(flashcards.userId, userId), eq(flashcards.language, 'ja')))
           .limit(limit);
       }
 
@@ -1015,10 +988,13 @@ export class DrizzleLearnerRepository implements LearnerRepository {
    */
   public async getQuestions(
     userId: string,
-    limit: number = 50
+    limit: number = 50,
+    langOverride?: string
   ): Promise<Result<any[], BusinessError>> {
     try {
-      const language = await this.resolveActiveLanguage(userId);
+      const language = langOverride
+        ? normalizeTrackLanguage(langOverride)
+        : await this.resolveActiveLanguage(userId);
       let rows = await this.db
         .select()
         .from(quizQuestions)
@@ -1030,15 +1006,6 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         )
         .orderBy(desc(quizQuestions.createdAt))
         .limit(limit);
-
-      if (rows.length === 0) {
-        rows = await this.db
-          .select()
-          .from(quizQuestions)
-          .where(eq(quizQuestions.language, language))
-          .orderBy(desc(quizQuestions.createdAt))
-          .limit(limit);
-      }
 
       const mapped = rows.map((r) => ({
         id: r.id,
@@ -1305,11 +1272,13 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   public async getMistakes(
     userId: string,
-    filter?: { resolved?: boolean }
+    filter?: { resolved?: boolean; language?: string }
   ): Promise<Result<MistakeEntry[], BusinessError>> {
     try {
-      const language = await this.resolveActiveLanguage(userId);
-      const rows = await this.db
+      const language = filter?.language
+        ? normalizeTrackLanguage(filter.language)
+        : await this.resolveActiveLanguage(userId);
+      let rows = await this.db
         .select()
         .from(mistakes)
         .where(and(eq(mistakes.userId, userId), eq(mistakes.language, language)));

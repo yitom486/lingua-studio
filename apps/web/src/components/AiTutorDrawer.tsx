@@ -259,14 +259,29 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
 
     setTimeout(() => {
       let replyText = '';
+      const track = profile.targetLanguage;
+
       if (content.includes('例句') || content.includes('造句')) {
-        replyText = `为你提供 3 个地道生活化例句：\n1. **日曜日、図書館へ行きます。**\n2. **友達とカフェで勉強します。**\n3. **明日の朝、会議に参加します。**`;
+        if (track === 'en') {
+          replyText = `为您提供 3 个考研/学术向地道例句：\n1. **The rapid advancement of technology has profoundly altered our daily routines.**\n2. **Recent studies illustrate a compelling correlation between sleep and memory.**\n3. **Scholars have long debated the philosophical implications of artificial intelligence.**`;
+        } else if (track === 'ko') {
+          replyText = `为你提供 3 个韩语生活常用例句：\n1. **내일 친구와 도书관에 가기로 했어요.**\n2. **주말에는 집에서 푹 쉬고 싶어요.**\n3. **한국어 공부가 점점 재미있어지고 있어요.**`;
+        } else {
+          replyText = `为你提供 3 个地道生活化例句：\n1. **日曜日、図書館へ行きます。**\n2. **友達とカフェで勉強します。**\n3. **明日の朝、会議に参加します。**`;
+        }
       } else if (
         content.includes('为什么') ||
         content.includes('辨析') ||
-        content.includes('区分')
+        content.includes('区分') ||
+        content.includes('结构')
       ) {
-        replyText = `这是最容易混淆的痛点！\n- **「で」**：动作发生场所或手段。\n- **「に」**：静态存在/归着点。\n移动方向也可用「へ」(读え)。`;
+        if (track === 'en') {
+          replyText = `核心考点剖析与逻辑辨析：\n- **主干拆解**：优先锁定句子谓语动词与从属从句连词。\n- **陷阱提示**：注意介词短语作后置定语时的分隔修饰。\n- **真题建议**：结合长难句切分，避免字面逐词直译。`;
+        } else if (track === 'ko') {
+          replyText = `韩语核心辨析与词尾要点：\n- **「-이/가」 vs 「-은/는」**：新信息焦点主语 vs 已知主题/对比。\n- **提示**：关注终结词尾的敬体等级与语境连贯。`;
+        } else {
+          replyText = `这是最容易混淆的痛点！\n- **「で」**：动作发生场所或手段。\n- **「に」**：静态存在/归着点。\n移动方向也可用「へ」(读え)。`;
+        }
       } else {
         replyText = `收到你的追问！关于「${content}」：建议结合当前考点「${context?.skillTag ?? ''}」做对照练习，并把易错点加入错题本。`;
       }
@@ -288,11 +303,24 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
     }, 650);
   };
 
-  const quickPrompts = [
-    '为什么不能用别的助词？',
-    '请给我造三个地道例句',
-    '请总结该考点的速记口诀',
-  ];
+  const quickPrompts =
+    profile.targetLanguage === 'en'
+      ? [
+          '请分析该长难句的主干结构',
+          '请提供 3 个地道学术/真比例句',
+          '考研/六级中最易混淆的词义辨析？',
+        ]
+      : profile.targetLanguage === 'ko'
+      ? [
+          '该语法对应的终结词尾是什么？',
+          '请提供 3 个韩语生活例句',
+          'TOPIK 核心辨析考点有哪些？',
+        ]
+      : [
+          '为什么不能用别的助词？',
+          '请给我造三个地道例句',
+          '请总结该考点的速记口诀',
+        ];
 
   const isGatewayConnected = gateway?.isConnected ?? false;
 

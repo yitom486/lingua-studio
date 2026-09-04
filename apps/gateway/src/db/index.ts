@@ -448,7 +448,7 @@ export function initSchema(sqlite: Database): void {
         for (const q of INITIAL_QUESTION_SEEDS) {
           insertQStmt.run(
             q.id,
-            'default_user',
+            'student_web_01',
             'ja',
             q.type,
             q.category,

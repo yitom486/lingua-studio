@@ -28,6 +28,10 @@ import {
   Layers,
 } from 'lucide-react';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { invalidateAllLearningQueries } from '../queries/useLearnerQueries.js';
+import { getLearningShellConfig } from '../learning/learning-shell.js';
 import { sound } from '../utils/audio.js';
 import type { StudyGoal, LearnerLevel } from '@study-studio/protocol';
 import {
@@ -37,6 +41,7 @@ import {
 } from '../data/learner-profile-options.js';
 
 export function UserProfileModal() {
+  const queryClient = useQueryClient();
   const profile = useUserProfileStore((s) => s.profile);
   const isOpen = useUserProfileStore((s) => s.isProfileModalOpen);
   const setOpen = useUserProfileStore((s) => s.setProfileModalOpen);
@@ -74,9 +79,15 @@ export function UserProfileModal() {
       dailyGoalCards,
     });
 
+    // 强隔离闭环：失效全量学习域缓存，确保新轨道干净无污染
+    await invalidateAllLearningQueries(queryClient);
+
     setIsSaving(false);
     sound.playSuccess();
     setOpen(false);
+
+    const targetShell = getLearningShellConfig(targetLanguage);
+    toast.success(`学情配置已保存，已切换至【${targetShell.trackName}】学习轨道`);
   };
 
   return (
