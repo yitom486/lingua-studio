@@ -6,6 +6,7 @@ import { BentoGrid, BentoCard, NumberTicker } from './magicui/index.js';
 import { StudyStreakHeatmap } from './StudyStreakHeatmap.js';
 import { sound } from '../utils/audio.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import type { SkillMetric } from '@study-studio/learner-core';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
@@ -25,6 +26,10 @@ export function LearnerRadarDashboard({
 }: LearnerRadarDashboardProps) {
   const [metricDimension, setMetricDimension] = useState<string>('ALL');
   const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
+  const profile = useUserProfileStore((s) => s.profile);
+
+  const overallPercent = Math.round((profile.overallProficiency || 0.58) * 100);
+  const retentionPercent = Math.round((profile.retentionRate || 0.86) * 100);
 
   return (
     <motion.div
@@ -41,9 +46,11 @@ export function LearnerRadarDashboard({
         >
           <div className="flex items-baseline gap-1 pt-1">
             <span className="text-3xl font-bold font-mono text-amber-600 dark:text-amber-400">
-              <NumberTicker value={82} />%
+              <NumberTicker value={overallPercent} />%
             </span>
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">（进阶稳步上升）</span>
+            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
+              （{profile.overallLevel || '稳步上升'}）
+            </span>
           </div>
         </BentoCard>
 

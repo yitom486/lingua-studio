@@ -106,6 +106,32 @@ class SoundEngine {
   public playError() {
     this.playMistake();
   }
+
+  // 4. 每日打卡达成 / 连击突破时的庆祝和弦 (Fanfare)
+  public playFanfare() {
+    const ctx = this.getContext();
+    if (!ctx) return;
+
+    try {
+      const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6 连音升华
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.08);
+
+        gain.gain.setValueAtTime(0.1, ctx.currentTime + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.45);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(ctx.currentTime + idx * 0.08);
+        osc.stop(ctx.currentTime + idx * 0.08 + 0.45);
+      });
+    } catch {}
+  }
 }
 
 export const sound = new SoundEngine();

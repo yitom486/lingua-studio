@@ -1,0 +1,216 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import type {
+  LearnerProfile,
+  DailyTaskProgress,
+  StudyGoal,
+  LearnerLevel,
+} from '@study-studio/protocol';
+import { sound } from '../utils/audio.js';
+import { fireTaskCompletedConfetti, fireGoldenBurstConfetti } from '../utils/confetti.js';
+
+const GATEWAY_HTTP_URL = 'http://localhost:8080';
+const DEFAULT_USER_ID = 'student_web_01';
+
+const getTodayDateString = () => new Date().toISOString().slice(0, 10);
+
+const defaultProfile: LearnerProfile = {
+  userId: DEFAULT_USER_ID,
+  displayName: '极光学者',
+  targetLanguage: 'ja',
+  studyGoal: 'JLPT_N2',
+  learnerLevel: 'BEGINNER',
+  overallLevel: 'N3-',
+  overallProficiency: 0.58,
+  streakDays: 0,
+  maxStreakDays: 0,
+  lastActiveDate: null,
+  retentionRate: 0.86,
+  dailyGoalQuizzes: 5,
+  dailyGoalCards: 10,
+  totalStudyMinutes: 35,
+  totalCardsReviewed: 18,
+  totalQuizzesAnswered: 12,
+  updatedAt: new Date().toISOString(),
+};
+
+const defaultDailyTask: DailyTaskProgress = {
+  userId: DEFAULT_USER_ID,
+  activityDate: getTodayDateString(),
+  quizzesCount: 0,
+  dailyGoalQuizzes: 5,
+  cardsReviewedCount: 0,
+  dailyGoalCards: 10,
+  listeningMinutes: 0,
+  mistakesResolvedCount: 0,
+  isGoalCompleted: false,
+  streakDays: 0,
+  intensityLevel: 0,
+  isOvertimeBurst: false,
+  completedAt: null,
+};
+
+export interface UserProfileState {
+  profile: LearnerProfile;
+  dailyTask: DailyTaskProgress;
+  isProfileModalOpen: boolean;
+  lastCelebratedDate: string | null;
+  isLoading: boolean;
+
+  setProfileModalOpen: (open: boolean) => void;
+  fetchProfile: (userId?: string) => Promise<void>;
+  updateProfile: (updates: Partial<LearnerProfile>) => Promise<boolean>;
+  recordActivity: (delta: {
+    quizzes?: number;
+    cards?: number;
+    listeningMinutes?: number;
+    mistakesResolved?: number;
+  }) => Promise<void>;
+}
+
+export const useUserProfileStore = create<UserProfileState>()(
+  persist(
+    (set, get) => ({
+      profile: defaultProfile,
+      dailyTask: defaultDailyTask,
+      isProfileModalOpen: false,
+      lastCelebratedDate: null,
+      isLoading: false,
+
+      setProfileModalOpen: (open: boolean) => set({ isProfileModalOpen: open }),
+
+      fetchProfile: async (userId = DEFAULT_USER_ID) => {
+        set({ isLoading: true });
+        try {
+          const res = await fetch(`${GATEWAY_HTTP_URL}/api/profile/${userId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.profile) {
+              set((state) => ({
+                profile: { ...state.profile, ...data.profile },
+                dailyTask: data.dailyTask
+                  ? { ...state.dailyTask, ...data.dailyTask }
+                  : state.dailyTask,
+              }));
+            }
+          }
+        } catch {
+          // 网关未启动或网络异常时优雅使用缓存的 local persisted state
+        } finally {
+          set({ isLoading: false });
+        }
+      },
+
+      updateProfile: async (updates: Partial<LearnerProfile>) => {
+        const currentProfile = get().profile;
+        const newProfile = { ...currentProfile, ...updates };
+
+        // 乐观更新本地状态
+        set({
+          profile: newProfile,
+          dailyTask: {
+            ...get().dailyTask,
+            dailyGoalQuizzes: updates.dailyGoalQuizzes ?? get().dailyTask.dailyGoalQuizzes,
+            dailyGoalCards: updates.dailyGoalCards ?? get().dailyTask.dailyGoalCards,
+          },
+        });
+
+        try {
+          const res = await fetch(`${GATEWAY_HTTP_URL}/api/profile/${currentProfile.userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+          });
+          if (res.ok) {
+            const updated = await res.json();
+            set({ profile: { ...newProfile, ...updated } });
+            return true;
+          }
+        } catch (e) {
+          console.warn('[UserProfileStore] 更新远端档案失败，已保存在本地:', e);
+        }
+        return true;
+      },
+
+      recordActivity: async (delta) => {
+        const currentTask = get().dailyTask;
+        const currentProfile = get().profile;
+        const today = getTodayDateString();
+
+        // 计算新计数
+        const newQuizzes = currentTask.quizzesCount + (delta.quizzes ?? 0);
+        const newCards = currentTask.cardsReviewedCount + (delta.cards ?? 0);
+        const newListening = currentTask.listeningMinutes + (delta.listeningMinutes ?? 0);
+        const newMistakes = currentTask.mistakesResolvedCount + (delta.mistakesResolved ?? 0);
+
+        const wasCompleted = currentTask.isGoalCompleted;
+        const isCompleted =
+          newQuizzes >= currentProfile.dailyGoalQuizzes &&
+          newCards >= currentProfile.dailyGoalCards;
+
+        const isBurst =
+          newQuizzes >= currentProfile.dailyGoalQuizzes * 1.5 ||
+          (newQuizzes >= currentProfile.dailyGoalQuizzes &&
+            newCards >= currentProfile.dailyGoalCards * 1.5);
+
+        let newStreak = currentProfile.streakDays;
+        if (!wasCompleted && isCompleted) {
+          newStreak = currentProfile.streakDays + 1;
+        }
+
+        const optimisticTask: DailyTaskProgress = {
+          ...currentTask,
+          activityDate: today,
+          quizzesCount: newQuizzes,
+          cardsReviewedCount: newCards,
+          listeningMinutes: newListening,
+          mistakesResolvedCount: newMistakes,
+          isGoalCompleted: isCompleted,
+          streakDays: newStreak,
+          isOvertimeBurst: isBurst,
+          completedAt: isCompleted ? (currentTask.completedAt ?? new Date().toISOString()) : null,
+        };
+
+        const optimisticProfile: LearnerProfile = {
+          ...currentProfile,
+          streakDays: newStreak,
+          maxStreakDays: Math.max(currentProfile.maxStreakDays, newStreak),
+          totalQuizzesAnswered: currentProfile.totalQuizzesAnswered + (delta.quizzes ?? 0),
+          totalCardsReviewed: currentProfile.totalCardsReviewed + (delta.cards ?? 0),
+          totalStudyMinutes: currentProfile.totalStudyMinutes + (delta.listeningMinutes ?? 0),
+          lastActiveDate: today,
+        };
+
+        // 庆祝彩蛋触发逻辑
+        const lastCelebrated = get().lastCelebratedDate;
+        if (!wasCompleted && isCompleted && lastCelebrated !== today) {
+          sound.playFanfare();
+          fireTaskCompletedConfetti();
+          set({ lastCelebratedDate: today });
+        } else if (isBurst && !currentTask.isOvertimeBurst) {
+          sound.playSuccess();
+          fireGoldenBurstConfetti();
+        }
+
+        set({
+          dailyTask: optimisticTask,
+          profile: optimisticProfile,
+        });
+
+        // 异步同步至 Gateway 后端
+        try {
+          await fetch(`${GATEWAY_HTTP_URL}/api/task/activity/${currentProfile.userId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...delta, date: today }),
+          });
+        } catch (e) {
+          console.warn('[UserProfileStore] 同步足迹打卡至网关失败:', e);
+        }
+      },
+    }),
+    {
+      name: 'study_studio_user_profile',
+    }
+  )
+);

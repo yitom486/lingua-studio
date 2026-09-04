@@ -21,7 +21,7 @@ import {
   createMistakeEntry,
   scheduleNextReview,
 } from '@study-studio/learner-core';
-import { SqliteLearnerRepository } from './repository/sqlite-learner-repository.js';
+import { DrizzleLearnerRepository } from './repository/drizzle-learner-repository.js';
 import { GenerateAdaptiveQuizTool } from './tools/generate-adaptive-quiz.js';
 import { GradeSubjectiveQuizTool } from './tools/grade-subjective-quiz.js';
 
@@ -34,7 +34,7 @@ export class GatewayServer {
   public readonly learnerRepo: LearnerRepository;
 
   constructor(learnerRepo?: LearnerRepository) {
-    this.learnerRepo = learnerRepo ?? new SqliteLearnerRepository(':memory:');
+    this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
     // 注册 M4 阶段核心自适应与批改服务端工具
     this.toolRegistry.register(new GenerateAdaptiveQuizTool(this.learnerRepo));
     this.toolRegistry.register(new GradeSubjectiveQuizTool(this.learnerRepo));
@@ -177,6 +177,9 @@ export class GatewayServer {
 
         const nextFsrs = scheduleNextReview(currentFsrs, payload.rating);
 
+        // 自动累计每日卡片复习足迹
+        await this.learnerRepo.recordDailyActivity(payload.userId, { cards: 1 });
+
         return ok({
           version: '1.0',
           id: generateId('msg'),
@@ -187,6 +190,83 @@ export class GatewayServer {
             nextFsrs,
             nextReviewDays: Math.round(nextFsrs.stability),
           },
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_PROFILE_GET: {
+        const payload = (envelope.payload ?? {}) as { userId?: string };
+        const userId = payload.userId ?? 'student_web_01';
+        const profileRes = await this.learnerRepo.getLearnerProfile(userId);
+        if (!isOk(profileRes)) return err(profileRes.error);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: profileRes.value,
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_PROFILE_UPDATE: {
+        const payload = (envelope.payload ?? {}) as {
+          userId?: string;
+          updates?: Record<string, any>;
+        };
+        const userId = payload.userId ?? 'student_web_01';
+        const updateRes = await this.learnerRepo.updateLearnerProfile(
+          userId,
+          payload.updates ?? envelope.payload ?? {}
+        );
+        if (!isOk(updateRes)) return err(updateRes.error);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.LEARNER_PROFILE_UPDATED,
+          payload: updateRes.value,
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_TASK_PROGRESS_GET: {
+        const payload = (envelope.payload ?? {}) as { userId?: string; date?: string };
+        const userId = payload.userId ?? 'student_web_01';
+        const progressRes = await this.learnerRepo.getDailyTaskProgress(userId, payload.date);
+        if (!isOk(progressRes)) return err(progressRes.error);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: progressRes.value,
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_TASK_ACTIVITY_RECORD: {
+        const payload = (envelope.payload ?? {}) as {
+          userId?: string;
+          quizzes?: number;
+          cards?: number;
+          listeningMinutes?: number;
+          mistakesResolved?: number;
+          date?: string;
+        };
+        const userId = payload.userId ?? 'student_web_01';
+        const recordRes = await this.learnerRepo.recordDailyActivity(userId, payload);
+        if (!isOk(recordRes)) return err(recordRes.error);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.LEARNER_DAILY_TASK_UPDATED,
+          payload: recordRes.value,
           timestamp: Date.now(),
         });
       }

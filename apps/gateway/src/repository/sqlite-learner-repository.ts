@@ -12,6 +12,8 @@ import type {
   QuizAttemptRecord,
   SkillMetric,
   LearnerProfileSnapshot,
+  LearnerProfile,
+  DailyTaskProgress,
   MistakeEntry,
 } from '@study-studio/learner-core';
 import type { Flashcard } from '@study-studio/protocol';
@@ -366,7 +368,84 @@ export class SqliteLearnerRepository implements LearnerRepository {
     }
   }
 
+  public async getLearnerProfile(userId: string): Promise<Result<LearnerProfile, BusinessError>> {
+    return ok({
+      userId,
+      displayName: '学员 ' + userId.slice(-4),
+      targetLanguage: 'ja',
+      studyGoal: 'JLPT_N2',
+      learnerLevel: 'BEGINNER',
+      overallLevel: 'N3-',
+      overallProficiency: 0.55,
+      streakDays: 0,
+      maxStreakDays: 0,
+      lastActiveDate: null,
+      retentionRate: 0.85,
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      totalStudyMinutes: 0,
+      totalCardsReviewed: 0,
+      totalQuizzesAnswered: 0,
+      updatedAt: nowIso(),
+    });
+  }
+
+  public async updateLearnerProfile(
+    userId: string,
+    input: Partial<LearnerProfile>
+  ): Promise<Result<LearnerProfile, BusinessError>> {
+    const profile = (await this.getLearnerProfile(userId)) as any;
+    return ok({ ...profile.value, ...input, updatedAt: nowIso() });
+  }
+
+  public async getDailyTaskProgress(
+    userId: string,
+    date?: string
+  ): Promise<Result<DailyTaskProgress, BusinessError>> {
+    return ok({
+      userId,
+      activityDate: date || new Date().toISOString().slice(0, 10),
+      quizzesCount: 0,
+      dailyGoalQuizzes: 5,
+      cardsReviewedCount: 0,
+      dailyGoalCards: 10,
+      listeningMinutes: 0,
+      mistakesResolvedCount: 0,
+      isGoalCompleted: false,
+      streakDays: 0,
+      intensityLevel: 0,
+      isOvertimeBurst: false,
+      completedAt: null,
+    });
+  }
+
+  public async recordDailyActivity(
+    userId: string,
+    delta: {
+      quizzes?: number;
+      cards?: number;
+      listeningMinutes?: number;
+      mistakesResolved?: number;
+      date?: string;
+    }
+  ): Promise<Result<DailyTaskProgress, BusinessError>> {
+    return this.getDailyTaskProgress(userId, delta.date);
+  }
+
+  public async resolveMistake(mistakeId: string): Promise<Result<void, BusinessError>> {
+    try {
+      this.db.run(
+        `UPDATE mistakes SET is_resolved = 1, consecutive_correct = consecutive_correct + 1, last_retried_at = ? WHERE id = ?`,
+        [nowIso(), mistakeId]
+      );
+      return ok(undefined);
+    } catch (error) {
+      return err(translateToBusinessError(error, 'SqliteLearnerRepository.resolveMistake'));
+    }
+  }
+
   public close(): void {
     this.db.close();
   }
 }
+

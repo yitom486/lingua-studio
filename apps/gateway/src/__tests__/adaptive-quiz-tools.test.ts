@@ -1,22 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { SqliteLearnerRepository } from '../repository/sqlite-learner-repository.js';
+import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
 import { GenerateAdaptiveQuizTool } from '../tools/generate-adaptive-quiz.js';
 import { GradeSubjectiveQuizTool } from '../tools/grade-subjective-quiz.js';
 import { isOk } from '@study-studio/shared';
 
 describe('Adaptive Quiz Tools (M4)', () => {
-  let repo: SqliteLearnerRepository;
+  let repo: DrizzleLearnerRepository;
   let generateTool: GenerateAdaptiveQuizTool;
   let gradeTool: GradeSubjectiveQuizTool;
 
   beforeEach(() => {
-    repo = new SqliteLearnerRepository(':memory:');
+    repo = new DrizzleLearnerRepository(':memory:');
     generateTool = new GenerateAdaptiveQuizTool(repo);
     gradeTool = new GradeSubjectiveQuizTool(repo);
   });
 
   afterEach(() => {
-    repo.close();
+    repo.getRawDb().close();
   });
 
   describe('GenerateAdaptiveQuizTool', () => {

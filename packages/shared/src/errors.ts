@@ -6,6 +6,7 @@ export type ErrorCategory =
   | 'TOOL_EXECUTION'    // 工具执行失败
   | 'VALIDATION'        // 参数或协议结构校验失败
   | 'LEARNER_STATE'     // 学习者数据冲突或未找到
+  | 'DATABASE'          // 数据库与持久化仓储异常
   | 'NETWORK'           // 网络与长连接通信异常
   | 'SECURITY'          // 权限拒绝或未授权
   | 'INTERNAL';         // 系统未捕获的未知异常
@@ -32,7 +33,7 @@ export class BusinessError extends Error {
  */
 export function translateToBusinessError(
   rawError: unknown,
-  contextTag: string = 'SYSTEM'
+  contextTag: string | Record<string, unknown> = 'SYSTEM'
 ): BusinessError {
   if (rawError instanceof BusinessError) {
     return rawError;

@@ -4,12 +4,13 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
-    "@study-studio/shared": "workspace:*",
-    "@study-studio/protocol": "workspace:*",
-    "@study-studio/learner-core": "workspace:*",
-    "@study-studio/agent-core": "workspace:*",
     "@study-studio/agent-codex": "workspace:*",
-    "@study-studio/tool-core": "workspace:*"
+    "@study-studio/agent-core": "workspace:*",
+    "@study-studio/learner-core": "workspace:*",
+    "@study-studio/protocol": "workspace:*",
+    "@study-studio/shared": "workspace:*",
+    "@study-studio/tool-core": "workspace:*",
+    "drizzle-orm": "^0.45.2"
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",

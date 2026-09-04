@@ -1,4 +1,5 @@
 import { GatewayServer } from './server.js';
+import { DrizzleLearnerRepository } from './repository/drizzle-learner-repository.js';
 import { SqliteLearnerRepository } from './repository/sqlite-learner-repository.js';
 import {
   type WsEnvelope,
@@ -10,20 +11,34 @@ export * from './server.js';
 export * from './session/session-manager.js';
 export * from './context/context-builder.js';
 export * from './router/tool-router.js';
+export * from './db/index.js';
+export * from './repository/drizzle-learner-repository.js';
 export * from './repository/sqlite-learner-repository.js';
 
 // 持久化存储实例：在生产/开发环境下持久化到本地 study-studio.db，或使用环境变量
 const dbPath = process.env.STUDY_STUDIO_DB || 'study-studio.db';
-export const sqliteRepo = new SqliteLearnerRepository(dbPath);
-export const gatewayServer = new GatewayServer(sqliteRepo);
+export const drizzleRepo = new DrizzleLearnerRepository(dbPath);
+export const sqliteRepo = drizzleRepo; // 保持向前兼容别名
+export const gatewayServer = new GatewayServer(drizzleRepo);
 
 const PORT = Number(process.env.GATEWAY_PORT || 8080);
 
 export function startGatewayServer(port = PORT) {
   const server = Bun.serve<{ sessionId?: string | undefined }>({
     port,
-    fetch(req, server) {
+    async fetch(req, server) {
       const url = new URL(req.url);
+
+      // CORS 头处理
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      };
+
+      if (req.method === 'OPTIONS') {
+        return new Response(null, { headers: corsHeaders });
+      }
 
       // 1. WebSocket 升级路由 /ws
       if (url.pathname === '/ws') {
@@ -36,24 +51,62 @@ export function startGatewayServer(port = PORT) {
 
       // 2. HTTP 健康检查端点
       if (url.pathname === '/health' || url.pathname === '/api/health') {
-        return Response.json({
-          status: 'ok',
-          service: 'Study Studio Agent Gateway',
-          port,
-          timestamp: Date.now(),
-        });
+        return Response.json(
+          {
+            status: 'ok',
+            service: 'Study Studio Agent Gateway',
+            port,
+            timestamp: Date.now(),
+          },
+          { headers: corsHeaders }
+        );
       }
 
-      // 3. HTTP 学习者画像快照直查端点
+      // 3. HTTP 学习者画像快照与更新端点
       if (url.pathname.startsWith('/api/profile/')) {
         const userId = url.pathname.replace('/api/profile/', '');
-        return sqliteRepo.getProfileSnapshot(userId).then((res) => {
-          if (isOk(res)) return Response.json(res.value);
-          return Response.json({ error: res.error }, { status: 400 });
-        });
+        if (req.method === 'POST') {
+          try {
+            const body = await req.json();
+            const res = await drizzleRepo.updateLearnerProfile(userId, body);
+            if (isOk(res)) return Response.json(res.value, { headers: corsHeaders });
+            return Response.json({ error: res.error }, { status: 400, headers: corsHeaders });
+          } catch (e: any) {
+            return Response.json({ error: e?.message || 'Invalid JSON' }, { status: 400, headers: corsHeaders });
+          }
+        } else {
+          const res = await drizzleRepo.getProfileSnapshot(userId);
+          if (isOk(res)) return Response.json(res.value, { headers: corsHeaders });
+          return Response.json({ error: res.error }, { status: 400, headers: corsHeaders });
+        }
       }
 
-      return new Response('Study Studio Gateway Running. Connect via /ws', { status: 200 });
+      // 4. HTTP 每日打卡与足迹进度端点
+      if (url.pathname.startsWith('/api/task/progress/')) {
+        const userId = url.pathname.replace('/api/task/progress/', '');
+        const date = url.searchParams.get('date') || undefined;
+        const res = await drizzleRepo.getDailyTaskProgress(userId, date);
+        if (isOk(res)) return Response.json(res.value, { headers: corsHeaders });
+        return Response.json({ error: res.error }, { status: 400, headers: corsHeaders });
+      }
+
+      // 5. HTTP 记录足迹打卡端点
+      if (url.pathname.startsWith('/api/task/activity/')) {
+        const userId = url.pathname.replace('/api/task/activity/', '');
+        try {
+          const body = await req.json();
+          const res = await drizzleRepo.recordDailyActivity(userId, body);
+          if (isOk(res)) return Response.json(res.value, { headers: corsHeaders });
+          return Response.json({ error: res.error }, { status: 400, headers: corsHeaders });
+        } catch (e: any) {
+          return Response.json({ error: e?.message || 'Invalid JSON' }, { status: 400, headers: corsHeaders });
+        }
+      }
+
+      return new Response('Study Studio Gateway Running. Connect via /ws', {
+        status: 200,
+        headers: corsHeaders,
+      });
     },
     websocket: {
       open(ws) {

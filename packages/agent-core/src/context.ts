@@ -1,5 +1,5 @@
 export interface ContextSnapshot {
-  targetLanguage: 'ja' | 'en';
+  targetLanguage: 'ja' | 'en' | 'ko';
   learnerLevel: string;
   currentQuestion?: {
     id: string;

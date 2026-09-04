@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
@@ -19,6 +19,7 @@ import { useGateway } from './hooks/useGateway.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
 import { useStudySessionStore } from './stores/useStudySessionStore.js';
+import { useUserProfileStore } from './stores/useUserProfileStore.js';
 import {
   useQuestionsQuery,
   useCardsQuery,
@@ -42,6 +43,29 @@ export function App() {
   const openTutor = useStudySessionStore((s) => s.openTutor);
   const closeTutor = useStudySessionStore((s) => s.closeTutor);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const fetchProfile = useUserProfileStore((s) => s.fetchProfile);
+  const recordActivity = useUserProfileStore((s) => s.recordActivity);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
+  const handleSubmitQuiz = useCallback(
+    (payload: any) => {
+      gateway.submitQuizToGateway(payload);
+      recordActivity({ quizzes: 1 });
+    },
+    [gateway, recordActivity]
+  );
+
+  const handleReviewCard = useCallback(
+    (payload: any) => {
+      gateway.reviewCardToGateway(payload);
+      recordActivity({ cards: 1 });
+    },
+    [gateway, recordActivity]
+  );
 
   const { data: questions = [] } = useQuestionsQuery();
   const { data: cards = [] } = useCardsQuery();
@@ -102,14 +126,14 @@ export function App() {
               openTutor(ctx);
             }}
             onGradeSubjective={gateway.gradeSubjectiveQuiz}
-            onSubmitQuizToGateway={gateway.submitQuizToGateway}
+            onSubmitQuizToGateway={handleSubmitQuiz}
             isGatewayConnected={gateway.isConnected}
             onGenerateAdaptiveQuizApi={gateway.generateAdaptiveQuiz}
           />
         )}
 
         {activeTab === 'CARDS' && (
-          <FsrsCardWorkbench onReviewCardToGateway={gateway.reviewCardToGateway} />
+          <FsrsCardWorkbench onReviewCardToGateway={handleReviewCard} />
         )}
 
         {activeTab === 'READING' && (

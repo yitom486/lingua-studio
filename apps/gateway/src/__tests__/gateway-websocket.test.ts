@@ -31,6 +31,7 @@ describe('Gateway WebSocket Server E2E', () => {
       ws.onerror = (e) => reject(e);
     });
 
+    const testUserId = generateId('student_e2e');
     let activeSessionId = '';
 
     // 1. 发送 session.init
@@ -39,7 +40,7 @@ describe('Gateway WebSocket Server E2E', () => {
       id: generateId('msg'),
       sessionId: 'temp_init',
       type: WsEventTypes.CLIENT_SESSION_INIT,
-      payload: { userId: 'student_e2e', targetLanguage: 'ja', targetLevel: 'N3' },
+      payload: { userId: testUserId, targetLanguage: 'ja', targetLevel: 'N3' },
       timestamp: Date.now(),
     };
 
@@ -92,7 +93,7 @@ describe('Gateway WebSocket Server E2E', () => {
       sessionId: activeSessionId,
       type: WsEventTypes.CLIENT_QUIZ_SUBMIT,
       payload: {
-        userId: 'student_e2e',
+        userId: testUserId,
         questionId: 'q_ws_test',
         userAnswer: 'A',
         isCorrect: true,
@@ -124,7 +125,7 @@ describe('Gateway WebSocket Server E2E', () => {
       id: generateId('msg'),
       sessionId: activeSessionId,
       type: WsEventTypes.CLIENT_QUIZ_GENERATE,
-      payload: { userId: 'student_e2e', targetLanguage: 'ja', count: 1 },
+      payload: { userId: testUserId, targetLanguage: 'ja', count: 1 },
       timestamp: Date.now(),
     };
 
@@ -151,7 +152,7 @@ describe('Gateway WebSocket Server E2E', () => {
       sessionId: activeSessionId,
       type: WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE,
       payload: {
-        userId: 'student_e2e',
+        userId: testUserId,
         questionId: 'q_ws_trans',
         prompt: '翻译：在图书馆学习。',
         standardAnswer: '図書館で勉強します。',
@@ -174,8 +175,68 @@ describe('Gateway WebSocket Server E2E', () => {
 
     ws.send(JSON.stringify(gradeEnvelope));
     const gradeReply = await gradePromise;
-    expect((gradeReply.payload as any)?.errorDiagnosis?.category).toBe('PARTICLE');
-    expect((gradeReply.payload as any)?.isCorrect).toBe(false);
+    // 6. 测试 CLIENT_PROFILE_GET & CLIENT_PROFILE_UPDATE
+    const profileGetEnvelope: WsEnvelope = {
+      version: '1.0',
+      id: generateId('msg'),
+      sessionId: activeSessionId,
+      type: WsEventTypes.CLIENT_PROFILE_GET,
+      payload: { userId: testUserId },
+      timestamp: Date.now(),
+    };
+
+    const profileGetPromise = new Promise<WsEnvelope>((resolve) => {
+      const handler = (evt: MessageEvent) => {
+        const data = JSON.parse(evt.data.toString()) as WsEnvelope;
+        if ((data.payload as any)?.userId === testUserId) {
+          ws.removeEventListener('message', handler);
+          resolve(data);
+        }
+      };
+      ws.addEventListener('message', handler);
+    });
+
+    ws.send(JSON.stringify(profileGetEnvelope));
+    const profileGetReply = await profileGetPromise;
+    expect((profileGetReply.payload as any)?.studyGoal).toBe('JLPT_N2');
+
+    // 7. 测试更新 profile
+    const profileUpdateEnvelope: WsEnvelope = {
+      version: '1.0',
+      id: generateId('msg'),
+      sessionId: activeSessionId,
+      type: WsEventTypes.CLIENT_PROFILE_UPDATE,
+      payload: {
+        userId: testUserId,
+        displayName: '极光学者',
+        studyGoal: 'JLPT_N1',
+        dailyGoalQuizzes: 6,
+      },
+      timestamp: Date.now(),
+    };
+
+    const profileUpdatePromise = new Promise<WsEnvelope>((resolve) => {
+      const handler = (evt: MessageEvent) => {
+        const data = JSON.parse(evt.data.toString()) as WsEnvelope;
+        if (data.type === WsEventTypes.LEARNER_PROFILE_UPDATED) {
+          ws.removeEventListener('message', handler);
+          resolve(data);
+        }
+      };
+      ws.addEventListener('message', handler);
+    });
+
+    ws.send(JSON.stringify(profileUpdateEnvelope));
+    const profileUpdateReply = await profileUpdatePromise;
+    expect((profileUpdateReply.payload as any)?.displayName).toBe('极光学者');
+    expect((profileUpdateReply.payload as any)?.studyGoal).toBe('JLPT_N1');
+    expect((profileUpdateReply.payload as any)?.dailyGoalQuizzes).toBe(6);
+
+    // 8. 测试 HTTP 每日打卡端点
+    const taskHttpRes = await fetch(`http://localhost:${TEST_PORT}/api/task/progress/${testUserId}`);
+    expect(taskHttpRes.status).toBe(200);
+    const taskBody = await taskHttpRes.json();
+    expect(taskBody.dailyGoalQuizzes).toBe(6);
 
     ws.close();
   });

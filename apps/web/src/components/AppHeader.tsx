@@ -15,6 +15,9 @@ import { Badge } from './ui/badge.js';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { DailyTaskProgressBar } from './DailyTaskProgressBar.js';
+import { UserProfileModal } from './UserProfileModal.js';
 
 interface AppHeaderProps {
   gateway: {
@@ -28,6 +31,8 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
   const theme = usePreferencesStore((s) => s.theme);
   const toggleTheme = usePreferencesStore((s) => s.toggleTheme);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
+  const profile = useUserProfileStore((s) => s.profile);
+  const setOpenProfile = useUserProfileStore((s) => s.setProfileModalOpen);
 
   return (
     <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
@@ -100,13 +105,41 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
             </kbd>
           </Button>
 
-          {/* 连续打卡天数指示徽章 */}
+          {/* 实时打卡进度与超额连刷微胶囊 */}
+          <DailyTaskProgressBar />
+
+          {/* 用户画像与目标设置入口 */}
+          <button
+            type="button"
+            onClick={() => {
+              sound.playClick();
+              setOpenProfile(true);
+            }}
+            title="点击配置学习者画像与每日目标"
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-medium border border-amber-900/15 dark:border-amber-500/20 bg-stone-100/80 dark:bg-stone-900/70 hover:border-amber-500/50 transition-all cursor-pointer shadow-xs"
+          >
+            <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-amber-600 flex items-center justify-center text-[10px] font-bold text-stone-950 shrink-0">
+              {profile.displayName.slice(0, 1) || '学'}
+            </div>
+            <span className="font-semibold text-stone-800 dark:text-stone-200 max-w-[80px] truncate">
+              {profile.displayName}
+            </span>
+            <Badge variant="outline" className="text-[10px] px-1 py-0 border-amber-500/30 text-amber-600 dark:text-amber-400">
+              {profile.studyGoal.replace('JLPT_', '')}
+            </Badge>
+          </button>
+
+          {/* 连续打卡天数指示徽章 (动态数据驱动) */}
           <Badge
             variant="amber"
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-amber-500/25"
+            onClick={() => {
+              sound.playClick();
+              setOpenProfile(true);
+            }}
+            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border-amber-500/25 cursor-pointer hover:border-amber-500/50 transition-all"
           >
             <Flame className="w-4 h-4 fill-amber-500 text-amber-500" />
-            <span>连续打卡 <NumberTicker value={12} className="inline-block font-mono font-bold" /> 天</span>
+            <span>连续打卡 <NumberTicker value={profile.streakDays} className="inline-block font-mono font-bold" /> 天</span>
           </Badge>
 
           <div className="h-5 w-px bg-stone-200 dark:bg-stone-800 hidden sm:block" />
@@ -132,6 +165,7 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
           </Button>
         </div>
       </div>
+      <UserProfileModal />
     </header>
   );
 }

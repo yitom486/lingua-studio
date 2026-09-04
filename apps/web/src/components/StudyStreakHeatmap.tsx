@@ -13,6 +13,8 @@ import { sound } from '../utils/audio.js';
 import { Button } from './ui/button.js';
 import { Progress } from './ui/progress.js';
 
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+
 interface HeatmapDay {
   date: string;
   dayNumber: number;
@@ -20,19 +22,44 @@ interface HeatmapDay {
   quizCount: number;
   cardCount: number;
   accuracy: number;
+  isToday?: boolean;
 }
 
 export function StudyStreakHeatmap() {
+  const profile = useUserProfileStore((s) => s.profile);
+  const dailyTask = useUserProfileStore((s) => s.dailyTask);
+  const setOpenProfile = useUserProfileStore((s) => s.setProfileModalOpen);
+  const recordActivity = useUserProfileStore((s) => s.recordActivity);
+
   const [selectedDay, setSelectedDay] = useState<HeatmapDay | null>(null);
 
-  // 构造最近 28 天的打卡数据
+  const streakDays = profile.streakDays;
+  const todayCompleted = dailyTask.quizzesCount + dailyTask.cardsReviewedCount;
+  const todayTarget = dailyTask.dailyGoalQuizzes + dailyTask.dailyGoalCards;
+  const targetPercent = Math.min(100, Math.round((todayCompleted / Math.max(todayTarget, 1)) * 100));
+
+  // 构造最近 28 天的打卡数据 (第 28 天为今天，绑定真实学情足迹)
   const days: HeatmapDay[] = Array.from({ length: 28 }, (_, i) => {
     const dayNum = i + 1;
-    // 模拟活跃规律：最近 12 天连续打卡
-    const isRecentStreak = dayNum >= 17;
-    const intensity = isRecentStreak
-      ? ((dayNum % 4 + 1) as 1 | 2 | 3 | 4)
-      : dayNum % 3 === 0
+    const isToday = dayNum === 28;
+
+    if (isToday) {
+      return {
+        date: '今天',
+        dayNumber: dayNum,
+        intensity: (dailyTask.intensityLevel as any) || 0,
+        quizCount: dailyTask.quizzesCount,
+        cardCount: dailyTask.cardsReviewedCount,
+        accuracy: dailyTask.quizzesCount > 0 ? 92 : 0,
+        isToday: true,
+      };
+    }
+
+    // 历史足迹模拟展示
+    const hasHistoryStreak = streakDays > 0 && dayNum >= 28 - streakDays;
+    const intensity = hasHistoryStreak
+      ? (((dayNum % 3) + 1) as 1 | 2 | 3 | 4)
+      : dayNum % 4 === 0
       ? 1
       : 0;
 
@@ -40,18 +67,20 @@ export function StudyStreakHeatmap() {
       date: `8月${dayNum < 10 ? '0' + dayNum : dayNum}日`,
       dayNumber: dayNum,
       intensity,
-      quizCount: intensity * 6 + (intensity > 0 ? 4 : 0),
-      cardCount: intensity * 8 + (intensity > 0 ? 5 : 0),
-      accuracy: intensity > 0 ? 82 + (dayNum % 15) : 0,
+      quizCount: intensity * 5 + (intensity > 0 ? 3 : 0),
+      cardCount: intensity * 7 + (intensity > 0 ? 4 : 0),
+      accuracy: intensity > 0 ? 84 + (dayNum % 12) : 0,
+      isToday: false,
     };
   });
 
-  const streakDays = 12;
-  const todayCompleted = 18;
-  const todayTarget = 25;
-  const targetPercent = Math.round((todayCompleted / todayTarget) * 100);
-
-  const getIntensityColor = (intensity: number) => {
+  const getIntensityColor = (intensity: number, isToday?: boolean) => {
+    if (isToday && dailyTask.isOvertimeBurst) {
+      return 'bg-gradient-to-tr from-amber-500 to-yellow-400 border-yellow-300 text-stone-950 font-bold shadow-md animate-pulse';
+    }
+    if (isToday && dailyTask.isGoalCompleted) {
+      return 'bg-emerald-500 dark:bg-emerald-600 border-emerald-400 text-white font-bold shadow-sm';
+    }
     switch (intensity) {
       case 1:
         return 'bg-amber-200 dark:bg-amber-950/60 border-amber-300 dark:border-amber-900';
@@ -134,11 +163,12 @@ export function StudyStreakHeatmap() {
                   sound.playClick();
                   setSelectedDay(day);
                 }}
-                className={`h-8 sm:h-9 w-full rounded-lg border text-xs font-mono ${getIntensityColor(
-                  day.intensity
+                className={`h-8 sm:h-9 w-full rounded-lg border text-xs font-mono transition-all ${getIntensityColor(
+                  day.intensity,
+                  day.isToday
                 )} ${isSelected ? 'ring-2 ring-amber-600 scale-105' : 'hover:scale-105'}`}
               >
-                {day.dayNumber}
+                {day.isToday ? '今' : day.dayNumber}
               </Button>
             );
           })}
@@ -150,30 +180,80 @@ export function StudyStreakHeatmap() {
         <motion.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="p-3 rounded-xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-2"
+          className="p-3.5 rounded-2xl bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs gap-3"
         >
-          <div className="flex items-center gap-3">
-            <span className="font-bold text-amber-950 dark:text-amber-200">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4">
+            <span className="font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
               📅 {selectedDay.date} 学习战报
+              {selectedDay.isToday && (
+                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                  dailyTask.isOvertimeBurst
+                    ? 'bg-amber-500 text-stone-950'
+                    : dailyTask.isGoalCompleted
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-stone-300 dark:bg-stone-700 text-stone-800 dark:text-stone-200'
+                }`}>
+                  {dailyTask.isOvertimeBurst ? '⚡超额连刷' : dailyTask.isGoalCompleted ? '✓已打卡' : '进行中'}
+                </span>
+              )}
             </span>
-            {selectedDay.intensity > 0 ? (
+            {selectedDay.intensity > 0 || (selectedDay.isToday && (dailyTask.quizzesCount > 0 || dailyTask.cardsReviewedCount > 0)) ? (
               <span className="text-stone-700 dark:text-stone-300">
                 完成做题 <strong className="text-amber-700 dark:text-amber-400 font-mono">{selectedDay.quizCount}</strong> 道 ·
                 复习卡片 <strong className="text-amber-700 dark:text-amber-400 font-mono">{selectedDay.cardCount}</strong> 张 ·
                 正确率 <strong className="text-emerald-700 dark:text-emerald-400 font-mono">{selectedDay.accuracy}%</strong>
               </span>
             ) : (
-              <span className="text-stone-500">当日未进行学习记录</span>
+              <span className="text-stone-500">当日暂未记录学习足迹</span>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setSelectedDay(null)}
-            className="h-auto p-0 text-[11px] text-stone-400 hover:text-stone-600 self-end sm:self-auto"
-          >
-            关闭详情
-          </Button>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {selectedDay.isToday && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    sound.playClick();
+                    recordActivity({ quizzes: 1 });
+                  }}
+                  className="h-7 text-[11px] px-2 py-0 border-amber-500/30"
+                >
+                  答题+1
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    sound.playClick();
+                    recordActivity({ cards: 1 });
+                  }}
+                  className="h-7 text-[11px] px-2 py-0 border-amber-500/30"
+                >
+                  卡片+1
+                </Button>
+                <Button
+                  variant="amber"
+                  size="sm"
+                  onClick={() => {
+                    sound.playClick();
+                    setOpenProfile(true);
+                  }}
+                  className="h-7 text-[11px] px-2.5 py-0"
+                >
+                  目标设置
+                </Button>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedDay(null)}
+              className="h-7 text-[11px] text-stone-400 hover:text-stone-600 px-2 py-0"
+            >
+              关闭
+            </Button>
+          </div>
         </motion.div>
       )}
     </div>
