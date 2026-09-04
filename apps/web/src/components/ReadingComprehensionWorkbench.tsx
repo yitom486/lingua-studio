@@ -300,10 +300,10 @@ export function ReadingComprehensionWorkbench({
               ? `AI 正在生成韩语轨道脚手架篇目（interim）Lv.${aiDifficulty}...`
               : `AI 正在按难度 Lv.${aiDifficulty} 生成日语自适应长文...`
           : genLanguage === 'EN'
-            ? `正在从英语媒体 RSS 拉取「${newsTopic}」（BBC / The Guardian / NPR）...`
+            ? `正在从英语媒体抓取「${newsTopic}」原文（失败则回退 RSS 摘要）...`
             : genLanguage === 'KO'
-              ? `正在拉取韩语轨道 interim 新闻 RSS「${newsTopic}」...`
-              : `正在从 NHK ONE RSS 拉取「${newsTopic}」日语新闻...`,
+              ? `正在拉取韩语轨道 interim 新闻「${newsTopic}」（摘要/原文尽力）...`
+              : `正在从 NHK 相关页抓取「${newsTopic}」正文（失败则回退 RSS）...`,
         { id: 'generate-reading' }
       );
       const generated = await generateMutation.mutateAsync({
@@ -325,7 +325,7 @@ export function ReadingComprehensionWorkbench({
             ? '韩语轨道 interim 篇目与配题已生成'
             : '自适应阅读长文与配套测试题生成成功！'
           : genLanguage === 'KO'
-            ? '韩语轨道 interim 新闻脚手架已拉取（非完整韩语全文）'
+            ? '韩语轨道 interim 新闻已就绪（摘要或原文摘录）'
             : '真实新闻篇目抓取与排版完成！',
         { id: 'generate-reading' }
       );
@@ -668,7 +668,7 @@ export function ReadingComprehensionWorkbench({
             </div>
             <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
               {shell.featureFlags.koreanInterim
-                ? '韩语 interim：AI 骨架篇目可用；新闻源暂为占位 RSS，不做真实韩语全文抓取'
+                ? '韩语 interim：可拉 AI 骨架或 interim 新闻；正式韩语社全文仍在筹备'
                 : 'AI 分级篇目与真实合规新闻双源驱动 · 左文右题 · 划词转闪卡 · 自动同步学情'}
             </p>
           </div>

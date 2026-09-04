@@ -99,9 +99,14 @@ describe('news RSS integration', () => {
       if (news.fromRss) {
         expect(news.publisher).toBe('BBC News');
         expect(news.sourceUrl).toBeTruthy();
-        expect(news.sourceLabel).toContain('RSS');
+        expect(news.sourceLabel).toContain('BBC');
+        // 全文抓取视站点反爬而定：成功则原文摘录，失败仍保留 RSS 摘要
+        expect(typeof news.fromFullText).toBe('boolean');
+        expect(news.body.length).toBeGreaterThan(40);
+        expect(news.body).not.toMatch(/<\/?[a-z]+/i);
       } else {
         expect(news.sourceLabel).toContain('template');
+        expect(news.fromFullText).toBe(false);
       }
     },
     { timeout: 20_000 }
@@ -120,9 +125,13 @@ describe('news RSS integration', () => {
       if (news.fromRss) {
         expect(news.publisher).toBe('NHK ONE');
         expect(news.sourceUrl).toBeTruthy();
-        expect(news.sourceLabel).toContain('RSS');
+        expect(news.sourceLabel).toContain('NHK');
+        expect(typeof news.fromFullText).toBe('boolean');
+        expect(news.body.length).toBeGreaterThan(40);
+        expect(news.body).not.toMatch(/<\/?[a-z]+/i);
       } else {
         expect(news.sourceLabel).toContain('模板');
+        expect(news.fromFullText).toBe(false);
       }
     },
     { timeout: 20_000 }

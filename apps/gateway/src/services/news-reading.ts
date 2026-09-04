@@ -163,7 +163,8 @@ function buildJapaneseNewsQuestions(
 
 export function formatNewsBody(
   article: RssItem,
-  language: StudyContentLanguage
+  language: StudyContentLanguage,
+  options?: { fullText?: string | undefined }
 ): string {
   const isJa = language === 'JA';
   const dateLine = article.pubDate
@@ -171,12 +172,18 @@ export function formatNewsBody(
       ? `公開：${article.pubDate}`
       : `Published: ${article.pubDate}`
     : '';
-  // 原文 URL 由 ReadingPassageSet.sourceUrl + 阅读台「查看原文」按钮承载，避免正文里再贴一长串链接
+  // 原文 URL 由 ReadingPassageSet.sourceUrl + 阅读台「查看原文」按钮承载
   const tip =
     language === 'EN' || language === 'KO'
-      ? 'Study tip: Read the headline first, then the lead sentence — then check unknown collocations in context.'
+      ? 'Study tip: Read the headline first, then the lead paragraphs — then check unknown collocations in context.'
       : language === 'JA'
-        ? '学習ヒント：見出し→リード文の順で読み、わからない語は文脈で推測してから辞書を開きましょう。'
+        ? '学習ヒント：見出し→本文の順で読み、わからない語は文脈で推測してから辞書を開きましょう。'
         : '';
-  return [sanitizeRssText(article.description), '', dateLine, tip].filter(Boolean).join('\n');
+
+  const summary = sanitizeRssText(article.description);
+  const full = options?.fullText ? sanitizeRssText(options.fullText) : '';
+  const main =
+    full && full.length > Math.max(summary.length + 80, 280) ? full : summary;
+
+  return [main, '', dateLine, tip].filter(Boolean).join('\n');
 }

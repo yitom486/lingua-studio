@@ -1,0 +1,202 @@
+import {
+  ok,
+  err,
+  type Result,
+  BusinessError,
+  translateToBusinessError,
+} from '@study-studio/shared';
+import { sanitizeRssText, stripHtml } from './news-rss.js';
+
+export interface NewsArticleFullText {
+  text: string;
+  /** 是否来自页面正文抽取（相对 RSS 摘要显著更长） */
+  fromFullText: boolean;
+  /** 抽取命中的容器提示，便于日志 */
+  strategy: 'article-paragraphs' | 'main-paragraphs' | 'fallback-plain' | 'rss-only';
+}
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+/** 阅读练习友好上限：过长不利于配题与朗读 */
+const MAX_CHARS = 2_400;
+const MIN_FULLTEXT_CHARS = 280;
+
+/**
+ * 抓取新闻原文页并抽取可读纯文本。
+ * 无 cheerio / Readability 依赖：启发式抽 <article>/<main> 内段落；失败由调用方回退 RSS 摘要。
+ */
+export async function fetchNewsArticleFullText(
+  url: string,
+  options?: { timeoutMs?: number; maxChars?: number }
+): Promise<Result<NewsArticleFullText, BusinessError>> {
+  const trimmed = (url || '').trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return err(
+      new BusinessError('E_NEWS_ARTICLE_URL', '原文链接无效，已使用 RSS 摘要。', 'VALIDATION', false)
+    );
+  }
+
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxChars = options?.maxChars ?? MAX_CHARS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(trimmed, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'User-Agent':
+          'StudyStudio/0.1 (language-learning reader; personal study; +https://localhost)',
+        'Accept-Language': 'en-US,en;q=0.8,ja;q=0.5,zh-CN;q=0.3',
+      },
+    });
+    if (!res.ok) {
+      return err(
+        new BusinessError(
+          'E_NEWS_ARTICLE_HTTP',
+          `原文页暂时不可用（HTTP ${res.status}），已回退 RSS 摘要。`,
+          'NETWORK',
+          true
+        )
+      );
+    }
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType && !/html|xml|text\/plain/i.test(contentType)) {
+      return err(
+        new BusinessError(
+          'E_NEWS_ARTICLE_TYPE',
+          '原文页不是可读 HTML，已回退 RSS 摘要。',
+          'NETWORK',
+          true
+        )
+      );
+    }
+    const html = await res.text();
+    const extracted = extractReadablePlainText(html, maxChars);
+    if (!extracted.fromFullText) {
+      return err(
+        new BusinessError(
+          'E_NEWS_ARTICLE_EMPTY',
+          '未能从原文页抽出足够正文，已回退 RSS 摘要。',
+          'NETWORK',
+          true
+        )
+      );
+    }
+    return ok(extracted);
+  } catch (e: unknown) {
+    const aborted = (e as { name?: string } | null)?.name === 'AbortError';
+    if (aborted) {
+      return err(
+        new BusinessError(
+          'E_NEWS_ARTICLE_TIMEOUT',
+          '原文抓取超时，已回退 RSS 摘要。',
+          'NETWORK',
+          true
+        )
+      );
+    }
+    return err(
+      translateToBusinessError(e, {
+        category: 'NETWORK',
+        action: 'fetchNewsArticleFullText',
+        entityId: trimmed.slice(0, 120),
+      })
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 纯函数：从 HTML 抽可读段落（可单测，不发网络） */
+export function extractReadablePlainText(
+  html: string,
+  maxChars = MAX_CHARS
+): NewsArticleFullText {
+  let h = html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<svg\b[\s\S]*?<\/svg>/gi, '')
+    .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
+
+  const articleInner = matchTagInner(h, 'article');
+  const mainInner = matchTagInner(h, 'main');
+
+  let strategy: NewsArticleFullText['strategy'] = 'fallback-plain';
+  let chunk = h;
+  if (articleInner && articleInner.length > 200) {
+    chunk = articleInner;
+    strategy = 'article-paragraphs';
+  } else if (mainInner && mainInner.length > 200) {
+    chunk = mainInner;
+    strategy = 'main-paragraphs';
+  }
+
+  const paras = collectParagraphs(chunk);
+  if (paras.length >= 2) {
+    const joined = paras.join('\n\n');
+    const text = truncateAtSentence(joined, maxChars);
+    if (text.length >= MIN_FULLTEXT_CHARS) {
+      return { text, fromFullText: true, strategy };
+    }
+  }
+
+  const plain = sanitizeRssText(chunk);
+  const text = truncateAtSentence(plain, maxChars);
+  if (text.length >= MIN_FULLTEXT_CHARS) {
+    return {
+      text,
+      fromFullText: true,
+      strategy: strategy === 'fallback-plain' ? 'fallback-plain' : strategy,
+    };
+  }
+
+  return {
+    text: text.slice(0, maxChars),
+    fromFullText: false,
+    strategy: 'rss-only',
+  };
+}
+
+function matchTagInner(html: string, tag: string): string | null {
+  const re = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+  const m = html.match(re);
+  return m?.[1] ?? null;
+}
+
+function collectParagraphs(chunk: string): string[] {
+  const raw = [...chunk.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map((m) =>
+    sanitizeRssText(stripHtml(m[1] ?? ''))
+  );
+  return raw.filter((p) => {
+    if (p.length < 42) return false;
+    if (
+      /cookie|subscribe|sign in|newsletter|advertisement|隐私|クッキー|ログイン/i.test(p)
+    ) {
+      return false;
+    }
+    // 过短导航残片
+    if (/^(home|menu|share|related)$/i.test(p)) return false;
+    return true;
+  });
+}
+
+function truncateAtSentence(text: string, maxChars: number): string {
+  const cleaned = text.replace(/\n{3,}/g, '\n\n').trim();
+  if (cleaned.length <= maxChars) return cleaned;
+  const slice = cleaned.slice(0, maxChars);
+  const cut = Math.max(
+    slice.lastIndexOf('。'),
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('！'),
+    slice.lastIndexOf('？'),
+    slice.lastIndexOf('\n\n')
+  );
+  if (cut > maxChars * 0.55) {
+    return slice.slice(0, cut + 1).trim();
+  }
+  return `${slice.trim()}…`;
+}

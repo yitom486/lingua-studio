@@ -4,6 +4,7 @@ import {
   resolveNewsFeed,
   type RssItem,
 } from './news-rss.js';
+import { fetchNewsArticleFullText } from './news-article-fetch.js';
 import { buildReadingQuestionsFromNews, formatNewsBody } from './news-reading.js';
 import {
   type StudyContentLanguage,
@@ -23,6 +24,8 @@ export interface GeneratedNewsPassage {
     explanation: string;
   }>;
   fromRss: boolean;
+  /** 是否成功用原文页正文替换了 RSS 摘要 */
+  fromFullText: boolean;
   publisher: string;
 }
 
@@ -40,10 +43,23 @@ export async function generateNewsPassage(params: {
   if (isOk(rssRes) && rssRes.value.length > 0) {
     const article: RssItem =
       rssRes.value[Math.floor(Math.random() * rssRes.value.length)] ?? rssRes.value[0]!;
+
+    let fullText: string | undefined;
+    let fromFullText = false;
+    if (article.link) {
+      const fullRes = await fetchNewsArticleFullText(article.link);
+      if (isOk(fullRes) && fullRes.value.fromFullText) {
+        fullText = fullRes.value.text;
+        fromFullText = true;
+      }
+    }
+
     return {
       title: article.title,
-      body: formatNewsBody(article, language),
-      sourceLabel: `${feed.publisher} RSS · ${topic}`,
+      body: formatNewsBody(article, language, { fullText }),
+      sourceLabel: fromFullText
+        ? `${feed.publisher} · 原文摘录 · ${topic}`
+        : `${feed.publisher} RSS · ${topic}`,
       ...(article.link ? { sourceUrl: article.link } : {}),
       questions: buildReadingQuestionsFromNews({
         setId,
@@ -53,6 +69,7 @@ export async function generateNewsPassage(params: {
         publisher: feed.publisher,
       }),
       fromRss: true,
+      fromFullText,
       publisher: feed.publisher,
     };
   }
@@ -68,6 +85,7 @@ Finally, check whether the summary supports a clear main idea about ${topic}, or
       sourceLabel: `English study template · ${topic} (RSS unavailable: ${feed.publisher})`,
       questions: buildTemplateNewsQuestions(setId, language, topic),
       fromRss: false,
+      fromFullText: false,
       publisher: feed.publisher,
     };
   }
@@ -82,6 +100,7 @@ Finally, check whether the summary supports a clear main idea about ${topic}, or
     sourceLabel: `合规模板稿 · ${topic}（RSS 暂不可用：${feed.publisher}）`,
     questions: buildTemplateNewsQuestions(setId, language, topic),
     fromRss: false,
+    fromFullText: false,
     publisher: feed.publisher,
   };
 }
