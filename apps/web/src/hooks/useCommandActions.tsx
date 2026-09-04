@@ -11,6 +11,8 @@ import {
   Flame,
   Moon,
   Sun,
+  Newspaper,
+  PenLine,
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
@@ -68,12 +70,27 @@ export function useCommandActions(unresolvedMistakeCount: number): CommandAction
         onSelect: () => setActiveTab('CARDS'),
       },
       {
+        id: 'nav-reading',
+        category: '导航',
+        title: '前往阅读理解工作室',
+        subtitle: 'AI 文章 / 新闻双源 · 左文右题可调宽双栏',
+        icon: <Newspaper className="w-4 h-4" />,
+        onSelect: () => setActiveTab('READING'),
+      },
+      {
+        id: 'nav-writing',
+        category: '导航',
+        title: '前往写作与翻译工作室',
+        subtitle: '体裁难度可调 · 主观题多维批改',
+        icon: <PenLine className="w-4 h-4" />,
+        onSelect: () => setActiveTab('WRITING'),
+      },
+      {
         id: 'nav-textbook',
         category: '导航',
         title: '前往结构化教材精读 (标日 / 大家的日语)',
         subtitle: '课文注音精读、核心词汇库与一键课后测验',
         icon: <BookOpen className="w-4 h-4" />,
-        shortcut: 'Tab 3',
         onSelect: () => setActiveTab('TEXTBOOK'),
       },
       {

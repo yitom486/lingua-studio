@@ -5,6 +5,8 @@ export type NavigationTab =
   | 'QUIZ'
   | 'CARDS'
   | 'TEXTBOOK'
+  | 'READING'
+  | 'WRITING'
   | 'SHADOWING'
   | 'PITCH'
   | 'MISTAKES'

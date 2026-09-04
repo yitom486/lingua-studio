@@ -6,6 +6,8 @@ export interface PreferencesState {
   furiganaEnabled: boolean;
   maskTextEnabled: boolean;
   sidebarCollapsed: boolean;
+  /** 阅读双栏左侧（文章）宽度占比 0.28–0.72 */
+  readingSplitRatio: number;
 
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
@@ -14,6 +16,7 @@ export interface PreferencesState {
   setMaskTextEnabled: (enabled: boolean) => void;
   toggleMaskText: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setReadingSplitRatio: (ratio: number) => void;
 }
 
 const applyThemeToDom = (theme: 'light' | 'dark') => {
@@ -34,6 +37,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       furiganaEnabled: true,
       maskTextEnabled: false,
       sidebarCollapsed: false,
+      readingSplitRatio: 0.58,
 
       setTheme: (theme: 'light' | 'dark') => {
         applyThemeToDom(theme);
@@ -53,6 +57,9 @@ export const usePreferencesStore = create<PreferencesState>()(
       toggleMaskText: () => set((state) => ({ maskTextEnabled: !state.maskTextEnabled })),
 
       setSidebarCollapsed: (collapsed: boolean) => set({ sidebarCollapsed: collapsed }),
+
+      setReadingSplitRatio: (ratio: number) =>
+        set({ readingSplitRatio: Math.min(0.72, Math.max(0.28, ratio)) }),
     }),
     {
       name: 'study_studio_user_preferences',

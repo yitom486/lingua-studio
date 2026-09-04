@@ -6,6 +6,7 @@ import {
   Flame,
   Moon,
   Sun,
+  PanelLeft,
 } from 'lucide-react';
 import { NumberTicker } from './magicui/index.js';
 import { VoiceSettingsPopover } from './VoiceSettingsPopover.js';
@@ -20,35 +21,50 @@ interface AppHeaderProps {
     isConnected: boolean;
     latencyMs?: number | null;
   };
+  onOpenMobileNav?: () => void;
 }
 
-export function AppHeader({ gateway }: AppHeaderProps) {
+export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
   const theme = usePreferencesStore((s) => s.theme);
   const toggleTheme = usePreferencesStore((s) => s.toggleTheme);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
 
   return (
     <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <Button
+            variant="outline"
+            size="icon"
+            className="md:hidden shrink-0"
+            aria-label="打开导航"
+            onClick={() => {
+              sound.playClick();
+              onOpenMobileNav?.();
+            }}
+          >
+            <PanelLeft className="w-4 h-4" />
+          </Button>
           <motion.div
             whileHover={{ scale: 1.05, rotate: 2 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => sound.playClick()}
-            className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold flex items-center justify-center shadow-sm cursor-pointer"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-600 text-stone-950 font-bold flex items-center justify-center shadow-sm cursor-pointer shrink-0"
           >
             <GraduationCap className="w-5 h-5 text-stone-950" />
           </motion.div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif">
+              <span className="font-bold text-base sm:text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif truncate">
                 Study Studio
               </span>
-              <Badge variant="amber" className="text-[11px] font-semibold border-amber-500/30">
+              <Badge variant="amber" className="hidden sm:inline-flex text-[11px] font-semibold border-amber-500/30">
                 多语种自适应架构 · 日英双通
               </Badge>
             </div>
-            <p className="text-xs text-stone-500 dark:text-stone-400">自适应外语自学与靶向攻坚工作台</p>
+            <p className="text-xs text-stone-500 dark:text-stone-400 hidden sm:block">
+              自适应外语自学与靶向攻坚工作台
+            </p>
           </div>
         </div>
 

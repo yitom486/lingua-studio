@@ -22,6 +22,34 @@
 - **严禁反向 Read Tool 往返**：绝不允许 Agent 通过调用 `getCurrentQuestion()`、`getUserAnswer()` 等工具向客户端重复索要界面已知数据。
 - **Tool 只用于未知与变更**：Tool 仅用于查询外部未知数据（权威词典检索）或触发持久化状态写入（错题入库、熟练度回写）。
 
+### 1.4 Agent Gateway 的定位 (What Gateway Is)
+- **Gateway = 客户端唯一后端屏障 + 领域调度中枢**（代码：`apps/gateway`），不是 Tauri 层，也不是 LLM 厂商本身。
+- **职责边界**：
+  1. 对客户端暴露 **HTTP + WebSocket**（`packages/protocol` 约定信封与事件）；
+  2. 持有 / 调度 **SQLite（或未来 PostgreSQL）** 与 `learner-core` Repository；
+  3. 组装 `ContextSnapshot`，经 `AgentRouter` 选择适配器，把 Turn 交给具体 `AgentAdapter`；
+  4. 通过 `ToolRegistry` / `ToolRouter` 执行 **Server Tools**（出题、批改、错题入库等），必要时把 **Client Tools** 经 WS 下发给前端。
+- **禁止事项**：前端不得直连数据库或任何 LLM/ACP 进程；业务包不得绕过 Gateway 私自起 Agent 会话。
+
+### 1.5 Agent 引擎扩展与 ACP 接入方式 (Adapters & ACP)
+- **所有引擎只许落在 Adapter 包内**：实现 `packages/agent-core` 的 `AgentAdapter` / `AgentSession`，在 Gateway 内注册即可，**业务与前端零感知**。
+- **第一阶段主力**：`packages/agent-codex` → **Codex App Server 原生**能力（Thread / Turn / Item / dynamic tools / 审批），**禁止**用阉割版 ACP 去“兼容代替”Codex。
+- **后续若需 ACP（Agent Client Protocol）**：
+  1. 新增独立包（如 `packages/agent-acp`）实现 `ACPAdapter`；
+  2. 在 Adapter 内完成 ACP 会话 ↔ 本系统 `AgentEvent` / `submitToolResult` 的双向翻译；
+  3. Gateway 按路由策略选择 `codex` 或 `acp`，**不得**在 `apps/web`、`learner-core`、`tool-core` 中 `import` 任何 `acp-*` SDK；
+  4. ACP 仅作为**可选兼容通道**，不得反向削弱 Codex 原生通路，也不得成为默认学习闭环依赖。
+
+### 1.6 原生工具调用优先于 MCP (Native Tools First, MCP Last)
+- **一等公民：引擎原生 Tool / Dynamic Tools + 本系统 `tool-core` Registry**。
+  - 学习闭环内的出题、批改、词典、错题入库、熟练度回写等，必须注册为 Gateway **Server/Client Tool**，并由 Adapter 注入为运行时**原生 tool_call**（如 Codex `dynamic_tools`）。
+  - 工具执行走 `ToolRouter` 进程内调度，结果经 `submitToolResult` 回填 Agent，**禁止**为同一能力再包一层 MCP 中转。
+- **MCP 仅限外部异构系统的可选桥接**（如 Anki / Notion 同步），落在 `ToolLocation.EXTERNAL`：
+  - 不得用 MCP 重写本已可原生调用的学习域工具；
+  - 不得把 MCP 当作默认 Agent 工具总线，或要求每个 Turn 多跳一次 MCP Server；
+  - 引入任何 MCP 依赖时，必须证明「目标系统无等价原生 API / 无本仓库内工具可覆盖」，并保持与 `agent-core` 契约隔离。
+- **违反判定**：凡学习域工具仅因“图省事”改走 MCP、导致额外进程/协议往返的，一律视为架构违规。
+
 ---
 
 ## 2. 错误处理机制与链条规范 (Error Handling & Result Pattern)
@@ -81,6 +109,17 @@
     4. 未来动态化改造对接方案（如改写为通过 Gateway 异步查询 SQLite 数据库、调用 AI Agent 实时组卷生成等）。
 - **后续重构依据**：未来所有“由静态转向真实数据驱动”的工程任务，均严格以此清单作为第一事实源进行逐项改造与闭环验证。
 
+### 5.1 内部设计沉淀文档（实现完成后删除引用）
+
+以下文件位于 **`.studio-internal/`**（已被 `.gitignore`，不进公开仓库），供实现期对照；**对应能力落地并验收后，删除本小节引用，并可归档/删除原文**：
+
+| 文档 | 链接 | 覆盖范围 | 清理条件 |
+| :--- | :--- | :--- | :--- |
+| 静态/硬编码清单 | [`.studio-internal/STATIC-DATA-INVENTORY.md`](.studio-internal/STATIC-DATA-INVENTORY.md) | Mock 数据登记与动态化改造对照 | 清单表项全部动态化闭环后可精简或删除 |
+| AI Native 运行时设计 | [`.studio-internal/AI-NATIVE-RUNTIME-DESIGN.md`](.studio-internal/AI-NATIVE-RUNTIME-DESIGN.md) | 流式对话、参数化工具、ContextSnapshot、导入/批注/入库表、阅读写作新闻双源、双栏可调 UI 等 | D0–D5 里程碑实现并迁入正式 `docs/` 或代码后删除本引用 |
+
+实现 Agent **必须先读上述文档再改相关模块**；不得与 `AGENTS.md` §1 铁律冲突。
+
 ---
 
 ## 6. 前端现代基建与组件选型铁律 (UI & State Infrastructure Invariants)
@@ -100,7 +139,7 @@
   - 教材课文树、用户学情画像、熟练度指标、错题本查询与自适应做题评测，统一使用 **TanStack Query (`@tanstack/react-query`)** 的 `useQuery` / `useMutation`；
   - 严格依托 QueryClient 进行缓存控制、后台自动重试与变更失效（`invalidateQueries`），**严禁手写 `useEffect` + `useState(loading)` 自建请求轮子**。
 - **客户端偏好与本地状态 (Client State) 归 Zustand + `persist`**：
-  - TTS 语音参数（男女声、语速、音色、自定义外挂端点）、主题明暗（Light/Dark）、盲听遮罩开关、假名注音开关及 UI 导航状态，统一使用 **Zustand 并启用 `persist` 中间件**；
+  - TTS 语音参数（男女声、语速、音色、自定义外挂端点）、主题明暗（Light/Dark）、盲听遮罩开关、假名注音开关、UI 导航状态，以及**阅读双栏宽度比（splitPaneRatio）**等布局偏好，统一使用 **Zustand 并启用 `persist` 中间件**；
   - 彻底杜绝在各个组件中到处分散编写 `localStorage.getItem/setItem` 胶水代码，保证多组件、跨标签页与未来 Tauri 桌面端的响应式自动持久化。
 
 

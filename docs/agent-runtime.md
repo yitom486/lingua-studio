@@ -137,7 +137,13 @@ export type AgentEvent =
 1. **`ResponsesAdapter` (轻量快模)**：
    - 针对“这个生词怎么读”、“单选客观题快速解析”等低复杂度场景；
    - 直接调用单次轻量大模型 API，成本更低，首字输出延迟小于 200ms。
-2. **`ACPAdapter` (兼容第三方 Agent 协议)**：
-   - 接入兼容 Agent Communication Protocol 的外部智能体。
+2. **`ACPAdapter` (兼容第三方 Agent 协议，可选)**：
+   - 接入兼容 Agent Client Protocol (ACP) 的外部智能体；实现必须封闭在独立 Adapter 包内，经 Gateway 路由选用。
+   - **不得**用 ACP 阉割或替代 Codex App Server 原生通路；学习闭环默认仍走 Codex 原生 Tool。
+   - 工具调用优先映射为本系统 `tool-core` 原生执行；**禁止**把本域 Server Tools 无故改道 MCP 多跳一次。
 3. **`LocalModelAdapter` (离线大模型)**：
    - 基于本地 Ollama / Llama.cpp 运行的模型，供用户在无网环境下进行离线词汇复习与批改。
+
+### 工具通道优先级 (与 AGENTS.md 1.6 对齐)
+1. **最高优先**：引擎原生 dynamic tool / function call → Gateway `ToolRouter` → `tool-core` 注册工具。
+2. **最低优先 / 可选**：MCP，仅用于 Anki、Notion 等外部异构系统，不得成为学习域默认总线。

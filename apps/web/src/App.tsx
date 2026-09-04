@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { AiTutorDrawer } from './components/AiTutorDrawer.js';
 import { AppHeader } from './components/AppHeader.js';
-import { NavigationTabs } from './components/NavigationTabs.js';
+import { AppSidebar } from './components/AppSidebar.js';
 import { AdaptiveQuizWorkbench } from './components/AdaptiveQuizWorkbench.js';
 import { FsrsCardWorkbench } from './components/FsrsCardWorkbench.js';
 import { TextbookCurriculum } from './components/TextbookCurriculum.js';
@@ -13,6 +13,8 @@ import { ListeningShadowingWorkbench } from './components/ListeningShadowingWork
 import { PitchAccentCoach } from './components/PitchAccentCoach.js';
 import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
+import { ReadingComprehensionWorkbench } from './components/ReadingComprehensionWorkbench.js';
+import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
 import { useGateway } from './hooks/useGateway.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
@@ -39,6 +41,7 @@ export function App() {
   const tutorContext = useStudySessionStore((s) => s.tutorContext);
   const openTutor = useStudySessionStore((s) => s.openTutor);
   const closeTutor = useStudySessionStore((s) => s.closeTutor);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const { data: questions = [] } = useQuestionsQuery();
   const { data: cards = [] } = useCardsQuery();
@@ -50,12 +53,17 @@ export function App() {
 
   const unresolvedMistakesCount = mistakes.filter((m) => !m.isResolved).length;
   const commandActions = useCommandActions(unresolvedMistakesCount);
+  const topWeaknessLabel = useMemo(() => {
+    if (!metrics.length) return undefined;
+    const weakest = [...metrics].sort((a, b) => a.proficiency - b.proficiency)[0];
+    return weakest?.name;
+  }, [metrics]);
 
   return (
     <div
       className={`min-h-screen ${
         theme === 'dark' ? 'dark bg-[#141312] text-stone-100' : 'bg-[#fbfaf8] text-stone-800'
-      } transition-colors duration-200 flex flex-col font-sans relative overflow-x-hidden`}
+      } transition-colors duration-200 flex font-sans relative overflow-x-hidden`}
     >
       <Toaster position="top-center" richColors />
       <DotPattern
@@ -74,15 +82,19 @@ export function App() {
       />
       <AiTutorDrawer isOpen={isTutorOpen} onClose={closeTutor} context={tutorContext} />
 
-      <AppHeader gateway={gateway} />
+      <AppSidebar
+        quizProgress={`${Math.min(questionIndex + 1, questions.length)}/${questions.length || 1}`}
+        cardCount={cards.length}
+        unresolvedMistakeCount={unresolvedMistakesCount}
+        topWeaknessLabel={topWeaknessLabel}
+        mobileOpen={mobileNavOpen}
+        onMobileOpenChange={setMobileNavOpen}
+      />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6 relative z-10">
-        <NavigationTabs
-          quizProgress={`${Math.min(questionIndex + 1, questions.length)}/${questions.length || 1}`}
-          cardCount={cards.length}
-          unresolvedMistakeCount={unresolvedMistakesCount}
-        />
+      <div className="flex-1 min-w-0 flex flex-col relative z-10">
+        <AppHeader gateway={gateway} onOpenMobileNav={() => setMobileNavOpen(true)} />
 
+        <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
         {activeTab === 'QUIZ' && (
           <AdaptiveQuizWorkbench
             onOpenTutor={(ctx) => {
@@ -98,6 +110,19 @@ export function App() {
 
         {activeTab === 'CARDS' && (
           <FsrsCardWorkbench onReviewCardToGateway={gateway.reviewCardToGateway} />
+        )}
+
+        {activeTab === 'READING' && (
+          <ReadingComprehensionWorkbench
+            onOpenTutor={(ctx) => {
+              sound.playClick();
+              openTutor(ctx);
+            }}
+          />
+        )}
+
+        {activeTab === 'WRITING' && (
+          <WritingStudioWorkbench onGradeSubjective={gateway.gradeSubjectiveQuiz} />
         )}
 
         {activeTab === 'TEXTBOOK' && (
@@ -173,7 +198,8 @@ export function App() {
             unresolvedMistakesCount={unresolvedMistakesCount}
           />
         )}
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
