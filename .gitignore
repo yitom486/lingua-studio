@@ -1,5 +1,7 @@
-# Plans (User requested untracked)
+# Plans and Internal Meta (Untracked)
 .plan/
+.studio-internal/
+
 
 # Dependencies
 node_modules/
