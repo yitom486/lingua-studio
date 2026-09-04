@@ -8,30 +8,14 @@ export const WsErrorPayloadSchema = z.object({
 });
 export type WsErrorPayload = z.infer<typeof WsErrorPayloadSchema>;
 
+const allEventTypes = Object.values(WsEventTypes) as [WsEventType, ...WsEventType[]];
+
 export const WsEnvelopeSchema = z.object({
   version: z.literal('1.0'),
   id: z.string(),
   sessionId: z.string(),
   turnId: z.string().optional(),
-  type: z.enum([
-    WsEventTypes.CLIENT_SESSION_INIT,
-    WsEventTypes.CLIENT_TURN_SEND,
-    WsEventTypes.CLIENT_QUIZ_SUBMIT,
-    WsEventTypes.CLIENT_CARD_REVIEW,
-    WsEventTypes.CLIENT_TOOL_RESULT,
-    WsEventTypes.CLIENT_APPROVAL_RESPOND,
-    WsEventTypes.CLIENT_TURN_INTERRUPT,
-    WsEventTypes.CLIENT_PING,
-    WsEventTypes.AGENT_TURN_START,
-    WsEventTypes.AGENT_TEXT_DELTA,
-    WsEventTypes.AGENT_TOOL_CALL,
-    WsEventTypes.AGENT_APPROVAL_REQUEST,
-    WsEventTypes.AGENT_TURN_COMPLETED,
-    WsEventTypes.AGENT_ERROR,
-    WsEventTypes.LEARNER_PROFILE_UPDATED,
-    WsEventTypes.LEARNER_MISTAKE_ADDED,
-    WsEventTypes.GATEWAY_PONG,
-  ]),
+  type: z.enum(allEventTypes),
   payload: z.unknown(),
   timestamp: z.number(),
   error: WsErrorPayloadSchema.optional(),

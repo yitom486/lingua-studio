@@ -6,6 +6,8 @@ export const WsEventTypes = {
   CLIENT_SESSION_INIT: 'client.session.init',
   CLIENT_TURN_SEND: 'client.turn.send',
   CLIENT_QUIZ_SUBMIT: 'client.quiz.submit',
+  CLIENT_QUIZ_GENERATE: 'client.quiz.generate',
+  CLIENT_QUIZ_GRADE_SUBJECTIVE: 'client.quiz.grade_subjective',
   CLIENT_CARD_REVIEW: 'client.card.review',
   CLIENT_TOOL_RESULT: 'client.tool.result',
   CLIENT_APPROVAL_RESPOND: 'client.approval.respond',

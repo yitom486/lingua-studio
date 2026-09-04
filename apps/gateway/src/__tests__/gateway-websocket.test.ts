@@ -118,6 +118,65 @@ describe('Gateway WebSocket Server E2E', () => {
     const quizReply = await quizPromise;
     expect((quizReply.payload as any)?.persistedToDb).toBe(true);
 
+    // 4. 发送 quiz.generate 自适应出题
+    const genEnvelope: WsEnvelope = {
+      version: '1.0',
+      id: generateId('msg'),
+      sessionId: activeSessionId,
+      type: WsEventTypes.CLIENT_QUIZ_GENERATE,
+      payload: { userId: 'student_e2e', targetLanguage: 'ja', count: 1 },
+      timestamp: Date.now(),
+    };
+
+    const genPromise = new Promise<WsEnvelope>((resolve) => {
+      const handler = (evt: MessageEvent) => {
+        const data = JSON.parse(evt.data.toString()) as WsEnvelope;
+        if (Array.isArray((data.payload as any)?.questions)) {
+          ws.removeEventListener('message', handler);
+          resolve(data);
+        }
+      };
+      ws.addEventListener('message', handler);
+    });
+
+    ws.send(JSON.stringify(genEnvelope));
+    const genReply = await genPromise;
+    expect((genReply.payload as any)?.questions?.length).toBe(1);
+    expect((genReply.payload as any)?.targetSkillId).toBeDefined();
+
+    // 5. 发送 quiz.grade_subjective 主观题多维深度批改
+    const gradeEnvelope: WsEnvelope = {
+      version: '1.0',
+      id: generateId('msg'),
+      sessionId: activeSessionId,
+      type: WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE,
+      payload: {
+        userId: 'student_e2e',
+        questionId: 'q_ws_trans',
+        prompt: '翻译：在图书馆学习。',
+        standardAnswer: '図書館で勉強します。',
+        userSubmission: '図書館勉強します。', // 缺格助词 で
+        testedSkillId: 'jp.particle.ni_vs_de',
+      },
+      timestamp: Date.now(),
+    };
+
+    const gradePromise = new Promise<WsEnvelope>((resolve) => {
+      const handler = (evt: MessageEvent) => {
+        const data = JSON.parse(evt.data.toString()) as WsEnvelope;
+        if ((data.payload as any)?.errorDiagnosis !== undefined) {
+          ws.removeEventListener('message', handler);
+          resolve(data);
+        }
+      };
+      ws.addEventListener('message', handler);
+    });
+
+    ws.send(JSON.stringify(gradeEnvelope));
+    const gradeReply = await gradePromise;
+    expect((gradeReply.payload as any)?.errorDiagnosis?.category).toBe('PARTICLE');
+    expect((gradeReply.payload as any)?.isCorrect).toBe(false);
+
     ws.close();
   });
 });

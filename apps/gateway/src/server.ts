@@ -22,6 +22,8 @@ import {
   scheduleNextReview,
 } from '@study-studio/learner-core';
 import { SqliteLearnerRepository } from './repository/sqlite-learner-repository.js';
+import { GenerateAdaptiveQuizTool } from './tools/generate-adaptive-quiz.js';
+import { GradeSubjectiveQuizTool } from './tools/grade-subjective-quiz.js';
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -33,6 +35,9 @@ export class GatewayServer {
 
   constructor(learnerRepo?: LearnerRepository) {
     this.learnerRepo = learnerRepo ?? new SqliteLearnerRepository(':memory:');
+    // 注册 M4 阶段核心自适应与批改服务端工具
+    this.toolRegistry.register(new GenerateAdaptiveQuizTool(this.learnerRepo));
+    this.toolRegistry.register(new GradeSubjectiveQuizTool(this.learnerRepo));
   }
 
   /**
@@ -182,6 +187,55 @@ export class GatewayServer {
             nextFsrs,
             nextReviewDays: Math.round(nextFsrs.stability),
           },
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_QUIZ_GENERATE: {
+        const tool = this.toolRegistry.get('quiz.generateAdaptive');
+        if (!tool) {
+          return err(new BusinessError('E_TOOL_NOT_FOUND', '自适应出题工具未注册', 'AGENT_RUNTIME'));
+        }
+        const rawPayload = (envelope.payload ?? {}) as Record<string, any>;
+        const normalizedInput = {
+          targetLanguage: rawPayload.targetLanguage ?? 'ja',
+          targetLevel: rawPayload.targetLevel ?? 'JLPT N3',
+          weaknessSkillId: rawPayload.weaknessSkillId,
+          count: typeof rawPayload.count === 'number' ? rawPayload.count : 1,
+        };
+        const toolRes = await tool.execute(normalizedInput, {
+          userId: rawPayload.userId ?? 'student_web_01',
+          sessionId: envelope.sessionId,
+        });
+        if (!isOk(toolRes)) return err(toolRes.error);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: toolRes.value,
+          timestamp: Date.now(),
+        });
+      }
+
+      case WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE: {
+        const tool = this.toolRegistry.get('quiz.gradeSubjective');
+        if (!tool) {
+          return err(new BusinessError('E_TOOL_NOT_FOUND', '主观题智能批改工具未注册', 'AGENT_RUNTIME'));
+        }
+        const toolRes = await tool.execute(envelope.payload, {
+          userId: (envelope.payload as any)?.userId ?? 'student_web_01',
+          sessionId: envelope.sessionId,
+        });
+        if (!isOk(toolRes)) return err(toolRes.error);
+
+        return ok({
+          version: '1.0',
+          id: generateId('msg'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: toolRes.value,
           timestamp: Date.now(),
         });
       }

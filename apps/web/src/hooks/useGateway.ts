@@ -74,8 +74,22 @@ export function useGateway({
         try {
           const envelope = JSON.parse(event.data.toString()) as WsEnvelope;
 
-          if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED && (envelope.payload as any)?.status === 'INITIALIZED') {
-            setSessionId(envelope.sessionId);
+          if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
+            if ((envelope.payload as any)?.status === 'INITIALIZED') {
+              setSessionId(envelope.sessionId);
+            } else if (Array.isArray((envelope.payload as any)?.questions)) {
+              const resolver = pendingResolversRef.current.get(WsEventTypes.CLIENT_QUIZ_GENERATE);
+              if (resolver) {
+                pendingResolversRef.current.delete(WsEventTypes.CLIENT_QUIZ_GENERATE);
+                resolver(envelope.payload);
+              }
+            } else if ((envelope.payload as any)?.refinementSuggestion !== undefined || (envelope.payload as any)?.errorDiagnosis !== undefined) {
+              const resolver = pendingResolversRef.current.get(WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE);
+              if (resolver) {
+                pendingResolversRef.current.delete(WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE);
+                resolver(envelope.payload);
+              }
+            }
           } else if (envelope.type === WsEventTypes.GATEWAY_PONG) {
             if (pingSentTimeRef.current > 0) {
               setLatencyMs(Date.now() - pingSentTimeRef.current);
@@ -164,6 +178,70 @@ export function useGateway({
     [sendEnvelope, userId]
   );
 
+  const pendingResolversRef = useRef<Map<string, (val: any) => void>>(new Map());
+
+  const sendRequest = useCallback(
+    <T = any>(type: WsEventType, payload: unknown): Promise<T> => {
+      return new Promise((resolve, reject) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          reject(new Error('Gateway is not connected'));
+          return;
+        }
+
+        const msgId = generateId('req');
+        const envelope: WsEnvelope = {
+          version: '1.0',
+          id: msgId,
+          sessionId: sessionId ?? 'active_session',
+          type,
+          payload,
+          timestamp: Date.now(),
+        };
+
+        pendingResolversRef.current.set(type, resolve);
+        wsRef.current.send(JSON.stringify(envelope));
+
+        // 6 秒超时防挂死
+        setTimeout(() => {
+          if (pendingResolversRef.current.has(type)) {
+            pendingResolversRef.current.delete(type);
+            reject(new Error('Gateway request timed out'));
+          }
+        }, 6000);
+      });
+    },
+    [sessionId]
+  );
+
+  const generateAdaptiveQuiz = useCallback(
+    async (options?: { weaknessSkillId?: string; count?: number }) => {
+      return sendRequest(WsEventTypes.CLIENT_QUIZ_GENERATE, {
+        userId,
+        targetLanguage: 'ja',
+        targetLevel: 'JLPT N3',
+        ...options,
+      });
+    },
+    [sendRequest, userId]
+  );
+
+  const gradeSubjectiveQuiz = useCallback(
+    async (data: {
+      questionId: string;
+      prompt: string;
+      standardAnswer: string;
+      userSubmission: string;
+      testedSkillId: string;
+      contextSentence?: string;
+    }) => {
+      return sendRequest(WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE, {
+        userId,
+        ...data,
+      });
+    },
+    [sendRequest, userId]
+  );
+
   useEffect(() => {
     if (autoConnect) {
       connect();
@@ -182,5 +260,7 @@ export function useGateway({
     disconnect,
     submitQuizToGateway,
     reviewCardToGateway,
+    generateAdaptiveQuiz,
+    gradeSubjectiveQuiz,
   };
 }

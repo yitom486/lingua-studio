@@ -57,6 +57,7 @@ import { TextbookCurriculum } from './components/TextbookCurriculum.js';
 import { PitchAccentCoach } from './components/PitchAccentCoach.js';
 import { StudyStreakHeatmap } from './components/StudyStreakHeatmap.js';
 import { AiTutorDrawer, type AiTutorContext } from './components/AiTutorDrawer.js';
+import { SubjectiveWritingWorkbench } from './components/SubjectiveWritingWorkbench.js';
 import { useGateway } from './hooks/useGateway.js';
 
 export function App() {
@@ -100,6 +101,9 @@ export function App() {
   const [tutorContext, setTutorContext] = useState<AiTutorContext | null>(null);
 
   // --- 1. 做题系统状态 ---
+  const [questions, setQuestions] = useState<QuizQuestionItem[]>(INITIAL_QUESTIONS);
+  const [quizSubMode, setQuizSubMode] = useState<'OBJECTIVE' | 'SUBJECTIVE'>('OBJECTIVE');
+  const [isGeneratingAdaptive, setIsGeneratingAdaptive] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [fillBlankInput, setFillBlankInput] = useState('');
@@ -108,7 +112,87 @@ export function App() {
   const [isCurrentAnswerCorrect, setIsCurrentAnswerCorrect] = useState(false);
   const [sessionScore, setSessionScore] = useState(0);
 
-  const currentQ: QuizQuestionItem = INITIAL_QUESTIONS[questionIndex] ?? INITIAL_QUESTIONS[0]!;
+  const currentQ: QuizQuestionItem = questions[questionIndex] ?? questions[0]!;
+
+  // 1.1 AI 针对画像弱项一键出题 (动态组卷)
+  const handleGenerateAdaptiveQuiz = async () => {
+    sound.playClick();
+    setIsGeneratingAdaptive(true);
+    try {
+      if (gateway.isConnected) {
+        const reply = await gateway.generateAdaptiveQuiz();
+        if (reply && reply.questions && reply.questions.length > 0) {
+          const newQRaw = reply.questions[0];
+          const newQ: QuizQuestionItem = {
+            id: newQRaw.id,
+            type: newQRaw.type === 'FILL_IN_BLANK' ? 'FILL_BLANK' : 'CHOICE',
+            category: `AI 靶向弱项 · ${reply.targetSkillName ?? '核心语法'}`,
+            prompt: newQRaw.prompt,
+            content: newQRaw.content,
+            options: newQRaw.options?.map((text: string, i: number) => ({
+              key: String.fromCharCode(65 + i),
+              text,
+            })),
+            correctAnswer: newQRaw.correctAnswer,
+            explanation: newQRaw.explanation,
+            testedSkill: newQRaw.testedSkillId,
+          };
+          setQuestions((prev) => [newQ, ...prev]);
+          setQuestionIndex(0);
+          setSelectedChoice(null);
+          setFillBlankInput('');
+          setReorderSelectedChunks([]);
+          setQuizSubmitted(false);
+          sound.playSuccess();
+          fireSuccessConfetti();
+          toast.success('🎯 AI 已根据您的学情画像生成专属靶向弱项测评！');
+          return;
+        }
+      }
+
+      // 离线环境备选动态题
+      setTimeout(() => {
+        const fallbackQ: QuizQuestionItem = {
+          id: `q_ai_${Date.now()}`,
+          type: 'CHOICE',
+          category: 'AI 靶向弱项 · 助词「で」与「に」',
+          prompt: '根据动作属性选择正确的场所助词：',
+          content: '昨夜、友達と一緒に図書館（　）勉強しました。',
+          options: [
+            { key: 'A', text: 'で', note: '动作发生的场所' },
+            { key: 'B', text: 'に', note: '静态存在场所或目的地' },
+            { key: 'C', text: 'を', note: '宾格助词' },
+            { key: 'D', text: 'へ', note: '移动方向' },
+          ],
+          correctAnswer: 'A',
+          explanation: '「勉強する」为具体动态动作，动作发生场所固定使用「で」。',
+          testedSkill: 'jp.particle.ni_vs_de',
+        };
+        setQuestions((prev) => [fallbackQ, ...prev]);
+        setQuestionIndex(0);
+        setSelectedChoice(null);
+        setQuizSubmitted(false);
+        sound.playSuccess();
+        fireSuccessConfetti();
+        toast.success('🎯 AI 已根据您的学情画像生成专属靶向弱项测评！');
+      }, 500);
+    } catch {
+      toast.error('AI 动态出题请求超时');
+    } finally {
+      setIsGeneratingAdaptive(false);
+    }
+  };
+
+  // 1.2 主观题智能批改联动
+  const handleGradeSubjective = async (data: {
+    questionId: string;
+    prompt: string;
+    standardAnswer: string;
+    userSubmission: string;
+    testedSkillId: string;
+  }) => {
+    return gateway.gradeSubjectiveQuiz(data);
+  };
 
   // --- 2. 卡片系统状态 ---
   const [cards, setCards] = useState<StudyCardItem[]>(INITIAL_CARDS);
@@ -632,24 +716,71 @@ export function App() {
             transition={{ duration: 0.25 }}
             className="flex flex-col gap-5 max-w-3xl"
           >
-            {/* 顶部进度指示 */}
-            <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 px-1">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                第 {questionIndex + 1} 题 / 共 {INITIAL_QUESTIONS.length} 题 · {currentQ.category}
-              </span>
-              <div className="flex items-center gap-3">
-                <span className="hidden sm:inline text-[11px] text-stone-400 font-mono">
-                  快捷键: 1-4 选选项 / Enter 提交
-                </span>
-                <span className="font-semibold text-amber-700 dark:text-amber-400 font-mono">
-                  当前得分: {sessionScore}
-                </span>
+            {/* 做题顶部子模式切换与 AI 靶向弱项组卷按钮 */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#faf9f6] dark:bg-[#1a1816] p-3 rounded-2xl border border-amber-900/10 dark:border-amber-500/15 shadow-xs">
+              {/* 子模式切换 */}
+              <div className="flex items-center gap-1.5 p-1 bg-stone-200/60 dark:bg-stone-900 rounded-xl">
+                <button
+                  onClick={() => {
+                    sound.playClick();
+                    setQuizSubMode('OBJECTIVE');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    quizSubMode === 'OBJECTIVE'
+                      ? 'bg-amber-500 text-stone-950 shadow-sm'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  }`}
+                >
+                  ⚡ 客观快速秒测 ({questions.length}题)
+                </button>
+                <button
+                  onClick={() => {
+                    sound.playClick();
+                    setQuizSubMode('SUBJECTIVE');
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                    quizSubMode === 'SUBJECTIVE'
+                      ? 'bg-amber-500 text-stone-950 shadow-sm'
+                      : 'text-stone-600 dark:text-stone-400 hover:text-stone-900 dark:hover:text-stone-200'
+                  }`}
+                >
+                  ✍️ AI 深度主观造句/翻译批改
+                </button>
               </div>
+
+              {/* 针对画像弱项一键出题 */}
+              <ShimmerButton
+                onClick={handleGenerateAdaptiveQuiz}
+                disabled={isGeneratingAdaptive}
+                className="px-4 py-1.5 text-xs font-bold flex items-center gap-1.5 shadow-sm"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isGeneratingAdaptive ? 'AI 正在分析弱项组卷...' : '🎯 AI 针对弱项出题'}</span>
+              </ShimmerButton>
             </div>
 
-            {/* 题目主卡片 */}
-            <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">
+            {quizSubMode === 'SUBJECTIVE' ? (
+              <SubjectiveWritingWorkbench onGradeSubjective={handleGradeSubjective} />
+            ) : (
+              <>
+                {/* 顶部进度指示 */}
+                <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 px-1">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                    第 {questionIndex + 1} 题 / 共 {questions.length} 题 · {currentQ.category}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="hidden sm:inline text-[11px] text-stone-400 font-mono">
+                      快捷键: 1-4 选选项 / Enter 提交
+                    </span>
+                    <span className="font-semibold text-amber-700 dark:text-amber-400 font-mono">
+                      当前得分: {sessionScore}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 题目主卡片 */}
+                <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300">
@@ -856,8 +987,10 @@ export function App() {
                 </motion.div>
               )}
             </div>
-          </motion.div>
+          </>
         )}
+      </motion.div>
+    )}
 
         {/* ========================================================================= */}
         {/* 2. FSRS 闪卡记忆工坊                                                      */}
