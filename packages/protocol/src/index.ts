@@ -11,3 +11,4 @@ export * from './schemas/practice.js';
 export * from './schemas/news.js';
 export * from './schemas/turn-summary.js';
 export * from './schemas/learning-analysis.js';
+export * from './schemas/practice-plan.js';

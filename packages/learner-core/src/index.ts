@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './daily-plan.js';
+export * from './practice-plan.js';
 export * from './profile.js';
 export * from './fsrs.js';
 export * from './mistake.js';
