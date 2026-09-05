@@ -46,7 +46,7 @@ function guessWordScript(kana: string): 'HIRAGANA' | 'KATAKANA' {
 }
 
 export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
-  const { data: allKana = [] } = useCurriculumKanaQuery();
+  const { data: allKana = [], refetch: refetchKana, isLoading: isKanaLoading } = useCurriculumKanaQuery();
   const practiceMutation = useKanaPracticeMutation();
 
   // 界面状态
@@ -69,6 +69,8 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const [wordList, setWordList] = useState<KanaWordItem[]>([]);
   const [wordIndex, setWordIndex] = useState(0);
   const [wordInput, setWordInput] = useState('');
+  // 学练一体：每词先学（看读音释义+跟读）再测，切词/切模式自动回到学
+  const [wordStudyDone, setWordStudyDone] = useState(false);
   const isWordMode = drillMode === 'WORD_DICTATION' || drillMode === 'WORD_MEANING';
   const currentWord: KanaWordItem | undefined = wordList[wordIndex];
 
@@ -88,11 +90,11 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     );
   }, [isDrillActive, isWordMode, wordList.length, scriptMode, generateWords.isPending, generateWords.mutate]);
 
-  // 听写题切出即自动播报
+  // 新词切出即自动播报（学阶段跟读用；作答后不再重播）
   useEffect(() => {
-    if (!isDrillActive || drillMode !== 'WORD_DICTATION' || isAnswered || !currentWord) return;
+    if (!isDrillActive || drillMode !== 'WORD_DICTATION' || !currentWord) return;
     void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
-  }, [isDrillActive, drillMode, isAnswered, currentWord]);
+  }, [isDrillActive, drillMode, currentWord]);
 
   // 矩阵分类过滤
   const filteredKanaList = useMemo(() => {
@@ -309,6 +311,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setSelectedOption(null);
     setIsAnswered(false);
     setWordInput('');
+    setWordStudyDone(false);
     if (wordIndex < wordList.length - 1) {
       setWordIndex((i) => i + 1);
     } else {
@@ -325,6 +328,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setSelectedOption(null);
     setIsAnswered(false);
     setWordInput('');
+    setWordStudyDone(false);
   };
 
   // 呼出导师深度解析
@@ -421,6 +425,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                 setIsAnswered(false);
                 setWordIndex(0);
                 setWordInput('');
+                setWordStudyDone(false);
               }}
               className="px-3.5 py-1.5 text-xs font-semibold gap-1.5 shadow-md"
             >
@@ -477,9 +482,17 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
               <div className="flex items-center gap-2">
                 <Badge variant="amber">考核冲刺</Badge>
                 <span className="text-xs text-stone-500">
-                  {isWordMode
-                    ? <>第 {wordIndex + 1} / {wordList.length} 词</>
-                    : <>第 {drillIndex + 1} / {drillItems.length} 题</>}
+                  {isWordMode ? (
+                    wordList.length === 0 ? (
+                      <>{generateWords.isPending ? '抽词中…' : '暂无词语'}</>
+                    ) : (
+                      <>第 {wordIndex + 1} / {wordList.length} 词</>
+                    )
+                  ) : drillItems.length === 0 ? (
+                    <>暂无题目</>
+                  ) : (
+                    <>第 {drillIndex + 1} / {drillItems.length} 题</>
+                  )}
                 </span>
               </div>
 
@@ -500,6 +513,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     setIsAnswered(false);
                     setWordIndex(0);
                     setWordInput('');
+                    setWordStudyDone(false);
                   }}
                   className="text-xs rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-2 py-1"
                 >
@@ -519,6 +533,43 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                   <p className="text-xs text-stone-500">
                     {generateWords.isPending ? '正在从本地词典抽词…' : '暂无可用词语，请先安装日语词典包。'}
                   </p>
+                ) : !wordStudyDone ? (
+                  <div className="space-y-4">
+                    <p className="text-xs text-stone-500">先学：看读音释义、跟读两遍，再去测验</p>
+                    <div className="text-6xl font-serif font-bold text-stone-900 dark:text-stone-100">
+                      {currentWord.kana}
+                    </div>
+                    <p className="text-sm text-stone-500 dark:text-stone-400">
+                      {currentWord.headword}
+                    </p>
+                    <p className="text-sm text-stone-700 dark:text-stone-200">
+                      {currentWord.meanings.join('；')}
+                    </p>
+                    <div className="flex items-center justify-center gap-3">
+                      <Button
+                        onClick={() => {
+                          sound.playClick();
+                          void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        跟读
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          sound.playClick();
+                          setWordStudyDone(true);
+                        }}
+                        size="sm"
+                        className="bg-amber-600 hover:bg-amber-700 text-white text-xs px-6"
+                      >
+                        记住了，去测验 ➔
+                      </Button>
+                    </div>
+                  </div>
                 ) : drillMode === 'WORD_DICTATION' ? (
                   <div className="space-y-3">
                     <p className="text-xs text-stone-500">听发音，用罗马字拼出假名（自动转换）：</p>
@@ -642,7 +693,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                   </div>
                 )}
               </div>
-            ) : currentDrillKana && (
+            ) : currentDrillKana ? (
               <div className="text-center py-6 space-y-4">
                 {drillMode === 'AUDIO_TO_KANA' ? (
                   <div className="space-y-3">
@@ -742,6 +793,36 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     </Button>
                   </div>
                 )}
+              </div>
+            ) : (
+              <div className="text-center py-6 space-y-4">
+                <p className="text-xs text-stone-500">
+                  {isKanaLoading
+                    ? '正在加载假名表…'
+                    : '假名表为空：请确认网关已启动（默认 localhost:8080），然后重试。'}
+                </p>
+                <div className="flex items-center justify-center gap-3">
+                  <Button
+                    onClick={() => {
+                      sound.playClick();
+                      setIsDrillActive(false);
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                  >
+                    返回矩阵学习
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      void refetchKana();
+                    }}
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white text-xs"
+                  >
+                    重新加载
+                  </Button>
+                </div>
               </div>
             )}
           </motion.div>
