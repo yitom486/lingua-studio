@@ -33,10 +33,21 @@
 - 前端在 Turn 进行中发送 `client.turn.steer` → App Server `turn/steer`
 - 需带当前 `expectedTurnId`；无活动 Turn 时返回业务错误
 
+## 会话历史与协作模式
+
+- `thread/list` / `thread/items/list` / `thread/archive` / `thread/name/set`
+- `collaborationMode/list`；`turn/start.collaborationMode`（default / plan）
+- `thread/start.ephemeral=false` 可落盘；前端可指定 `agentOptions.threadId` 恢复
+
 ## Gateway HTTP
 
 - `GET /api/agent/codex/status` — 联动登录态探测（`account/read`）
 - `GET /api/agent/codex/models` — 模型列表（`model/list`）
+- `GET /api/agent/codex/threads` — 会话列表
+- `GET /api/agent/codex/threads/:id/items` — 会话条目
+- `POST /api/agent/codex/threads/:id/name` — 重命名
+- `POST /api/agent/codex/threads/:id/archive` — 归档
+- `GET /api/agent/codex/collaboration-modes` — 协作模式预设
 
 ## 再生协议类型（可选）
 

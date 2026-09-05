@@ -25,6 +25,9 @@ import type {
   CodexAppServerConfig,
   CodexAccountStatus,
   CodexModelInfo,
+  CodexThreadSummary,
+  CodexThreadItemDto,
+  CodexCollaborationModeDto,
   DynamicToolCallResponse,
 } from './app-server-protocol.js';
 
@@ -164,6 +167,7 @@ export class CodexSession implements AgentSession {
       model?: string;
       effort?: string;
       approvalPolicy?: string;
+      collaborationMode?: string;
     } = {
       threadId: this.threadId,
       message: buildTurnMessage(input),
@@ -173,6 +177,9 @@ export class CodexSession implements AgentSession {
     if (input.turnOptions?.effort) turnOpts.effort = input.turnOptions.effort;
     if (input.turnOptions?.approvalPolicy) {
       turnOpts.approvalPolicy = input.turnOptions.approvalPolicy;
+    }
+    if (input.turnOptions?.collaborationMode) {
+      turnOpts.collaborationMode = input.turnOptions.collaborationMode;
     }
 
     const turnTask = (async () => {
@@ -307,21 +314,34 @@ export class CodexAdapter implements AgentAdapter {
         ? toolsToDynamicSpecs(options.tools as ToolDefinition[])
         : { specs: [], nameMap: new Map<string, string>() };
 
-      const threadParams: {
-        dynamicTools: typeof bridge.specs;
-        model?: string;
-        approvalPolicy?: string;
-      } = {
-        dynamicTools: bridge.specs,
-      };
-      if (options.model) threadParams.model = options.model;
-      if (options.approvalPolicy) threadParams.approvalPolicy = options.approvalPolicy;
+      let threadId: string;
 
-      const threadRes = await conn.value.startThread(threadParams);
-      if (!isOk(threadRes)) return threadRes;
+      if (options.resumeThreadId) {
+        const resumed = await conn.value.resumeThread(options.resumeThreadId);
+        if (!isOk(resumed)) return resumed;
+        threadId = options.resumeThreadId;
+      } else {
+        const threadParams: {
+          dynamicTools: typeof bridge.specs;
+          model?: string;
+          approvalPolicy?: string;
+          ephemeral?: boolean;
+        } = {
+          dynamicTools: bridge.specs,
+        };
+        if (options.model) threadParams.model = options.model;
+        if (options.approvalPolicy) threadParams.approvalPolicy = options.approvalPolicy;
+        if (typeof options.ephemeral === 'boolean') {
+          threadParams.ephemeral = options.ephemeral;
+        }
+
+        const threadRes = await conn.value.startThread(threadParams);
+        if (!isOk(threadRes)) return threadRes;
+        threadId = threadRes.value.threadId;
+      }
 
       this.threadBySession.set(options.sessionId, {
-        threadId: threadRes.value.threadId,
+        threadId,
         userId: options.userId,
         toolNameMap: bridge.nameMap,
       });
@@ -329,7 +349,7 @@ export class CodexAdapter implements AgentAdapter {
       return ok(
         new CodexSession(
           options.sessionId,
-          threadRes.value.threadId,
+          threadId,
           options.userId,
           conn.value,
           this.options.executeTool,
@@ -378,6 +398,50 @@ export class CodexAdapter implements AgentAdapter {
     const conn = await this.ensureConnection();
     if (!isOk(conn)) return conn;
     return conn.value.listModels({ includeHidden });
+  }
+
+  public async listThreads(params?: {
+    limit?: number;
+    cursor?: string;
+    searchTerm?: string;
+  }): Promise<
+    Result<{ threads: CodexThreadSummary[]; nextCursor: string | null }, BusinessError>
+  > {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listThreads(params);
+  }
+
+  public async listThreadItems(params: {
+    threadId: string;
+    limit?: number;
+  }): Promise<Result<{ items: CodexThreadItemDto[]; nextCursor: string | null }, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listThreadItems(params);
+  }
+
+  public async setThreadName(
+    threadId: string,
+    name: string
+  ): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.setThreadName(threadId, name);
+  }
+
+  public async archiveThread(threadId: string): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.archiveThread(threadId);
+  }
+
+  public async listCollaborationModes(): Promise<
+    Result<CodexCollaborationModeDto[], BusinessError>
+  > {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listCollaborationModes();
   }
 
   public async getAccountStatus(): Promise<Result<CodexAccountStatus, BusinessError>> {

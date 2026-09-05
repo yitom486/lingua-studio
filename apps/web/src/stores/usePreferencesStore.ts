@@ -14,6 +14,12 @@ export interface PreferencesState {
   coachEffort: string;
   /** 审批策略：never | on-request | untrusted */
   coachApprovalPolicy: string;
+  /** 恢复的 Codex thread id；空=新建 */
+  coachThreadId: string;
+  /** false=ephemeral 临时；true=落盘持久化 */
+  coachPersistThread: boolean;
+  /** collaborationMode：default | plan | 服务端返回的 name */
+  coachCollaborationMode: string;
 
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
@@ -26,6 +32,9 @@ export interface PreferencesState {
   setCoachModelId: (modelId: string) => void;
   setCoachEffort: (effort: string) => void;
   setCoachApprovalPolicy: (policy: string) => void;
+  setCoachThreadId: (threadId: string) => void;
+  setCoachPersistThread: (persist: boolean) => void;
+  setCoachCollaborationMode: (mode: string) => void;
 }
 
 const applyThemeToDom = (theme: 'light' | 'dark') => {
@@ -50,6 +59,9 @@ export const usePreferencesStore = create<PreferencesState>()(
       coachModelId: '',
       coachEffort: 'medium',
       coachApprovalPolicy: 'never',
+      coachThreadId: '',
+      coachPersistThread: true,
+      coachCollaborationMode: '',
 
       setTheme: (theme: 'light' | 'dark') => {
         applyThemeToDom(theme);
@@ -76,6 +88,10 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCoachModelId: (coachModelId: string) => set({ coachModelId }),
       setCoachEffort: (coachEffort: string) => set({ coachEffort }),
       setCoachApprovalPolicy: (coachApprovalPolicy: string) => set({ coachApprovalPolicy }),
+      setCoachThreadId: (coachThreadId: string) => set({ coachThreadId }),
+      setCoachPersistThread: (coachPersistThread: boolean) => set({ coachPersistThread }),
+      setCoachCollaborationMode: (coachCollaborationMode: string) =>
+        set({ coachCollaborationMode }),
     }),
     {
       name: 'study_studio_user_preferences',

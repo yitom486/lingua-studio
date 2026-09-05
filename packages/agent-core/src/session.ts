@@ -11,6 +11,8 @@ export type ApprovalDecision =
 
 export interface AgentSession {
   readonly sessionId: string;
+  /** Codex App Server thread id（若引擎支持） */
+  readonly threadId?: string;
 
   /**
    * 启动对话轮次，返回标准事件流

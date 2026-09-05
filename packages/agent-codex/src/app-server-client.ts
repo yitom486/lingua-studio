@@ -28,6 +28,9 @@ import {
   type CodexApprovalHandler,
   type CodexApprovalRequest,
   type CodexApprovalDecision,
+  type CodexThreadSummary,
+  type CodexThreadItemDto,
+  type CodexCollaborationModeDto,
   normalizeSandboxMode,
   normalizeApprovalPolicy,
 } from './app-server-protocol.js';
@@ -172,6 +175,7 @@ export class CodexAppServerConnection {
     cwd?: string;
     sandbox?: string;
     approvalPolicy?: string;
+    ephemeral?: boolean;
   }): Promise<Result<{ threadId: string }, BusinessError>> {
     const ready = await this.connect();
     if (!isOk(ready)) return ready;
@@ -183,7 +187,7 @@ export class CodexAppServerConnection {
       approvalPolicy: normalizeApprovalPolicy(
         params?.approvalPolicy ?? this.config.approvalPolicy
       ),
-      ephemeral: true,
+      ephemeral: params?.ephemeral ?? true,
       dynamicTools: params?.dynamicTools ?? null,
     };
 
@@ -217,6 +221,7 @@ export class CodexAppServerConnection {
     model?: string;
     effort?: string;
     approvalPolicy?: string;
+    collaborationMode?: string;
   }): AsyncGenerator<AgentEvent, void, unknown> {
     const ready = await this.connect();
     if (!isOk(ready)) {
@@ -286,6 +291,20 @@ export class CodexAppServerConnection {
       if (params.effort) turnBody.effort = params.effort;
       if (params.approvalPolicy) {
         turnBody.approvalPolicy = normalizeApprovalPolicy(params.approvalPolicy);
+      }
+      if (params.collaborationMode) {
+        const mode =
+          params.collaborationMode === 'plan' || params.collaborationMode === 'default'
+            ? params.collaborationMode
+            : 'default';
+        turnBody.collaborationMode = {
+          mode,
+          settings: {
+            model: params.model ?? this.config.model ?? '',
+            reasoning_effort: params.effort ?? this.config.effort ?? null,
+            developer_instructions: null,
+          },
+        };
       }
       if (!params.effort && this.config.effort) {
         turnBody.effort = this.config.effort;
@@ -401,6 +420,146 @@ export class CodexAppServerConnection {
       })
       .filter((m) => m.id || m.model);
     return ok(models);
+  }
+
+  /** thread/list — 本机持久化会话 */
+  public async listThreads(params?: {
+    limit?: number;
+    cursor?: string;
+    searchTerm?: string;
+    archived?: boolean;
+  }): Promise<
+    Result<{ threads: CodexThreadSummary[]; nextCursor: string | null }, BusinessError>
+  > {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{
+      data?: Array<Record<string, unknown>>;
+      nextCursor?: string | null;
+    }>('thread/list', {
+      limit: params?.limit ?? 40,
+      cursor: params?.cursor ?? null,
+      searchTerm: params?.searchTerm ?? null,
+      archived: params?.archived ?? false,
+      sortKey: 'updated_at',
+      sortDirection: 'desc',
+    });
+    if (!isOk(res)) return res;
+    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
+    const threads: CodexThreadSummary[] = rows
+      .map((row) => {
+        const t: CodexThreadSummary = {
+          id: String(row.id ?? ''),
+          preview: String(row.preview ?? ''),
+          name: row.name != null ? String(row.name) : null,
+          createdAt: Number(row.createdAt ?? 0),
+          updatedAt: Number(row.updatedAt ?? 0),
+          ephemeral: Boolean(row.ephemeral),
+        };
+        if (row.cwd != null) t.cwd = String(row.cwd);
+        if (row.modelProvider != null) t.modelProvider = String(row.modelProvider);
+        return t;
+      })
+      .filter((t) => t.id);
+    return ok({
+      threads,
+      nextCursor: res.value?.nextCursor ?? null,
+    });
+  }
+
+  /** thread/items/list — 恢复气泡用 */
+  public async listThreadItems(params: {
+    threadId: string;
+    limit?: number;
+  }): Promise<Result<{ items: CodexThreadItemDto[]; nextCursor: string | null }, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{
+      data?: Array<{ turnId?: string; item?: Record<string, unknown> }>;
+      nextCursor?: string | null;
+    }>('thread/items/list', {
+      threadId: params.threadId,
+      limit: params.limit ?? 80,
+      sortDirection: 'asc',
+    });
+    if (!isOk(res)) return res;
+    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
+    const items: CodexThreadItemDto[] = [];
+    for (const row of rows) {
+      const item = row.item;
+      if (!item || typeof item !== 'object') continue;
+      const type = String(item.type ?? 'unknown');
+      const dto: CodexThreadItemDto = {
+        turnId: String(row.turnId ?? ''),
+        type,
+      };
+      if (item.id != null) dto.id = String(item.id);
+      if (type === 'agentMessage' && typeof item.text === 'string') {
+        dto.text = item.text;
+      } else if (type === 'userMessage' && Array.isArray(item.content)) {
+        const texts = item.content
+          .map((c) => {
+            if (c && typeof c === 'object' && 'text' in c) return String((c as { text: unknown }).text ?? '');
+            return '';
+          })
+          .filter(Boolean);
+        dto.text = texts.join('\n');
+      } else if (type === 'reasoning' && Array.isArray(item.summary)) {
+        dto.text = item.summary.map(String).join('\n');
+      }
+      items.push(dto);
+    }
+    return ok({ items, nextCursor: res.value?.nextCursor ?? null });
+  }
+
+  public async setThreadName(
+    threadId: string,
+    name: string
+  ): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/name/set', { threadId, name });
+    if (!isOk(res)) {
+      // 兼容旧方法名
+      const alt = await this.rpc.request('thread/setName', { threadId, name });
+      if (!isOk(alt)) return alt;
+    }
+    return ok(undefined);
+  }
+
+  public async archiveThread(threadId: string): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/archive', { threadId });
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
+  /** collaborationMode/list */
+  public async listCollaborationModes(): Promise<
+    Result<CodexCollaborationModeDto[], BusinessError>
+  > {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{ data?: Array<Record<string, unknown>> }>(
+      'collaborationMode/list',
+      {}
+    );
+    if (!isOk(res)) return res;
+    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
+    return ok(
+      rows.map((row) => ({
+        name: String(row.name ?? row.mode ?? 'default'),
+        mode: row.mode != null ? String(row.mode) : null,
+        model: row.model != null ? String(row.model) : null,
+        reasoningEffort:
+          row.reasoning_effort != null
+            ? String(row.reasoning_effort)
+            : row.reasoningEffort != null
+              ? String(row.reasoningEffort)
+              : null,
+      }))
+    );
   }
 
   /** 探测本机 Codex 登录态（不读取/复制密钥，只问 App Server）。 */

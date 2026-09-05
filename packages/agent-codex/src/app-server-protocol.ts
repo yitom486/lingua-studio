@@ -45,6 +45,15 @@ export interface TurnStartParams {
   effort?: CodexReasoningEffort | null;
   approvalPolicy?: CodexApprovalPolicy | null;
   summary?: string | null;
+  /** EXPERIMENTAL：{ mode, settings } */
+  collaborationMode?: {
+    mode: string;
+    settings: {
+      model: string;
+      reasoning_effort: string | null;
+      developer_instructions: string | null;
+    };
+  } | null;
 }
 
 export interface TurnStartResponse {
@@ -61,6 +70,31 @@ export interface TurnSteerParams {
   expectedTurnId: string;
   input: Array<{ type: 'text'; text: string } | Record<string, unknown>>;
   clientUserMessageId?: string | null;
+}
+
+export interface CodexThreadSummary {
+  id: string;
+  preview: string;
+  name: string | null;
+  createdAt: number;
+  updatedAt: number;
+  ephemeral: boolean;
+  cwd?: string;
+  modelProvider?: string;
+}
+
+export interface CodexThreadItemDto {
+  turnId: string;
+  type: string;
+  text?: string;
+  id?: string;
+}
+
+export interface CodexCollaborationModeDto {
+  name: string;
+  mode: string | null;
+  model: string | null;
+  reasoningEffort: string | null;
 }
 
 export interface DynamicToolCallParams {

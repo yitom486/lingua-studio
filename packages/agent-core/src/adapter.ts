@@ -11,6 +11,10 @@ export interface CreateSessionOptions {
   model?: string;
   /** 可选：thread/start.approvalPolicy（never / on-request / untrusted） */
   approvalPolicy?: string;
+  /** 恢复已有 Codex thread（thread/resume），而非 thread/start */
+  resumeThreadId?: string;
+  /** false=落盘持久化；默认 true（临时） */
+  ephemeral?: boolean;
 }
 
 export interface AgentAdapter {

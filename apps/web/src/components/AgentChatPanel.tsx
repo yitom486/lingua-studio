@@ -4,6 +4,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  History,
   Plus,
   ShieldAlert,
   Square,
@@ -26,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select.js';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { sound } from '../utils/audio.js';
 import {
   buildTutorFreeGreeting,
@@ -34,9 +36,15 @@ import {
 } from '../data/tutor-track-copy.js';
 import { normalizeTrackLanguage } from '../learning/learning-shell.js';
 import {
+  useArchiveCodexThreadMutation,
+  useCodexCollaborationModesQuery,
   useCodexModelsQuery,
   useCodexStatusQuery,
+  useCodexThreadItemsQuery,
+  useCodexThreadsQuery,
+  CODEX_QUERY_KEYS,
 } from '../queries/useCodexQueries.js';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface ChatMessage {
   id: string;
@@ -103,14 +111,34 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const setCoachEffort = usePreferencesStore((s) => s.setCoachEffort);
   const coachApprovalPolicy = usePreferencesStore((s) => s.coachApprovalPolicy);
   const setCoachApprovalPolicy = usePreferencesStore((s) => s.setCoachApprovalPolicy);
+  const coachThreadId = usePreferencesStore((s) => s.coachThreadId);
+  const setCoachThreadId = usePreferencesStore((s) => s.setCoachThreadId);
+  const coachPersistThread = usePreferencesStore((s) => s.coachPersistThread);
+  const setCoachPersistThread = usePreferencesStore((s) => s.setCoachPersistThread);
+  const coachCollaborationMode = usePreferencesStore((s) => s.coachCollaborationMode);
+  const setCoachCollaborationMode = usePreferencesStore((s) => s.setCoachCollaborationMode);
 
   const track = normalizeTrackLanguage(profile.targetLanguage);
   const copy = getTutorTrackCopy(track);
+  const queryClient = useQueryClient();
 
   const { data: codexStatus } = useCodexStatusQuery();
   const { data: models = [], isFetching: modelsLoading } = useCodexModelsQuery(
     Boolean(gateway.isConnected)
   );
+  const { data: threadsData, refetch: refetchThreads } = useCodexThreadsQuery(
+    Boolean(gateway.isConnected)
+  );
+  const threads = threadsData?.threads ?? [];
+  const { data: collabModes = [] } = useCodexCollaborationModesQuery(
+    Boolean(gateway.isConnected)
+  );
+  const { data: threadItems = [] } = useCodexThreadItemsQuery(
+    coachThreadId || null,
+    Boolean(coachThreadId) && Boolean(gateway.isConnected)
+  );
+  const archiveThread = useArchiveCodexThreadMutation();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const selectedModel = useMemo(
     () => models.find((m) => m.id === coachModelId || m.model === coachModelId),
@@ -166,6 +194,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
 
   const clearChat = () => {
     sound.playClick();
+    setCoachThreadId('');
     setMessages([
       {
         id: `open_${Date.now()}`,
@@ -174,6 +203,40 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       },
     ]);
   };
+
+  const openThread = (threadId: string) => {
+    sound.playClick();
+    setCoachThreadId(threadId);
+    setHistoryOpen(false);
+  };
+
+  // 选中历史 thread 后，把 items 映射成聊天气泡
+  useEffect(() => {
+    if (!coachThreadId || !threadItems.length) return;
+    const mapped: ChatMessage[] = [];
+    for (const item of threadItems) {
+      if (item.type === 'userMessage' && item.text) {
+        mapped.push({
+          id: item.id || `u_${item.turnId}_${mapped.length}`,
+          role: 'user',
+          text: item.text,
+        });
+      } else if (item.type === 'agentMessage' && item.text) {
+        mapped.push({
+          id: item.id || `a_${item.turnId}_${mapped.length}`,
+          role: 'assistant',
+          text: item.text,
+          source: 'codex',
+        });
+      } else if (item.type === 'reasoning' && item.text) {
+        const last = mapped[mapped.length - 1];
+        if (last?.role === 'assistant') {
+          last.reasoning = item.text;
+        }
+      }
+    }
+    if (mapped.length) setMessages(mapped);
+  }, [coachThreadId, threadItems]);
 
   const send = useCallback(
     async (raw: string) => {
@@ -219,9 +282,14 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         contextSnapshot: snapshot(),
         agentOptions: {
           preferCodex: true,
+          ephemeral: !coachPersistThread,
           ...(coachModelId ? { model: coachModelId } : {}),
           ...(coachEffort ? { effort: coachEffort } : {}),
           ...(coachApprovalPolicy ? { approvalPolicy: coachApprovalPolicy } : {}),
+          ...(coachThreadId ? { threadId: coachThreadId } : {}),
+          ...(coachCollaborationMode
+            ? { collaborationMode: coachCollaborationMode }
+            : {}),
         },
         onDelta: (_d, acc) => {
           setMessages((prev) =>
@@ -287,6 +355,10 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           );
         },
         onComplete: (data) => {
+          if (data.threadId) {
+            setCoachThreadId(data.threadId);
+            void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
+          }
           setMessages((prev) =>
             prev.map((m) => {
               if (m.id !== aiId) return m;
@@ -320,6 +392,11 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       coachModelId,
       coachEffort,
       coachApprovalPolicy,
+      coachThreadId,
+      coachPersistThread,
+      coachCollaborationMode,
+      setCoachThreadId,
+      queryClient,
     ]
   );
 
@@ -406,6 +483,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           </div>
           <p className="mt-0.5 text-[10px] text-stone-500 truncate">
             {copy.headerHint} · App Server 流式
+            {coachThreadId ? ` · ${coachThreadId.slice(0, 8)}…` : ''}
           </p>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -414,6 +492,90 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           ) : (
             <WifiOff className="size-3.5 text-stone-600 mr-1" />
           )}
+          <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+            <PopoverTrigger
+              className="inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-800 hover:text-stone-100"
+              title="会话历史"
+              onClick={() => {
+                sound.playClick();
+                void refetchThreads();
+              }}
+            >
+              <History className="size-3.5" />
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-72 p-2 bg-[#12141a] border-stone-700 text-stone-100"
+            >
+              <div className="flex items-center justify-between px-1 pb-2">
+                <p className="text-[11px] font-medium text-stone-300">Codex 会话</p>
+                <button
+                  type="button"
+                  className="text-[10px] text-sky-400 hover:text-sky-300"
+                  onClick={() => {
+                    clearChat();
+                    setHistoryOpen(false);
+                  }}
+                >
+                  新建
+                </button>
+              </div>
+              <div className="max-h-64 space-y-1 overflow-y-auto">
+                {threads.length === 0 ? (
+                  <p className="px-2 py-3 text-[11px] text-stone-500">暂无持久化会话</p>
+                ) : (
+                  threads.map((t) => (
+                    <div
+                      key={t.id}
+                      className={`flex items-start gap-1 rounded-lg px-2 py-1.5 hover:bg-stone-800/80 ${
+                        t.id === coachThreadId ? 'bg-stone-800' : ''
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 text-left"
+                        onClick={() => openThread(t.id)}
+                      >
+                        <p className="truncate text-[11px] text-stone-200">
+                          {t.name || t.preview || t.id.slice(0, 12)}
+                        </p>
+                        <p className="text-[10px] text-stone-500">
+                          {t.updatedAt
+                            ? new Date(t.updatedAt * 1000).toLocaleString()
+                            : t.id.slice(0, 8)}
+                        </p>
+                      </button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 shrink-0 text-stone-500 hover:text-rose-400"
+                        title="归档"
+                        onClick={() => {
+                          sound.playClick();
+                          archiveThread.mutate(t.id, {
+                            onSuccess: () => {
+                              if (coachThreadId === t.id) clearChat();
+                            },
+                          });
+                        }}
+                      >
+                        <Trash2 className="size-3" />
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <label className="mt-2 flex items-center gap-2 border-t border-stone-800 px-1 pt-2 text-[10px] text-stone-400">
+                <input
+                  type="checkbox"
+                  checked={coachPersistThread}
+                  onChange={(e) => setCoachPersistThread(e.target.checked)}
+                />
+                持久化新会话（thread ephemeral=false）
+              </label>
+            </PopoverContent>
+          </Popover>
           <Button
             type="button"
             variant="ghost"
@@ -615,6 +777,42 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           <div className="flex items-center gap-0.5 border-t border-stone-800/80 px-1.5 py-1">
             <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
               <Select
+                value={coachCollaborationMode || '__none__'}
+                onValueChange={(v) =>
+                  setCoachCollaborationMode(v === '__none__' ? '' : String(v ?? ''))
+                }
+                disabled={busy}
+              >
+                <SelectTrigger className={compactSelect}>
+                  <SelectValue>
+                    {coachCollaborationMode || 'Mode'}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                  <SelectItem value="__none__" className={darkMenuItem}>
+                    Mode（默认）
+                  </SelectItem>
+                  <SelectItem value="default" className={darkMenuItem}>
+                    default
+                  </SelectItem>
+                  <SelectItem value="plan" className={darkMenuItem}>
+                    plan
+                  </SelectItem>
+                  {collabModes
+                    .filter((m) => m.mode && m.mode !== 'default' && m.mode !== 'plan')
+                    .map((m) => (
+                      <SelectItem
+                        key={m.name}
+                        value={m.mode || m.name}
+                        className={darkMenuItem}
+                      >
+                        {m.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+
+              <Select
                 value={coachApprovalPolicy || 'never'}
                 onValueChange={(v) => v && setCoachApprovalPolicy(String(v))}
                 disabled={busy}
@@ -714,7 +912,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           </div>
         </div>
         <p className="mt-1.5 px-1 text-[10px] text-stone-600">
-          复用本机 ~/.codex · sandbox=read-only · steer → turn/steer
+          ~/.codex · thread/list · collaborationMode · steer
           {codexStatus?.message ? ` · ${codexStatus.message}` : ''}
         </p>
       </footer>

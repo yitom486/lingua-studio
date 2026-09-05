@@ -119,6 +119,30 @@ export class GatewayServer {
     return this.agentAdapter.listModels(includeHidden);
   }
 
+  public async listCodexThreads(params?: {
+    limit?: number;
+    cursor?: string;
+    searchTerm?: string;
+  }) {
+    return this.agentAdapter.listThreads(params);
+  }
+
+  public async listCodexThreadItems(params: { threadId: string; limit?: number }) {
+    return this.agentAdapter.listThreadItems(params);
+  }
+
+  public async setCodexThreadName(threadId: string, name: string) {
+    return this.agentAdapter.setThreadName(threadId, name);
+  }
+
+  public async archiveCodexThread(threadId: string) {
+    return this.agentAdapter.archiveThread(threadId);
+  }
+
+  public async listCodexCollaborationModes() {
+    return this.agentAdapter.listCollaborationModes();
+  }
+
   /** 下发 Client Tool 调用（前端执行，Gateway 只做参数校验） */
   private async emitClientTool(
     emit: ((env: WsEnvelope) => void) | undefined,
@@ -524,6 +548,9 @@ export class GatewayServer {
             preferCodex?: boolean;
             effort?: string;
             approvalPolicy?: string;
+            threadId?: string;
+            ephemeral?: boolean;
+            collaborationMode?: string;
           };
         };
         const userId = payload.userId || 'student_web_01';
@@ -541,6 +568,22 @@ export class GatewayServer {
           payload.agentOptions.approvalPolicy.trim()
             ? payload.agentOptions.approvalPolicy.trim()
             : undefined;
+        const preferredThreadId =
+          typeof payload.agentOptions?.threadId === 'string' &&
+          payload.agentOptions.threadId.trim()
+            ? payload.agentOptions.threadId.trim()
+            : undefined;
+        const preferredCollab =
+          typeof payload.agentOptions?.collaborationMode === 'string' &&
+          payload.agentOptions.collaborationMode.trim()
+            ? payload.agentOptions.collaborationMode.trim()
+            : undefined;
+        const preferPersistent =
+          payload.agentOptions?.ephemeral === false
+            ? true
+            : payload.agentOptions?.ephemeral === true
+              ? false
+              : undefined;
 
         // 1. 组装不可变学情快照
         const snapshot = await this.contextBuilder.buildTurnSnapshot(
@@ -569,6 +612,7 @@ export class GatewayServer {
         let reply = '';
         let toolResults: any = undefined;
         let replySource: 'codex' | 'lite' | 'keyword' | 'local' = 'local';
+        let codexThreadId: string | undefined;
 
         try {
           const track = normalizeTrackLanguage(snapshot.targetLanguage);
@@ -756,12 +800,25 @@ export class GatewayServer {
                 this.toolRegistry.get('ui.present'),
               ].filter(Boolean);
 
-              // 同 Gateway session 复用 Codex thread，避免每轮 thread/start
+              // 同 Gateway session 复用 Codex thread；若前端指定了不同 threadId 则重建
               const existingGw = this.sessionManager.getSession(envelope.sessionId);
               let agentSession =
                 isOk(existingGw) && existingGw.value.agentSession
                   ? existingGw.value.agentSession
                   : null;
+
+              if (
+                agentSession &&
+                preferredThreadId &&
+                agentSession.threadId &&
+                agentSession.threadId !== preferredThreadId
+              ) {
+                void agentSession.close();
+                if (isOk(existingGw)) {
+                  delete existingGw.value.agentSession;
+                }
+                agentSession = null;
+              }
 
               if (!agentSession) {
                 const sessionOpts: {
@@ -770,6 +827,8 @@ export class GatewayServer {
                   tools: any;
                   model?: string;
                   approvalPolicy?: string;
+                  resumeThreadId?: string;
+                  ephemeral?: boolean;
                 } = {
                   sessionId: envelope.sessionId,
                   userId,
@@ -777,6 +836,9 @@ export class GatewayServer {
                 };
                 if (preferredModel) sessionOpts.model = preferredModel;
                 if (preferredApproval) sessionOpts.approvalPolicy = preferredApproval;
+                if (preferredThreadId) sessionOpts.resumeThreadId = preferredThreadId;
+                if (preferPersistent === true) sessionOpts.ephemeral = false;
+                if (preferPersistent === false) sessionOpts.ephemeral = true;
 
                 const sessionRes = await this.agentAdapter.createSession(sessionOpts);
                 if (isOk(sessionRes)) {
@@ -791,6 +853,7 @@ export class GatewayServer {
               }
 
               if (agentSession) {
+                if (agentSession.threadId) codexThreadId = agentSession.threadId;
                 let acc = '';
                 for await (const ev of agentSession.send({
                   message: userPrompt,
@@ -799,6 +862,7 @@ export class GatewayServer {
                     ...(preferredModel ? { model: preferredModel } : {}),
                     ...(preferredEffort ? { effort: preferredEffort } : {}),
                     ...(preferredApproval ? { approvalPolicy: preferredApproval } : {}),
+                    ...(preferredCollab ? { collaborationMode: preferredCollab } : {}),
                   },
                 })) {
                   if (abortController.signal.aborted) {
@@ -970,6 +1034,7 @@ export class GatewayServer {
             toolResults,
             source: replySource,
             model: preferredModel,
+            ...(codexThreadId ? { threadId: codexThreadId } : {}),
           },
           timestamp: Date.now(),
         };

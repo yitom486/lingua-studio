@@ -30,6 +30,9 @@ export interface StreamTurnOptions {
     preferCodex?: boolean;
     effort?: string;
     approvalPolicy?: string;
+    threadId?: string;
+    ephemeral?: boolean;
+    collaborationMode?: string;
   };
   onStart?: () => void;
   onDelta: (delta: string, accumulated: string) => void;
@@ -57,6 +60,7 @@ export interface StreamTurnOptions {
     toolResults?: unknown;
     source?: string;
     model?: string;
+    threadId?: string;
   }) => void;
   onError?: (err: unknown) => void;
 }
