@@ -28,6 +28,9 @@ import {
 } from './services/dictionary-packages.js';
 import { runLearningAnalysis } from './services/learning-analysis.js';
 import { assemblePracticeRun } from './services/practice-assembly.js';
+import { createProposal, consumeProposal } from './services/practice-proposal.js';
+import { buildAnalysisSnapshot } from './services/learning-analysis.js';
+import { summarizePracticeRun } from './services/practice-summary.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -812,6 +815,74 @@ export const app = new Hono()
       return formatBusinessErrorResponse(c, res.error);
     } catch (e: unknown) {
       return formatBusinessErrorResponse(c, e, 'getPracticeRunItems');
+    }
+  })
+  // P5-PhaseD：AI 计划建议（UI 直取，规则驱动从快照生成）
+  .post(
+    '/api/practice/templates/propose',
+    validator('json', (value) => value as { userId: string; language: 'en' | 'ja' | 'ko' }),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const snapRes = await buildAnalysisSnapshot(drizzleRepo, body.userId);
+        if (!isOk(snapRes)) return formatBusinessErrorResponse(c, snapRes.error);
+        const proposal = createProposal(body.userId, body.language, snapRes.value);
+        return c.json(proposal);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'proposeTemplate');
+      }
+    }
+  )
+  // P5-PhaseD：用户确认式 apply（校验一次性令牌后才保存模板）
+  .post(
+    '/api/practice/templates/apply-proposal',
+    validator(
+      'json',
+      (value) =>
+        value as {
+          userId: string;
+          proposalId: string;
+          name?: string;
+          blocks?: PracticeBlockSpec[];
+        }
+    ),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const consumeRes = consumeProposal(body.userId, body.proposalId);
+        if (!isOk(consumeRes)) return formatBusinessErrorResponse(c, consumeRes.error);
+        const proposal = consumeRes.value;
+        const name = body.name?.trim() || proposal.suggestedName;
+        const blocks = body.blocks && body.blocks.length > 0 ? body.blocks : proposal.blocks;
+        const now = new Date().toISOString();
+        const saveRes = await drizzleRepo.savePracticePlanTemplate({
+          id: generateId('tpl'),
+          userId: body.userId,
+          language: proposal.language,
+          name,
+          enabled: true,
+          revision: 0,
+          blocks,
+          createdAt: now,
+          updatedAt: now,
+        });
+        if (isOk(saveRes)) return c.json(saveRes.value);
+        return formatBusinessErrorResponse(c, saveRes.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'applyProposal');
+      }
+    }
+  )
+  // P5-PhaseD：运行汇总与下次建议（只读，模型不可用回退本地规则）
+  .get('/api/practice/runs/:userId/:runId/summary', async (c) => {
+    try {
+      const userId = c.req.param('userId');
+      const runId = c.req.param('runId');
+      const res = await summarizePracticeRun({ repo: drizzleRepo, userId, runId });
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'summarizePracticeRun');
     }
   })
   // 3. FSRS 闪卡存取

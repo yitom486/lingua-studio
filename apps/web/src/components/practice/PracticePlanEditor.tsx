@@ -31,6 +31,8 @@ interface PracticePlanEditorProps {
   language: 'en' | 'ja' | 'ko';
   /** 编辑已有模板；不传则为新建 */
   template?: PracticePlanTemplate | null;
+  /** P5-PhaseD：AI 建议草案预填（无 template 时生效） */
+  proposal?: { suggestedName: string; blocks: PracticeBlockSpec[] } | null;
 }
 
 const BLOCK_KINDS: PracticeBlockKind[] = [
@@ -54,17 +56,17 @@ function defaultBlock(kind: PracticeBlockKind): PracticeBlockSpec {
   return block;
 }
 
-export function PracticePlanEditor({ isOpen, onClose, userId, language, template }: PracticePlanEditorProps) {
+export function PracticePlanEditor({ isOpen, onClose, userId, language, template, proposal }: PracticePlanEditorProps) {
   const saveMutation = useSavePracticeTemplateMutation(userId);
-  const [name, setName] = useState(template?.name ?? '');
-  const [blocks, setBlocks] = useState<PracticeBlockSpec[]>(template?.blocks ?? []);
+  const [name, setName] = useState(template?.name ?? proposal?.suggestedName ?? '');
+  const [blocks, setBlocks] = useState<PracticeBlockSpec[]>(template?.blocks ?? proposal?.blocks ?? []);
   const [enabled, setEnabled] = useState(template?.enabled ?? true);
 
   React.useEffect(() => {
-    setName(template?.name ?? '');
-    setBlocks(template?.blocks ?? []);
+    setName(template?.name ?? proposal?.suggestedName ?? '');
+    setBlocks(template?.blocks ?? proposal?.blocks ?? []);
     setEnabled(template?.enabled ?? true);
-  }, [template, isOpen]);
+  }, [template, proposal, isOpen]);
 
   const updateBlock = (id: string, patch: Partial<PracticeBlockSpec>) =>
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));

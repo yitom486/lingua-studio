@@ -1655,3 +1655,75 @@ export function usePracticeRunItemsQuery(runId: string | null, userId = DEFAULT_
     },
   });
 }
+
+/** P5-PhaseD：AI 计划建议草案 */
+export interface PracticeProposalDTO {
+  proposalId: string;
+  userId: string;
+  language: 'en' | 'ja' | 'ko';
+  suggestedName: string;
+  blocks: PracticeBlockSpec[];
+  createdAt: string;
+  expiresAt: string;
+}
+export function useProposeTemplateMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (language: 'en' | 'ja' | 'ko') => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/templates/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, language }),
+      });
+      if (!res.ok) throw new Error('生成计划建议失败');
+      return (await res.json()) as PracticeProposalDTO;
+    },
+  });
+}
+
+/** P5-PhaseD：用户确认式 apply（校验一次性令牌后保存模板） */
+export function useApplyProposalMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { proposalId: string; name?: string; blocks?: PracticeBlockSpec[] }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/templates/apply-proposal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...input }),
+      });
+      if (!res.ok) throw new Error('应用建议草案失败');
+      return (await res.json()) as PracticePlanTemplate;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId] });
+    },
+  });
+}
+
+/** P5-PhaseD：运行汇总与下次建议 */
+export interface RunSummaryDTO {
+  runId: string;
+  userId: string;
+  language: 'en' | 'ja' | 'ko';
+  source: 'ai' | 'local';
+  summary: string;
+  totalItems: number;
+  submittedCount: number;
+  gradedCount: number;
+  correctCount: number;
+  averageScore: number;
+  commonIssues: string[];
+  nextPlanSuggestions: string[];
+  generatedAt: string;
+  failureReason?: string;
+}
+export function usePracticeRunSummaryQuery(runId: string | null, userId = DEFAULT_USER_ID) {
+  return useQuery<RunSummaryDTO>({
+    queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, runId, 'summary'],
+    enabled: Boolean(runId),
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/${userId}/${runId}/summary`);
+      if (!res.ok) throw new Error('加载运行汇总失败');
+      return (await res.json()) as RunSummaryDTO;
+    },
+  });
+}

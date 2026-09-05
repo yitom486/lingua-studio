@@ -13,6 +13,7 @@ import type {
   PracticeBlockSpec,
 } from '@study-studio/protocol';
 import { PracticeBlockSpecSchema } from '@study-studio/protocol';
+import { summarizePracticeRun, type RunSummaryReport } from '../services/practice-summary.js';
 
 /**
  * P5：练习计划执行会话的受控写入工具。
@@ -34,6 +35,8 @@ export const LearningPracticeInputSchema = z.object({
     'submit_subjective',
     'submit_batch',
     'finalize_run',
+    // P5-PhaseD：运行汇总与下次建议（只读，模型不可用回退本地规则）
+    'summarize_run',
   ]),
   // start_run
   language: z.enum(['en', 'ja', 'ko']).optional(),
@@ -73,6 +76,8 @@ export interface LearningPracticeOutput {
   /** 批量提交的逐题结果摘要 */
   batchSummary?: { total: number; graded: number; correct: number } | undefined;
   finalized?: boolean | undefined;
+  /** P5-PhaseD：运行汇总 */
+  summary?: RunSummaryReport | undefined;
 }
 
 export class LearningPracticeTool
@@ -107,6 +112,8 @@ export class LearningPracticeTool
         return this.submitBatch(userId, input);
       case 'finalize_run':
         return this.finalizeRun(userId, input);
+      case 'summarize_run':
+        return this.summarizeRun(userId, input);
       default:
         return err(new BusinessError('E_INVALID_INPUT', `未知 action: ${input.action as string}`, 'VALIDATION'));
     }
@@ -240,5 +247,18 @@ export class LearningPracticeTool
     const res = await this.learnerRepo.finalizePracticePlanRun(userId, input.runId);
     if (!isOk(res)) return err(res.error);
     return ok({ run: res.value, finalized: true });
+  }
+
+  /** P5-PhaseD：运行汇总（只读，模型不可用回退本地规则）。 */
+  private async summarizeRun(
+    userId: string,
+    input: LearningPracticeInput
+  ): Promise<Result<LearningPracticeOutput, BusinessError>> {
+    if (!input.runId) {
+      return err(new BusinessError('E_INVALID_INPUT', 'summarize_run 需要 runId', 'VALIDATION'));
+    }
+    const res = await summarizePracticeRun({ repo: this.learnerRepo, userId, runId: input.runId });
+    if (!isOk(res)) return err(res.error);
+    return ok({ summary: res.value });
   }
 }

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Play, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Loader2, Sparkles } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
-import { usePracticeTemplatesQuery, useDeletePracticeTemplateMutation, useStartPracticeRunMutation } from '../../queries/useLearnerQueries.js';
+import { usePracticeTemplatesQuery, useDeletePracticeTemplateMutation, useStartPracticeRunMutation, useProposeTemplateMutation } from '../../queries/useLearnerQueries.js';
 import { PracticePlanEditor } from './PracticePlanEditor.js';
 import { PracticeRunWorkbench } from './PracticeRunWorkbench.js';
-import type { PracticePlanTemplate } from '@study-studio/protocol';
+import type { PracticePlanTemplate, PracticeBlockSpec } from '@study-studio/protocol';
 
 /** P5：练习计划面板。模板列表 + 新建/编辑/删除/开始今日运行；开始后进入运行工作台。 */
 
@@ -19,17 +19,32 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
   const { data: templates = [], isLoading } = usePracticeTemplatesQuery(userId, language);
   const deleteMutation = useDeletePracticeTemplateMutation(userId);
   const startMutation = useStartPracticeRunMutation(userId);
+  const proposeMutation = useProposeTemplateMutation(userId);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<PracticePlanTemplate | null>(null);
+  const [proposal, setProposal] = useState<{ suggestedName: string; blocks: PracticeBlockSpec[] } | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   const openNew = () => {
     setEditing(null);
+    setProposal(null);
     setEditorOpen(true);
   };
   const openEdit = (tpl: PracticePlanTemplate) => {
     setEditing(tpl);
+    setProposal(null);
     setEditorOpen(true);
+  };
+  const handlePropose = async () => {
+    try {
+      const p = await proposeMutation.mutateAsync(language);
+      setEditing(null);
+      setProposal({ suggestedName: p.suggestedName, blocks: p.blocks });
+      setEditorOpen(true);
+      toast.success('已生成智能建议草案，可在编辑器中调整后保存');
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
   };
   const handleDelete = async (tpl: PracticePlanTemplate) => {
     try {
@@ -68,9 +83,14 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">我的练习计划</h3>
-        <Button size="sm" onClick={openNew}>
-          <Plus className="mr-1 h-3 w-3" />新建
-        </Button>
+        <div className="flex gap-1">
+          <Button size="sm" variant="outline" onClick={handlePropose} disabled={proposeMutation.isPending}>
+            <Sparkles className="mr-1 h-3 w-3" />智能建议
+          </Button>
+          <Button size="sm" onClick={openNew}>
+            <Plus className="mr-1 h-3 w-3" />新建
+          </Button>
+        </div>
       </div>
 
       {isLoading && <div className="text-xs text-slate-400">加载中…</div>}
@@ -115,6 +135,7 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
         userId={userId}
         language={language}
         template={editing}
+        proposal={proposal}
       />
     </div>
   );

@@ -9,6 +9,8 @@ import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared'
 import type { DailyStudyPlan, LearnerRepository } from '@study-studio/learner-core';
 import type { PracticeBlockSpec } from '@study-studio/protocol';
 import { PracticeBlockSpecSchema } from '@study-studio/protocol';
+import { buildAnalysisSnapshot } from '../services/learning-analysis.js';
+import { createProposal, type PracticeProposal } from '../services/practice-proposal.js';
 
 export const LearningPlanInputSchema = z.object({
   action: z.enum([
@@ -19,10 +21,12 @@ export const LearningPlanInputSchema = z.object({
     'get_template',
     'preview_template',
     'get_today_run',
+    // P5-PhaseD：AI 计划建议（只建议，不保存；apply 走 UI HTTP 令牌确认）
+    'propose',
   ]),
   stepId: z.string().optional(),
   date: z.string().optional(),
-  // list_templates
+  // list_templates / propose
   language: z.enum(['en', 'ja', 'ko']).optional(),
   includeDisabled: z.boolean().optional(),
   // get_template
@@ -91,9 +95,28 @@ export class LearningPlanTool implements ToolDefinition<LearningPlanInput, unkno
         if (!isOk(res)) return err(res.error);
         return ok(res.value);
       }
+      case 'propose':
+        return this.proposeTemplate(context.userId, input.language);
       default:
         return err(new BusinessError('E_INVALID_INPUT', `未知 action: ${input.action as string}`, 'VALIDATION'));
     }
+  }
+
+  /** P5-PhaseD：从学习者快照生成计划建议草案并签发一次性令牌（不保存）。 */
+  private async proposeTemplate(
+    userId: string,
+    language: 'en' | 'ja' | 'ko' | undefined
+  ): Promise<Result<PracticeProposal, BusinessError>> {
+    const snapRes = await buildAnalysisSnapshot(this.learnerRepo, userId);
+    if (!isOk(snapRes)) return snapRes;
+    const snapshot = snapRes.value;
+    const lang: 'en' | 'ja' | 'ko' =
+      language ??
+      (snapshot.targetLanguage === 'en' || snapshot.targetLanguage === 'ko'
+        ? snapshot.targetLanguage
+        : 'ja');
+    const proposal = createProposal(userId, lang, snapshot);
+    return ok(proposal);
   }
 
   private previewTemplate(input: LearningPlanInput): Result<LearningPlanPreview, BusinessError> {
