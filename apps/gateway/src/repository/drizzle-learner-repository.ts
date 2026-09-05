@@ -119,6 +119,12 @@ import {
   recordQuizAttempt as recordQuizAttemptDomain,
 } from './domains/cards-questions.js';
 import {
+  saveMistake as saveMistakeDomain,
+  getMistakes as getMistakesDomain,
+  resolveMistake as resolveMistakeDomain,
+  retryMistake as retryMistakeDomain,
+} from './domains/mistakes.js';
+import {
   getTodayString,
   getYesterdayString,
   safeJsonParse,
@@ -399,197 +405,39 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     return recordQuizAttemptDomain(this.deps, attempt);
   }
 
+  /**
+   * 实现已下沉 domains/mistakes.ts，此处仅委托。
+   */
   public async saveMistake(mistake: MistakeEntry): Promise<Result<void, BusinessError>> {
-    try {
-      const skillId =
-        (mistake.question as any)?.testedSkillId ||
-        (mistake.question as any)?.testedSkill ||
-        '';
-      const language = normalizeTrackLanguage(
-        (mistake as any).language ??
-          (await this.resolveActiveLanguage(mistake.userId)) ??
-          inferLanguageFromSkillId(String(skillId))
-      );
-      const existing = await this.db
-        .select()
-        .from(mistakes)
-        .where(eq(mistakes.id, mistake.id))
-        .limit(1);
-
-      if (existing.length > 0) {
-        await this.db
-          .update(mistakes)
-          .set({
-            language,
-            questionId: mistake.questionId,
-            question: JSON.stringify(mistake.question),
-            lastUserSubmission: mistake.lastUserSubmission,
-            lastGrading: JSON.stringify(mistake.lastGrading),
-            recordedAt: mistake.recordedAt,
-            lastRetriedAt: mistake.lastRetriedAt ?? null,
-            retryCount: mistake.retryCount,
-            consecutiveCorrect: mistake.consecutiveCorrect,
-            isResolved: mistake.isResolved,
-          })
-          .where(eq(mistakes.id, mistake.id));
-      } else {
-        await this.db.insert(mistakes).values({
-          id: mistake.id,
-          userId: mistake.userId,
-          language,
-          questionId: mistake.questionId,
-          question: JSON.stringify(mistake.question),
-          lastUserSubmission: mistake.lastUserSubmission,
-          lastGrading: JSON.stringify(mistake.lastGrading),
-          recordedAt: mistake.recordedAt,
-          lastRetriedAt: mistake.lastRetriedAt ?? null,
-          retryCount: mistake.retryCount,
-          consecutiveCorrect: mistake.consecutiveCorrect,
-          isResolved: mistake.isResolved,
-        });
-      }
-
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'saveMistake',
-          entityId: mistake.id,
-        })
-      );
-    }
+    return saveMistakeDomain(this.deps, mistake);
   }
 
+  /**
+   * 实现已下沉 domains/mistakes.ts，此处仅委托。
+   */
   public async getMistakes(
     userId: string,
     filter?: { resolved?: boolean; language?: string }
   ): Promise<Result<MistakeEntry[], BusinessError>> {
-    try {
-      const language = filter?.language
-        ? normalizeTrackLanguage(filter.language)
-        : await this.resolveActiveLanguage(userId);
-      let rows = await this.db
-        .select()
-        .from(mistakes)
-        .where(and(eq(mistakes.userId, userId), eq(mistakes.language, language)));
-
-      const filteredRows = filter?.resolved !== undefined
-        ? rows.filter((r) => Boolean(r.isResolved) === filter.resolved)
-        : rows;
-
-      const results: MistakeEntry[] = filteredRows.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        questionId: r.questionId,
-        question: JSON.parse(r.question),
-        lastUserSubmission: r.lastUserSubmission,
-        lastGrading: JSON.parse(r.lastGrading),
-        recordedAt: r.recordedAt,
-        lastRetriedAt: r.lastRetriedAt ?? undefined,
-        retryCount: r.retryCount,
-        consecutiveCorrect: r.consecutiveCorrect,
-        isResolved: Boolean(r.isResolved),
-      }));
-
-      return ok(results);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'getMistakes',
-          entityId: userId,
-        })
-      );
-    }
-  }
-
-  public async resolveMistake(mistakeId: string): Promise<Result<void, BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(mistakes)
-        .where(eq(mistakes.id, mistakeId))
-        .limit(1);
-
-      if (rows.length === 0) {
-        return err(new BusinessError('E_NOT_FOUND', '错题记录未找到', 'DATABASE'));
-      }
-
-      const mistake = rows[0]!;
-      await this.db
-        .update(mistakes)
-        .set({
-          isResolved: true,
-          consecutiveCorrect: Math.max(2, mistake.consecutiveCorrect + 1),
-          lastRetriedAt: nowIso(),
-        })
-        .where(eq(mistakes.id, mistakeId));
-
-      // 自动记录错题消除足迹
-      await this.recordDailyActivity(mistake.userId, { mistakesResolved: 1 });
-
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'resolveMistake',
-          entityId: mistakeId,
-        })
-      );
-    }
+    return getMistakesDomain(this.deps, userId, filter);
   }
 
   /**
-   * 记录一次错题重做结果；是否出库完全由 SQLite 中的连续正确次数决定。
+   * 实现已下沉 domains/mistakes.ts，此处仅委托。
+   */
+  public async resolveMistake(mistakeId: string): Promise<Result<void, BusinessError>> {
+    return resolveMistakeDomain(this.deps, mistakeId);
+  }
+
+  /**
+   * 实现已下沉 domains/mistakes.ts，此处仅委托。
    */
   public async retryMistake(
     userId: string,
     mistakeId: string,
     isCorrect: boolean
   ): Promise<Result<Pick<MistakeEntry, 'consecutiveCorrect' | 'isResolved' | 'retryCount'>, BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(mistakes)
-        .where(and(eq(mistakes.id, mistakeId), eq(mistakes.userId, userId)))
-        .limit(1);
-
-      if (rows.length === 0) {
-        return err(new BusinessError('E_NOT_FOUND', '错题记录未找到', 'DATABASE'));
-      }
-
-      const mistake = rows[0]!;
-      const consecutiveCorrect = isCorrect ? mistake.consecutiveCorrect + 1 : 0;
-      const isResolved = consecutiveCorrect >= 2;
-      const retryCount = mistake.retryCount + 1;
-
-      await this.db
-        .update(mistakes)
-        .set({
-          retryCount,
-          consecutiveCorrect,
-          isResolved,
-          lastRetriedAt: nowIso(),
-        })
-        .where(eq(mistakes.id, mistakeId));
-
-      // 仅在本次由未攻克转为攻克时计入每日完成量。
-      if (isResolved && !mistake.isResolved) {
-        await this.recordDailyActivity(userId, { mistakesResolved: 1 });
-      }
-
-      return ok({ consecutiveCorrect, isResolved, retryCount });
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'retryMistake',
-          entityId: mistakeId,
-        })
-      );
-    }
+    return retryMistakeDomain(this.deps, userId, mistakeId, isCorrect);
   }
 
   // ==================== 文档与教材资产 (Documents) ====================
