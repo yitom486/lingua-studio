@@ -73,7 +73,7 @@ export function useReadingSetsQuery(
     queryKey: [...QUERY_KEYS.READING, userId, origin ?? 'ALL', lang ?? 'ALL'],
     queryFn: async () => {
       try {
-        const query: any = {};
+        const query: Record<string, string> = {};
         if (origin) query.origin = origin;
         if (lang) query.lang = lang;
         const res = await apiClient.api.reading.sets[':userId'].$get({
@@ -101,7 +101,11 @@ export function useNewsTopicsQuery() {
     queryKey: QUERY_KEYS.NEWS_TOPICS,
     queryFn: async () => {
       try {
-        const res = await (apiClient.api.reading as any)['news-topics'].$get();
+        // 连字符路由在 Hono 客户端类型中缺失，此处为显式边界断言（与此前 as any 等价）。
+        const readingApi = apiClient.api.reading as unknown as {
+          'news-topics': { $get: () => Promise<Response> };
+        };
+        const res = await readingApi['news-topics'].$get();
         if (res.ok) {
           const topics = await res.json();
           if (Array.isArray(topics) && topics.length > 0) return topics as NewsTopic[];

@@ -19,7 +19,7 @@ interface ChatMessageListProps {
   busy: boolean;
   startQueuedTurn: (queuedSubmissionId?: string) => void;
   coachThreadId: string;
-  deleteQueueItem: { mutate: (vars: any) => void };
+  deleteQueueItem: { mutate: (vars: { threadId: string; queuedId: string }) => void };
   messages: ChatMessage[];
   respondApproval: (
     approvalId: string,

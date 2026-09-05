@@ -51,6 +51,8 @@ export function useImportTextbookMutation(userId = DEFAULT_USER_ID) {
   return useMutation({
     mutationFn: async (book: TextbookBook) => {
       try {
+        // TextbookBook 类型无 description；导入 AST 运行时可能携带该字段，兼容读取。
+        const bookDescription = (book as { description?: unknown }).description;
         await apiClient.api.documents[':userId'].$post({
           param: { userId },
           json: {
@@ -58,7 +60,7 @@ export function useImportTextbookMutation(userId = DEFAULT_USER_ID) {
             title: book.title,
             sourceKind: 'user_import',
             language: 'ja',
-            content: (book as any).description || book.title,
+            content: (typeof bookDescription === 'string' && bookDescription) || book.title,
             astJson: JSON.stringify(book),
             sourcePublisher: book.publisher || '用户自主导入',
           },

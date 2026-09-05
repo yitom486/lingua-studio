@@ -15,6 +15,22 @@ import { normalizeTrackLanguage } from '../learning/learning-shell.js';
 
 /** P1-2 拆分：卡片 / 错题 / 题库组（自 useLearnerQueries.ts 逐行平移，仅改 import）。 */
 
+/** Gateway 行 JSON 的防御性读取（缺字段/类型漂移时回退展示默认值，永不抛）。 */
+function rowStr(row: Record<string, unknown>, key: string, fallback = ''): string {
+  const value = row[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
+function rowNum(row: Record<string, unknown>, key: string, fallback: number): number {
+  const value = row[key];
+  return typeof value === 'number' ? value : fallback;
+}
+
+function nthStr(value: unknown, index: number, fallback = ''): string {
+  const item = Array.isArray(value) ? value[index] : undefined;
+  return typeof item === 'string' && item ? item : fallback;
+}
+
 /**
  * FSRS 卡片库查询 (依托 Gateway，带语种作用域隔离)
  */
@@ -29,27 +45,38 @@ export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
         const url = `${GATEWAY_BASE_URL}/api/cards/${userId}?lang=${targetLanguage}`;
         const res = await fetch(url);
         if (res.ok) {
-          const list = await res.json();
+          const list = (await res.json()) as unknown;
           if (Array.isArray(list)) {
-            return list.map((c: any) => ({
-              id: c.id,
-              type: (c.type === 'GRAMMAR' ? 'GRAMMAR' : c.type === 'CONFUSION' ? 'CONFUSION' : 'VOCAB') as any,
-              frontWord: c.front,
-              reading: c.phonetic || '',
-              tag: Array.isArray(c.tags) ? c.tags[0] || '核心词汇' : '核心词汇',
-              pos: Array.isArray(c.tags) ? c.tags[1] || '词汇' : '词汇',
-              backMeaning: c.back,
-              exampleJp: (Array.isArray(c.tags) && c.tags[2]) || c.exampleJp || '',
-              exampleHighlight: c.exampleHighlight || c.front,
-              exampleZh: (Array.isArray(c.tags) && c.tags[3]) || c.exampleZh || '',
-              stability: c.fsrs?.stability ?? 1.0,
-              reps: c.fsrs?.reps ?? 0,
-              difficulty: c.fsrs?.difficulty ?? 5.0,
-              lapses: c.fsrs?.lapses ?? 0,
-              state: c.fsrs?.state ?? 'NEW',
-              ...(c.fsrs?.lastReviewedAt ? { lastReviewedAt: c.fsrs.lastReviewedAt } : {}),
-              dueAt: c.fsrs?.dueAt,
-            }));
+            return (list as Array<Record<string, unknown>>).map((c) => {
+              const fsrs = (c.fsrs ?? {}) as Record<string, unknown>;
+              const fsrsState = rowStr(fsrs, 'state');
+              return {
+                id: rowStr(c, 'id'),
+                type: (c.type === 'GRAMMAR' ? 'GRAMMAR' : c.type === 'CONFUSION' ? 'CONFUSION' : 'VOCAB') as StudyCardItem['type'],
+                frontWord: rowStr(c, 'front'),
+                reading: rowStr(c, 'phonetic'),
+                tag: nthStr(c.tags, 0, '核心词汇'),
+                pos: nthStr(c.tags, 1, '词汇'),
+                backMeaning: rowStr(c, 'back'),
+                exampleJp: nthStr(c.tags, 2) || rowStr(c, 'exampleJp'),
+                exampleHighlight: rowStr(c, 'exampleHighlight') || rowStr(c, 'front'),
+                exampleZh: nthStr(c.tags, 3) || rowStr(c, 'exampleZh'),
+                stability: rowNum(fsrs, 'stability', 1.0),
+                reps: rowNum(fsrs, 'reps', 0),
+                difficulty: rowNum(fsrs, 'difficulty', 5.0),
+                lapses: rowNum(fsrs, 'lapses', 0),
+                state:
+                  fsrsState === 'LEARNING' ||
+                  fsrsState === 'REVIEW' ||
+                  fsrsState === 'RELEARNING'
+                    ? fsrsState
+                    : 'NEW',
+                ...(rowStr(fsrs, 'lastReviewedAt')
+                  ? { lastReviewedAt: rowStr(fsrs, 'lastReviewedAt') }
+                  : {}),
+                ...(rowStr(fsrs, 'dueAt') ? { dueAt: rowStr(fsrs, 'dueAt') } : {}),
+              };
+            });
           }
         }
       } catch (e) {
@@ -88,7 +115,7 @@ export function useAddCardsMutation(userId = DEFAULT_USER_ID) {
         }));
         await apiClient.api.cards[':userId'].$post({
           param: { userId },
-          json: payload as any,
+          json: payload,
         });
       } catch (e) {
         logger.debug('[useAddCardsMutation] Hono RPC failed to save cards', e);
@@ -200,20 +227,24 @@ export function useMistakesQuery(userId = DEFAULT_USER_ID, langOverride?: string
         const url = `${GATEWAY_BASE_URL}/api/mistakes/${userId}?lang=${targetLanguage}`;
         const res = await fetch(url);
         if (res.ok) {
-          const list = await res.json();
+          const list = (await res.json()) as unknown;
           if (Array.isArray(list)) {
-            return list.map((m: any) => ({
-              id: m.id,
-              categoryTag: m.question?.category || '薄弱项攻坚',
-              prompt: m.question?.prompt || '请根据要求作答',
-              sentence: m.question?.content || '',
-              userWrongAnswer: m.lastUserSubmission || '',
-              correctAnswer: m.lastGrading?.correctAnswer || m.question?.correctAnswer || '',
-              testedSkillId: m.question?.testedSkillId || '',
-              reviewNote: m.lastGrading?.explanation || m.question?.explanation || '',
-              consecutiveCorrect: m.consecutiveCorrect ?? 0,
-              isResolved: Boolean(m.isResolved),
-            }));
+            return (list as Array<Record<string, unknown>>).map((m) => {
+              const question = (m.question ?? {}) as Record<string, unknown>;
+              const grading = (m.lastGrading ?? {}) as Record<string, unknown>;
+              return {
+                id: rowStr(m, 'id'),
+                categoryTag: rowStr(question, 'category', '薄弱项攻坚'),
+                prompt: rowStr(question, 'prompt', '请根据要求作答'),
+                sentence: rowStr(question, 'content'),
+                userWrongAnswer: rowStr(m, 'lastUserSubmission'),
+                correctAnswer: rowStr(grading, 'correctAnswer') || rowStr(question, 'correctAnswer'),
+                testedSkillId: rowStr(question, 'testedSkillId'),
+                reviewNote: rowStr(grading, 'explanation') || rowStr(question, 'explanation'),
+                consecutiveCorrect: rowNum(m, 'consecutiveCorrect', 0),
+                isResolved: Boolean(m.isResolved),
+              };
+            });
           }
         }
       } catch (e) {
@@ -321,7 +352,7 @@ export function useAddMistakeMutation(userId = DEFAULT_USER_ID) {
             retryCount: 1,
             consecutiveCorrect: 0,
             isResolved: false,
-          } as any,
+          },
         });
       } catch (e) {
         logger.debug('[useAddMistakeMutation] Hono RPC failed to save mistake to gateway', e);
@@ -359,26 +390,37 @@ export function useQuestionsQuery(userId = DEFAULT_USER_ID, langOverride?: strin
         const url = `${GATEWAY_BASE_URL}/api/questions/${userId}?lang=${targetLanguage}`;
         const res = await fetch(url);
         if (res.ok) {
-          const dynamicQuestions = await res.json();
+          const dynamicQuestions = (await res.json()) as unknown;
           if (Array.isArray(dynamicQuestions)) {
-            return dynamicQuestions.map((q: any) => ({
-              id: q.id,
-              type: toUiQuizType(String(q.type ?? 'MULTIPLE_CHOICE')),
-              category: q.category || 'AI 靶向攻坚',
-              prompt: q.prompt || '选择最恰当的选项：',
-              content: q.content,
-              options: Array.isArray(q.options)
-                ? q.options.map((opt: any, i: number) =>
-                    typeof opt === 'string'
-                      ? { key: String.fromCharCode(65 + i), text: opt }
-                      : opt
-                  )
-                : undefined,
-              chunks: Array.isArray(q.chunks) ? q.chunks : undefined,
-              correctAnswer: q.correctAnswer,
-              explanation: q.explanation,
-              testedSkill: q.testedSkillId || q.testedSkill || 'adaptive_skill',
-            }));
+            return (dynamicQuestions as Array<Record<string, unknown>>).map((q) => {
+              const optionList = Array.isArray(q.options)
+                ? q.options.map((opt: unknown, i: number) => {
+                    if (typeof opt === 'string') {
+                      return { key: String.fromCharCode(65 + i), text: opt };
+                    }
+                    const obj = (opt ?? {}) as Record<string, unknown>;
+                    return {
+                      ...(typeof opt === 'object' && opt !== null ? opt : {}),
+                      key: rowStr(obj, 'key', String.fromCharCode(65 + i)),
+                      text: rowStr(obj, 'text'),
+                    };
+                  })
+                : undefined;
+              const chunkList: string[] | undefined = Array.isArray(q.chunks) ? q.chunks : undefined;
+              return {
+                id: rowStr(q, 'id'),
+                type: toUiQuizType(rowStr(q, 'type') || 'MULTIPLE_CHOICE'),
+                category: rowStr(q, 'category') || 'AI 靶向攻坚',
+                prompt: rowStr(q, 'prompt') || '选择最恰当的选项：',
+                content: rowStr(q, 'content'),
+                ...(optionList ? { options: optionList } : {}),
+                ...(chunkList ? { chunks: chunkList } : {}),
+                correctAnswer: rowStr(q, 'correctAnswer'),
+                explanation: rowStr(q, 'explanation'),
+                testedSkill:
+                  rowStr(q, 'testedSkillId') || rowStr(q, 'testedSkill') || 'adaptive_skill',
+              };
+            });
           }
         }
       } catch (e) {
@@ -412,7 +454,7 @@ export function usePrependQuestionMutation(userId = DEFAULT_USER_ID) {
             testedSkillId: question.testedSkill,
             difficulty: 3,
             createdAt: new Date().toISOString(),
-          } as any,
+          },
         });
       if (!response.ok) {
         throw new Error('保存自适应题目失败');

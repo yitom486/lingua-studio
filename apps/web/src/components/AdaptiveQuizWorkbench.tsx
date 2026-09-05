@@ -90,24 +90,29 @@ export function AdaptiveQuizWorkbench({ onOpenTutor }: AdaptiveQuizWorkbenchProp
     try {
       if (isGatewayConnected) {
         const reply = (await generateAdaptive.mutateAsync({})) as {
-          questions?: any[];
+          questions?: Array<Record<string, unknown>>;
           targetSkillName?: string;
         };
         if (reply && reply.questions && reply.questions.length > 0) {
-          const newQRaw = reply.questions[0];
+          const newQRaw = (reply.questions[0] ?? {}) as Record<string, unknown>;
+          const rawStr = (value: unknown): string =>
+            typeof value === 'string' ? value : '';
+          const rawOptions = Array.isArray(newQRaw.options)
+            ? newQRaw.options.map((text: unknown, i: number) => ({
+                key: String.fromCharCode(65 + i),
+                text: rawStr(text),
+              }))
+            : undefined;
           const newQ: QuizQuestionItem = {
-            id: newQRaw.id,
-            type: toUiQuizType(String(newQRaw.type ?? 'MULTIPLE_CHOICE')),
+            id: rawStr(newQRaw.id),
+            type: toUiQuizType(rawStr(newQRaw.type) || 'MULTIPLE_CHOICE'),
             category: `AI 靶向弱项 · ${reply.targetSkillName ?? shell.copy.targetWeaknessLabel}`,
-            prompt: newQRaw.prompt,
-            content: newQRaw.content,
-            options: newQRaw.options?.map((text: string, i: number) => ({
-              key: String.fromCharCode(65 + i),
-              text,
-            })),
-            correctAnswer: newQRaw.correctAnswer,
-            explanation: newQRaw.explanation,
-            testedSkill: newQRaw.testedSkillId,
+            prompt: rawStr(newQRaw.prompt),
+            content: rawStr(newQRaw.content),
+            ...(rawOptions ? { options: rawOptions } : {}),
+            correctAnswer: rawStr(newQRaw.correctAnswer),
+            explanation: rawStr(newQRaw.explanation),
+            testedSkill: rawStr(newQRaw.testedSkillId),
           };
           prependQuestion.mutate(newQ);
           setQuestionIndex(0);
