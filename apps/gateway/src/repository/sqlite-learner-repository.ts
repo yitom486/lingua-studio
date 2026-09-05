@@ -527,5 +527,41 @@ export class SqliteLearnerRepository implements LearnerRepository {
   public close(): void {
     this.db.close();
   }
+
+  // P5：可配置练习计划在遗留 SqliteLearnerRepository 上不支持；
+  // 生产路径走 DrizzleLearnerRepository。以下桩实现仅满足接口契约。
+  public async savePracticePlanTemplate(): Promise<Result<never, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
+  public async listPracticePlanTemplates(): Promise<Result<never[], BusinessError>> {
+    return ok([]);
+  }
+  public async getPracticePlanTemplate(): Promise<Result<null, BusinessError>> {
+    return ok(null);
+  }
+  public async deletePracticePlanTemplate(): Promise<Result<void, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
+  public async startPracticePlanRun(): Promise<Result<never, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
+  public async getPracticePlanRun(): Promise<Result<null, BusinessError>> {
+    return ok(null);
+  }
+  public async listPracticePlanRuns(): Promise<Result<never[], BusinessError>> {
+    return ok([]);
+  }
+  public async savePracticeItemDraft(): Promise<Result<never, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
+  public async submitPracticeItem(): Promise<Result<never, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
+  public async listPracticeItemAttempts(): Promise<Result<never[], BusinessError>> {
+    return ok([]);
+  }
+  public async finalizePracticePlanRun(): Promise<Result<never, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { ContextBuilder, deriveRecentErrorTags } from '../context/context-builder.js';
 import type { LearnerRepository, LearnerProfile, LearnerProfileSnapshot } from '@study-studio/learner-core';
 import type { Flashcard } from '@study-studio/protocol';
-import { ok } from '@study-studio/shared';
+import { ok, err, BusinessError } from '@study-studio/shared';
 
 function mockRepo(overrides: {
   targetLanguage?: 'ja' | 'en' | 'ko';
@@ -107,6 +107,18 @@ function mockRepo(overrides: {
           isResolved: m.isResolved,
         }))
       ),
+    // P5 桩：context-builder 不涉及练习计划
+    savePracticePlanTemplate: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    listPracticePlanTemplates: async () => ok([]),
+    getPracticePlanTemplate: async () => ok(null),
+    deletePracticePlanTemplate: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    startPracticePlanRun: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    getPracticePlanRun: async () => ok(null),
+    listPracticePlanRuns: async () => ok([]),
+    savePracticeItemDraft: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    submitPracticeItem: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    listPracticeItemAttempts: async () => ok([]),
+    finalizePracticePlanRun: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
   } as LearnerRepository;
 }
 

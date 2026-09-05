@@ -390,3 +390,53 @@ export const dailyStudyPlans = sqliteTable(
     ),
   })
 );
+
+/**
+ * P5：用户练习计划模板（长期配置，不等于今天的进度）。
+ * 每天从模板冻结一次不可变的 practice_plan_runs。
+ */
+export const practicePlanTemplates = sqliteTable('practice_plan_templates', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  language: text('language').notNull(),
+  name: text('name').notNull(),
+  enabled: integer('enabled').notNull().default(1),
+  revision: integer('revision').notNull().default(0),
+  blocksJson: text('blocks_json').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+/**
+ * P5：练习计划执行会话（冻结快照）。
+ * 记录当时模板 revision 与块规格副本，改模板后旧 run 不变。
+ */
+export const practicePlanRuns = sqliteTable('practice_plan_runs', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  language: text('language').notNull(),
+  templateId: text('template_id'),
+  templateRevision: integer('template_revision'),
+  blocksJson: text('blocks_json').notNull(),
+  status: text('status').notNull().default('IN_PROGRESS'),
+  startedAt: text('started_at').notNull(),
+  completedAt: text('completed_at'),
+  createdAt: text('created_at').notNull(),
+});
+
+/**
+ * P5：单题尝试（草稿/已提交/已批改）。
+ * 完成批改后由领域服务原子写入既有 quiz_attempts/错题/打卡；本表只存计划运行态。
+ */
+export const practiceItemAttempts = sqliteTable('practice_item_attempts', {
+  id: text('id').primaryKey(),
+  runId: text('run_id').notNull(),
+  blockId: text('block_id').notNull(),
+  itemId: text('item_id').notNull(),
+  status: text('status').notNull().default('PENDING'),
+  userAnswer: text('user_answer'),
+  gradingResultJson: text('grading_result_json'),
+  timeSpentMs: integer('time_spent_ms'),
+  submittedAt: text('submitted_at'),
+  gradedAt: text('graded_at'),
+});

@@ -337,6 +337,53 @@ export function initSchema(sqlite: Database): void {
       completed_step_ids_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS practice_plan_templates (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      language TEXT NOT NULL,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      revision INTEGER NOT NULL DEFAULT 0,
+      blocks_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_practice_templates_user_lang
+      ON practice_plan_templates(user_id, language, enabled);
+
+    CREATE TABLE IF NOT EXISTS practice_plan_runs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      language TEXT NOT NULL,
+      template_id TEXT,
+      template_revision INTEGER,
+      blocks_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'IN_PROGRESS',
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_practice_runs_user_status
+      ON practice_plan_runs(user_id, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS practice_item_attempts (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      block_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PENDING',
+      user_answer TEXT,
+      grading_result_json TEXT,
+      time_spent_ms INTEGER,
+      submitted_at TEXT,
+      graded_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_practice_attempts_run
+      ON practice_item_attempts(run_id, block_id, status);
   `);
 
   // 增量列：已有库补字段
@@ -356,6 +403,10 @@ export function initSchema(sqlite: Database): void {
     'ALTER TABLE documents ADD COLUMN source_kind_detail TEXT',
     'ALTER TABLE documents ADD COLUMN fetch_status TEXT',
     'ALTER TABLE documents ADD COLUMN news_publisher TEXT',
+    // P5：扩展 practice_collections 关联计划运行（可空，向后兼容）
+    'ALTER TABLE practice_collections ADD COLUMN plan_run_id TEXT',
+    'ALTER TABLE practice_collections ADD COLUMN block_id TEXT',
+    'ALTER TABLE practice_collections ADD COLUMN grading_mode TEXT',
   ];
   for (const sql of alterStatements) {
     try {

@@ -7,6 +7,13 @@ import type {
 } from './types.js';
 import type { DailyStudyPlan } from './daily-plan.js';
 import type { Flashcard } from '@study-studio/protocol';
+import type {
+  PracticePlanTemplate,
+  PracticePlanRun,
+  PracticeItemAttempt,
+  PracticeBlockSpec,
+  PracticeRunStatus,
+} from '@study-studio/protocol';
 import type { MistakeEntry } from './mistake.js';
 
 export interface QuizAttemptRecord {
@@ -73,4 +80,59 @@ export interface LearnerRepository {
     userId: string,
     filter?: { resolved?: boolean; language?: string }
   ): Promise<Result<MistakeEntry[], BusinessError>>;
+
+  // P5：可配置练习计划（模板 → 当日冻结 run → 单题尝试 → 完成原子写统计）
+  savePracticePlanTemplate(
+    template: PracticePlanTemplate
+  ): Promise<Result<PracticePlanTemplate, BusinessError>>;
+  listPracticePlanTemplates(
+    userId: string,
+    opts?: { language?: string; includeDisabled?: boolean }
+  ): Promise<Result<PracticePlanTemplate[], BusinessError>>;
+  getPracticePlanTemplate(
+    userId: string,
+    templateId: string
+  ): Promise<Result<PracticePlanTemplate | null, BusinessError>>;
+  deletePracticePlanTemplate(
+    userId: string,
+    templateId: string
+  ): Promise<Result<void, BusinessError>>;
+  startPracticePlanRun(
+    userId: string,
+    params: {
+      language: 'en' | 'ja' | 'ko';
+      templateId?: string;
+      blocks?: PracticeBlockSpec[];
+    }
+  ): Promise<Result<PracticePlanRun, BusinessError>>;
+  getPracticePlanRun(
+    userId: string,
+    runId: string
+  ): Promise<Result<PracticePlanRun | null, BusinessError>>;
+  listPracticePlanRuns(
+    userId: string,
+    opts?: { language?: string; status?: PracticeRunStatus }
+  ): Promise<Result<PracticePlanRun[], BusinessError>>;
+  savePracticeItemDraft(
+    userId: string,
+    runId: string,
+    itemId: string,
+    userAnswer: string
+  ): Promise<Result<PracticeItemAttempt, BusinessError>>;
+  submitPracticeItem(
+    userId: string,
+    runId: string,
+    itemId: string,
+    userAnswer: string,
+    gradingResult?: Record<string, unknown>,
+    timeSpentMs?: number
+  ): Promise<Result<PracticeItemAttempt, BusinessError>>;
+  listPracticeItemAttempts(
+    runId: string
+  ): Promise<Result<PracticeItemAttempt[], BusinessError>>;
+  /** 完成运行：原子地把已批改尝试写入既有 quiz_attempts/错题/打卡，并标记 run COMPLETED。 */
+  finalizePracticePlanRun(
+    userId: string,
+    runId: string
+  ): Promise<Result<PracticePlanRun, BusinessError>>;
 }

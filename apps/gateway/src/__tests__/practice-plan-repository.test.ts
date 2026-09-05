@@ -1,0 +1,281 @@
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { isOk, isErr } from '@study-studio/shared';
+import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import type {
+  PracticePlanTemplate,
+  PracticeBlockSpec,
+} from '@study-studio/protocol';
+
+describe('DrizzleLearnerRepository P5 practice plan', () => {
+  let repo: DrizzleLearnerRepository;
+  const userId = 'p5_user_01';
+
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  function quizBlock(id = 'b1', count = 5): PracticeBlockSpec {
+    return { id, kind: 'QUIZ', count, gradingMode: 'AUTO_IMMEDIATE' };
+  }
+  function translationBlock(id = 'b2', count = 3): PracticeBlockSpec {
+    return {
+      id,
+      kind: 'TRANSLATION',
+      count,
+      gradingMode: 'AI_BATCH',
+      translationDirection: { sourceLanguage: 'zh', targetLanguage: 'en' },
+    };
+  }
+  function template(
+    overrides: Partial<PracticePlanTemplate> & { blocks: PracticeBlockSpec[] }
+  ): PracticePlanTemplate {
+    return {
+      id: 'tpl_1',
+      userId,
+      language: 'en',
+      name: '晚间 35 分钟',
+      enabled: true,
+      revision: 0,
+      createdAt: '2026-09-05T00:00:00.000Z',
+      updatedAt: '2026-09-05T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  describe('template CRUD', () => {
+    it('saves and retrieves a template', async () => {
+      const saveRes = await repo.savePracticePlanTemplate(template({ blocks: [quizBlock()] }));
+      expect(isOk(saveRes)).toBe(true);
+      if (!isOk(saveRes)) return;
+      expect(saveRes.value.revision).toBe(1);
+
+      const getRes = await repo.getPracticePlanTemplate(userId, 'tpl_1');
+      expect(isOk(getRes)).toBe(true);
+      if (!isOk(getRes) || !getRes.value) return;
+      expect(getRes.value.name).toBe('晚间 35 分钟');
+      expect(getRes.value.blocks[0]!.kind).toBe('QUIZ');
+    });
+
+    it('increments revision on update and freezes createdAt', async () => {
+      const r1 = await repo.savePracticePlanTemplate(template({ blocks: [quizBlock()] }));
+      const createdAt = (isOk(r1) && r1.value.createdAt) || '';
+      const r2 = await repo.savePracticePlanTemplate(
+        template({ name: '晚间 40 分钟', blocks: [quizBlock()] })
+      );
+      expect(isOk(r2)).toBe(true);
+      if (!isOk(r2)) return;
+      expect(r2.value.revision).toBe(2);
+      expect(r2.value.name).toBe('晚间 40 分钟');
+      expect(r2.value.createdAt).toBe(createdAt);
+    });
+
+    it('lists only enabled templates by default', async () => {
+      await repo.savePracticePlanTemplate(template({ id: 'tpl_a', blocks: [quizBlock()] }));
+      await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_b', enabled: false, blocks: [quizBlock()] })
+      );
+      const listRes = await repo.listPracticePlanTemplates(userId);
+      expect(isOk(listRes)).toBe(true);
+      if (!isOk(listRes)) return;
+      expect(listRes.value.map((t) => t.id)).toEqual(['tpl_a']);
+      const allRes = await repo.listPracticePlanTemplates(userId, { includeDisabled: true });
+      if (!isOk(allRes)) return;
+      expect(allRes.value.map((t) => t.id).sort()).toEqual(['tpl_a', 'tpl_b']);
+    });
+
+    it('deletes a template', async () => {
+      await repo.savePracticePlanTemplate(template({ blocks: [quizBlock()] }));
+      const delRes = await repo.deletePracticePlanTemplate(userId, 'tpl_1');
+      expect(isOk(delRes)).toBe(true);
+      const getRes = await repo.getPracticePlanTemplate(userId, 'tpl_1');
+      expect(isOk(getRes)).toBe(true);
+      if (!isOk(getRes)) return;
+      expect(getRes.value).toBeNull();
+    });
+
+    it('rejects invalid block spec', async () => {
+      const res = await repo.savePracticePlanTemplate(
+        template({ blocks: [{ ...quizBlock(), count: 0 }] })
+      );
+      expect(isErr(res)).toBe(true);
+    });
+  });
+
+  describe('run freeze isolation', () => {
+    it('freezes revision and blocks; modifying template does not affect existing run', async () => {
+      await repo.savePracticePlanTemplate(template({ blocks: [quizBlock('b1', 5)] }));
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        templateId: 'tpl_1',
+      });
+      expect(isOk(runRes)).toBe(true);
+      if (!isOk(runRes)) return;
+      const runId = runRes.value.id;
+      expect(runRes.value.templateRevision).toBe(1);
+      expect(runRes.value.blocks[0]!.count).toBe(5);
+
+      // 改模板题量与 revision
+      await repo.savePracticePlanTemplate(template({ blocks: [quizBlock('b1', 10)] }));
+      // 旧 run 不变
+      const reGet = await repo.getPracticePlanRun(userId, runId);
+      if (!isOk(reGet) || !reGet.value) return;
+      expect(reGet.value.templateRevision).toBe(1);
+      expect(reGet.value.blocks[0]!.count).toBe(5);
+
+      // 新 run 用新 revision
+      const run2 = await repo.startPracticePlanRun(userId, { language: 'en', templateId: 'tpl_1' });
+      if (!isOk(run2)) return;
+      expect(run2.value.templateRevision).toBe(2);
+      expect(run2.value.blocks[0]!.count).toBe(10);
+    });
+
+    it('supports one-off custom blocks run without template', async () => {
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'ja',
+        blocks: [quizBlock('b1', 3)],
+      });
+      expect(isOk(runRes)).toBe(true);
+      if (!isOk(runRes)) return;
+      expect(runRes.value.templateId).toBeUndefined();
+      expect(runRes.value.language).toBe('ja');
+    });
+  });
+
+  describe('draft / submit / finalize', () => {
+    it('saves draft then submits with grading', async () => {
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        blocks: [quizBlock('b1', 2)],
+      });
+      if (!isOk(runRes)) return;
+      const runId = runRes.value.id;
+
+      const draft = await repo.savePracticeItemDraft(userId, runId, 'q1', 'my draft');
+      expect(isOk(draft)).toBe(true);
+      if (!isOk(draft)) return;
+      expect(draft.value.status).toBe('DRAFT');
+
+      const submit = await repo.submitPracticeItem(userId, runId, 'q1', 'my answer', {
+        isCorrect: true,
+        score: 1,
+        testedSkillId: 'en.vocab',
+      });
+      expect(isOk(submit)).toBe(true);
+      if (!isOk(submit)) return;
+      expect(submit.value.status).toBe('GRADED');
+      expect(submit.value.gradingResult?.isCorrect).toBe(true);
+    });
+
+    it('finalize writes quiz_attempts atomically and marks run COMPLETED', async () => {
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        blocks: [quizBlock('b1', 2)],
+      });
+      if (!isOk(runRes)) return;
+      const runId = runRes.value.id;
+
+      await repo.submitPracticeItem(userId, runId, 'q1', 'a1', {
+        isCorrect: true,
+        score: 1,
+        testedSkillId: 'en.vocab',
+      });
+      await repo.submitPracticeItem(userId, runId, 'q2', 'a2', {
+        isCorrect: false,
+        score: 0,
+        testedSkillId: 'en.vocab',
+      });
+
+      const finRes = await repo.finalizePracticePlanRun(userId, runId);
+      expect(isOk(finRes)).toBe(true);
+      if (!isOk(finRes)) return;
+      expect(finRes.value.status).toBe('COMPLETED');
+      expect(finRes.value.completedAt).toBeTruthy();
+
+      // 每日活动已记录（quizzes 累计 2）
+      const today = new Date().toISOString().slice(0, 10);
+      const progRes = await repo.getDailyTaskProgress(userId, today);
+      if (!isOk(progRes)) return;
+      expect(progRes.value.quizzesCount).toBeGreaterThanOrEqual(2);
+    });
+
+    it('is idempotent: repeated finalize does not double-count quiz_attempts', async () => {
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        blocks: [quizBlock('b1', 1)],
+      });
+      if (!isOk(runRes)) return;
+      const runId = runRes.value.id;
+      await repo.submitPracticeItem(userId, runId, 'q1', 'a1', {
+        isCorrect: true,
+        score: 1,
+        testedSkillId: 'en.vocab',
+      });
+
+      await repo.finalizePracticePlanRun(userId, runId);
+      const before = await repo.getDailyTaskProgress(userId, new Date().toISOString().slice(0, 10));
+      const quizzesBefore = isOk(before) ? before.value.quizzesCount : 0;
+
+      // 再次 finalize（幂等）
+      await repo.finalizePracticePlanRun(userId, runId);
+      const after = await repo.getDailyTaskProgress(userId, new Date().toISOString().slice(0, 10));
+      expect(isOk(after)).toBe(true);
+      if (!isOk(after)) return;
+      expect(after.value.quizzesCount).toBe(quizzesBefore);
+    });
+
+    it('repeated submit of same item does not duplicate attempts', async () => {
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        blocks: [quizBlock('b1', 1)],
+      });
+      if (!isOk(runRes)) return;
+      const runId = runRes.value.id;
+      await repo.submitPracticeItem(userId, runId, 'q1', 'a1', {
+        isCorrect: true,
+        score: 1,
+        testedSkillId: 'en.vocab',
+      });
+      await repo.submitPracticeItem(userId, runId, 'q1', 'a1', {
+        isCorrect: true,
+        score: 1,
+        testedSkillId: 'en.vocab',
+      });
+      const listRes = await repo.listPracticeItemAttempts(runId);
+      if (!isOk(listRes)) return;
+      expect(listRes.value.filter((a) => a.itemId === 'q1').length).toBe(1);
+    });
+  });
+
+  describe('three-language isolation', () => {
+    it('keeps en/ja/ko templates and runs separate', async () => {
+      await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_en', language: 'en', blocks: [quizBlock()] })
+      );
+      await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_ja', language: 'ja', blocks: [quizBlock()] })
+      );
+      await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_ko', language: 'ko', blocks: [quizBlock()] })
+      );
+
+      const enList = await repo.listPracticePlanTemplates(userId, { language: 'en' });
+      const jaList = await repo.listPracticePlanTemplates(userId, { language: 'ja' });
+      const koList = await repo.listPracticePlanTemplates(userId, { language: 'ko' });
+      if (!isOk(enList) || !isOk(jaList) || !isOk(koList)) return;
+      expect(enList.value.map((t) => t.id)).toEqual(['tpl_en']);
+      expect(jaList.value.map((t) => t.id)).toEqual(['tpl_ja']);
+      expect(koList.value.map((t) => t.id)).toEqual(['tpl_ko']);
+
+      const runEn = await repo.startPracticePlanRun(userId, { language: 'en', templateId: 'tpl_en' });
+      const runJa = await repo.startPracticePlanRun(userId, { language: 'ja', templateId: 'tpl_ja' });
+      if (!isOk(runEn) || !isOk(runJa)) return;
+      expect(runEn.value.language).toBe('en');
+      expect(runJa.value.language).toBe('ja');
+
+      // en 的 run 列表不含 ja
+      const enRuns = await repo.listPracticePlanRuns(userId, { language: 'en' });
+      if (!isOk(enRuns)) return;
+      expect(enRuns.value.every((r) => r.language === 'en')).toBe(true);
+    });
+  });
+});
