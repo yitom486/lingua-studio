@@ -6,6 +6,7 @@ import { usePreferencesStore } from './usePreferencesStore.js';
 
 export type NavigationTab =
   | 'TODAY'
+  | 'PRACTICE_PLAN'
   | 'QUIZ'
   | 'CARDS'
   | 'KANA'

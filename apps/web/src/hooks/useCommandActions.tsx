@@ -14,6 +14,7 @@ import {
   Newspaper,
   PenLine,
   CalendarCheck,
+  ClipboardList,
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
@@ -78,6 +79,14 @@ export function useCommandActions(unresolvedMistakeCount: number): CommandAction
         icon: <Layers className="w-4 h-4" />,
         shortcut: 'Tab 2',
         onSelect: () => setActiveTab('CARDS'),
+      },
+      {
+        id: 'nav-practice-plan',
+        category: '导航',
+        title: '前往我的练习计划',
+        subtitle: '自定义块组合模板 · 客观秒判与主观 AI 批量批改',
+        icon: <ClipboardList className="w-4 h-4" />,
+        onSelect: () => setActiveTab('PRACTICE_PLAN'),
       },
       {
         id: 'nav-reading',

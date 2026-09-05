@@ -20,6 +20,7 @@ import {
   Library,
   Sparkles,
   CalendarCheck,
+  ClipboardList,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -85,6 +86,7 @@ const SIDEBAR_ICONS: Record<SidebarIconKey, LucideIcon> = {
   Flame,
   Sparkles,
   CalendarCheck,
+  ClipboardList,
 };
 
 type ResolvedNavItem = {

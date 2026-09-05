@@ -11,6 +11,7 @@ import { ok, type Result, type BusinessError } from '@study-studio/shared';
 export const UiNavigateInputSchema = z.object({
   target: z.enum([
     'QUIZ',
+    'PRACTICE_PLAN',
     'CARDS',
     'KANA',
     'TEXTBOOK',

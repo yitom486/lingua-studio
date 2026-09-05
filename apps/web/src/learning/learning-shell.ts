@@ -51,7 +51,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
   en: {
     track: 'en',
     trackName: '英语',
-    allowedTabs: ['TODAY', 'QUIZ', 'CARDS', 'READING', 'WRITING', 'MISTAKES', 'RADAR'],
+    allowedTabs: ['TODAY', 'PRACTICE_PLAN', 'QUIZ', 'CARDS', 'READING', 'WRITING', 'MISTAKES', 'RADAR'],
     featureFlags: {
       kanaStudio: false,
       pitchAccent: false,
@@ -75,6 +75,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
     trackName: '日语',
     allowedTabs: [
       'TODAY',
+      'PRACTICE_PLAN',
       'QUIZ',
       'CARDS',
       'READING',
@@ -107,7 +108,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
   ko: {
     track: 'ko',
     trackName: '韩语',
-    allowedTabs: ['TODAY', 'QUIZ', 'CARDS', 'READING', 'MISTAKES', 'RADAR'],
+    allowedTabs: ['TODAY', 'PRACTICE_PLAN', 'QUIZ', 'CARDS', 'READING', 'MISTAKES', 'RADAR'],
     featureFlags: {
       kanaStudio: false,
       pitchAccent: false,

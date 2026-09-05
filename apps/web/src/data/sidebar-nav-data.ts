@@ -34,7 +34,8 @@ export type SidebarIconKey =
   | 'User'
   | 'Flame'
   | 'Sparkles'
-  | 'CalendarCheck';
+  | 'CalendarCheck'
+  | 'ClipboardList';
 
 export interface SidebarNavItemDef {
   id: NavigationTab;
@@ -80,6 +81,7 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
     defaultOpen: true,
     items: [
       { id: 'TODAY', label: '今日学习', icon: 'CalendarCheck', badge: { kind: 'planProgress' } },
+      { id: 'PRACTICE_PLAN', label: '练习计划', icon: 'ClipboardList', badge: { kind: 'static', value: '自定义' } },
       { id: 'QUIZ', label: '自适应做题', icon: 'Zap', badge: { kind: 'quizProgress' } },
       { id: 'READING', label: '阅读理解', icon: 'Newspaper', badge: { kind: 'static', value: '双栏' } },
       { id: 'WRITING', label: '写作翻译', icon: 'PenLine', badge: { kind: 'static', value: 'AI' } },

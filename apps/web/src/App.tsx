@@ -18,6 +18,7 @@ import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
 import { ReadingComprehensionWorkbench } from './components/ReadingComprehensionWorkbench.js';
 import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
 import { KanaStudioWorkbench } from './components/KanaStudioWorkbench.js';
+import { PracticePlanPanel } from './components/practice/PracticePlanPanel.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useEnsureGateway } from './hooks/useAgentGateway.js';
 import { useLearningShell } from './hooks/useLearningShell.js';
@@ -97,6 +98,7 @@ export function App() {
   }, [shell.track]);
 
   const fetchProfile = useUserProfileStore((s) => s.fetchProfile);
+  const profileUserId = useUserProfileStore((s) => s.profile.userId || 'student_web_01');
 
   // 等 Zustand persist 水合后再拉远端，避免默认 en 抢先覆盖本地已存的韩语/日语轨道
   useEffect(() => {
@@ -285,6 +287,20 @@ export function App() {
             message="此模块由于外部数据或音频上下文发生了临时异常。您的个人学情资产已安全持久化，可点击下方按钮重新加载。"
           >
             {activeTab === 'TODAY' && <TodayPlanWorkbench key={shell.track} />}
+
+            {activeTab === 'PRACTICE_PLAN' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <PracticePlanPanel
+                  key={shell.track}
+                  userId={profileUserId}
+                  language={shell.track}
+                />
+              </motion.div>
+            )}
 
             {activeTab === 'QUIZ' && (
               <AdaptiveQuizWorkbench
