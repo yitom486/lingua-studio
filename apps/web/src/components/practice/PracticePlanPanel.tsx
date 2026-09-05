@@ -1,13 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Play, Loader2, Sparkles, CopyPlus } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { Switch } from '../ui/switch.js';
+import { isTemplateDueOn } from '@study-studio/learner-core';
 import { usePracticeTemplatesQuery, useDeletePracticeTemplateMutation, useStartPracticeRunMutation, useProposeTemplateMutation, useTogglePracticeTemplateMutation, useCopyPracticeTemplateMutation } from '../../queries/useLearnerQueries.js';
 import { PracticePlanEditor } from './PracticePlanEditor.js';
 import { PracticeRunWorkbench } from './PracticeRunWorkbench.js';
 import type { PracticePlanTemplate, PracticeBlockSpec } from '@study-studio/protocol';
+
+/** 本地日期 YYYY-MM-DD（排程到期判定用用户时区） */
+function todayLocalDate(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
 
 /** P5：练习计划面板。模板列表 + 新建/编辑/删除/开始今日运行；开始后进入运行工作台。 */
 
@@ -27,6 +36,17 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
   const [editing, setEditing] = useState<PracticePlanTemplate | null>(null);
   const [proposal, setProposal] = useState<{ suggestedName: string; blocks: PracticeBlockSpec[] } | null>(null);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  // P6-1：今日到期模板置顶（稳定排序，其余保持原顺序）
+  const sortedTemplates = useMemo(() => {
+    const today = todayLocalDate();
+    return [...templates].sort((a, b) => {
+      const dueA = isTemplateDueOn(a, today) ? 0 : 1;
+      const dueB = isTemplateDueOn(b, today) ? 0 : 1;
+      return dueA - dueB;
+    });
+  }, [templates]);
+  const isDueToday = (tpl: PracticePlanTemplate) => isTemplateDueOn(tpl, todayLocalDate());
 
   const openNew = () => {
     setEditing(null);
@@ -121,7 +141,7 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
       )}
 
       <div className="flex flex-col gap-2">
-        {templates.map((tpl) => (
+        {sortedTemplates.map((tpl) => (
           <div key={tpl.id} className="flex items-center justify-between rounded-md border border-slate-200 p-3 dark:border-slate-700">
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
@@ -134,6 +154,9 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
                 <span className={tpl.enabled ? 'text-sm font-medium' : 'text-sm font-medium text-slate-400'}>
                   {tpl.name}
                 </span>
+                {isDueToday(tpl) && (
+                  <Badge variant="default" className="text-[10px] px-1.5 py-0">今日适用</Badge>
+                )}
                 <Badge variant="secondary">revision {tpl.revision}</Badge>
               </div>
               <span className="text-xs text-slate-500">

@@ -407,6 +407,8 @@ export const practicePlanTemplates = sqliteTable('practice_plan_templates', {
   enabled: integer('enabled').notNull().default(1),
   revision: integer('revision').notNull().default(0),
   blocksJson: text('blocks_json').notNull(),
+  /** P6-1：排程 JSON（daily/weekly），可空；缺省 = 每日适用，向后兼容 */
+  scheduleJson: text('schedule_json'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

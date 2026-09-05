@@ -288,6 +288,7 @@ export function initSchema(sqlite: Database): void {
       enabled INTEGER NOT NULL DEFAULT 1,
       revision INTEGER NOT NULL DEFAULT 0,
       blocks_json TEXT NOT NULL,
+      schedule_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -349,6 +350,8 @@ export function initSchema(sqlite: Database): void {
     'ALTER TABLE practice_collections ADD COLUMN plan_run_id TEXT',
     'ALTER TABLE practice_collections ADD COLUMN block_id TEXT',
     'ALTER TABLE practice_collections ADD COLUMN grading_mode TEXT',
+    // P6-1：模板排程（可空，缺省每日适用）
+    'ALTER TABLE practice_plan_templates ADD COLUMN schedule_json TEXT',
   ];
   for (const sql of alterStatements) {
     try {

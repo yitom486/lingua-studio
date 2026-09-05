@@ -17,6 +17,7 @@ import type {
   PracticeRunStatus,
   GeneratedQuestion,
 } from '@study-studio/protocol';
+import { PracticePlanScheduleSchema } from '@study-studio/protocol';
 import {
   validatePracticePlanTemplate,
   freezeRunFromTemplate,
@@ -64,13 +65,14 @@ export async function savePracticePlanTemplate(
       enabled: template.enabled ? 1 : 0,
       revision: nextRevision,
       blocksJson: JSON.stringify(template.blocks),
+      scheduleJson: template.schedule ? JSON.stringify(template.schedule) : null,
       createdAt: existing.length > 0 ? existing[0]!.createdAt : now,
       updatedAt: now,
     };
     if (existing.length > 0) {
       await deps.db
         .update(practicePlanTemplates)
-        .set({ name: payload.name, enabled: payload.enabled, revision: payload.revision, blocksJson: payload.blocksJson, updatedAt: now })
+        .set({ name: payload.name, enabled: payload.enabled, revision: payload.revision, blocksJson: payload.blocksJson, scheduleJson: payload.scheduleJson, updatedAt: now })
         .where(eq(practicePlanTemplates.id, template.id));
     } else {
       await deps.db.insert(practicePlanTemplates).values(payload);
@@ -515,6 +517,10 @@ export async function finalizePracticePlanRun(
 
 function mapTemplateRow(r: typeof practicePlanTemplates.$inferSelect): PracticePlanTemplate {
   const blocks = parsePracticeBlockSpecs(safeJsonParse(r.blocksJson)) ?? [];
+  // 排程损坏或缺失一律视为无排程（每日适用），绝不臆造
+  const scheduleParsed = r.scheduleJson
+    ? PracticePlanScheduleSchema.safeParse(safeJsonParse(r.scheduleJson))
+    : null;
   return {
     id: r.id,
     userId: r.userId,
@@ -523,6 +529,7 @@ function mapTemplateRow(r: typeof practicePlanTemplates.$inferSelect): PracticeP
     enabled: r.enabled === 1,
     revision: r.revision,
     blocks,
+    ...(scheduleParsed && scheduleParsed.success ? { schedule: scheduleParsed.data } : {}),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };

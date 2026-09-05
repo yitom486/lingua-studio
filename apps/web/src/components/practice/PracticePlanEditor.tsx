@@ -19,7 +19,7 @@ import { Slider } from '../ui/slider.js';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { useSavePracticeTemplateMutation } from '../../queries/useLearnerQueries.js';
-import type { PracticePlanTemplate, PracticeBlockSpec, PracticeBlockKind, GradingMode } from '@study-studio/protocol';
+import type { PracticePlanTemplate, PracticeBlockSpec, PracticeBlockKind, GradingMode, PracticePlanSchedule } from '@study-studio/protocol';
 import { generateId } from '@study-studio/shared';
 
 /** P5：练习计划编辑器。配置有序练习块（1–8），预览题量/AI 批改次数/时长，保存为模板。 */
@@ -46,6 +46,16 @@ const BLOCK_KINDS: PracticeBlockKind[] = [
 ];
 const GRADING_MODES: GradingMode[] = ['AUTO_IMMEDIATE', 'AI_IMMEDIATE', 'AI_BATCH'];
 const VOCAB_KINDS = new Set<PracticeBlockKind>(['VOCAB_REVIEW', 'VOCAB_NEW']);
+/** P6-1：星期选择（0=周日…6=周六） */
+const WEEKDAYS: Array<{ value: number; label: string }> = [
+  { value: 1, label: '一' },
+  { value: 2, label: '二' },
+  { value: 3, label: '三' },
+  { value: 4, label: '四' },
+  { value: 5, label: '五' },
+  { value: 6, label: '六' },
+  { value: 0, label: '日' },
+];
 
 function defaultBlock(kind: PracticeBlockKind, language: string): PracticeBlockSpec {
   const isObjective = kind === 'VOCAB_REVIEW' || kind === 'VOCAB_NEW' || kind === 'QUIZ';
@@ -61,11 +71,18 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
   const [name, setName] = useState(template?.name ?? proposal?.suggestedName ?? '');
   const [blocks, setBlocks] = useState<PracticeBlockSpec[]>(template?.blocks ?? proposal?.blocks ?? []);
   const [enabled, setEnabled] = useState(template?.enabled ?? true);
+  // P6-1：排程（缺省每日；weekly 需选星期）
+  const [scheduleKind, setScheduleKind] = useState<'daily' | 'weekly'>(template?.schedule?.kind ?? 'daily');
+  const [weekdays, setWeekdays] = useState<number[]>(
+    template?.schedule?.kind === 'weekly' ? [...template.schedule.weekdays] : [1, 2, 3, 4, 5]
+  );
 
   React.useEffect(() => {
     setName(template?.name ?? proposal?.suggestedName ?? '');
     setBlocks(template?.blocks ?? proposal?.blocks ?? []);
     setEnabled(template?.enabled ?? true);
+    setScheduleKind(template?.schedule?.kind ?? 'daily');
+    setWeekdays(template?.schedule?.kind === 'weekly' ? [...template.schedule.weekdays] : [1, 2, 3, 4, 5]);
   }, [template, proposal, isOpen]);
 
   const updateBlock = (id: string, patch: Partial<PracticeBlockSpec>) =>
@@ -112,7 +129,15 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
       toast.error('至少需要一个练习块');
       return;
     }
+    if (scheduleKind === 'weekly' && weekdays.length === 0) {
+      toast.error('按星期重复时至少选择一天');
+      return;
+    }
     const now = new Date().toISOString();
+    const schedule: PracticePlanSchedule =
+      scheduleKind === 'weekly'
+        ? { kind: 'weekly', weekdays: [...weekdays].sort((a, b) => a - b) }
+        : { kind: 'daily' };
     const tpl: PracticePlanTemplate = {
       id: template?.id ?? generateId('tpl'),
       userId,
@@ -121,6 +146,7 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
       enabled,
       revision: template?.revision ?? 0,
       blocks,
+      schedule,
       createdAt: template?.createdAt ?? now,
       updatedAt: now,
     };
@@ -152,6 +178,39 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
               <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
               启用
             </label>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500">重复</span>
+            <Select value={scheduleKind} onValueChange={(v) => v && setScheduleKind(v as 'daily' | 'weekly')}>
+              <SelectTrigger className="w-[8rem]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="daily">每天</SelectItem>
+                <SelectItem value="weekly">按星期</SelectItem>
+              </SelectContent>
+            </Select>
+            {scheduleKind === 'weekly' && (
+              <div className="flex gap-1">
+                {WEEKDAYS.map((d) => {
+                  const active = weekdays.includes(d.value);
+                  return (
+                    <Button
+                      key={d.value}
+                      size="sm"
+                      variant={active ? 'default' : 'outline'}
+                      className="h-7 w-7 p-0 text-xs"
+                      onClick={() =>
+                        setWeekdays((prev) =>
+                          prev.includes(d.value) ? prev.filter((w) => w !== d.value) : [...prev, d.value]
+                        )
+                      }
+                    >
+                      {d.label}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2">

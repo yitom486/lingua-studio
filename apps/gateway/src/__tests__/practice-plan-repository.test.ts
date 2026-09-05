@@ -187,6 +187,68 @@ describe('DrizzleLearnerRepository P5 practice plan', () => {
     });
   });
 
+  describe('template schedule persistence (P6-1B)', () => {
+    it('saves and retrieves weekly schedule round-trip', async () => {
+      const saveRes = await repo.savePracticePlanTemplate(
+        template({
+          id: 'tpl_weekly',
+          blocks: [quizBlock()],
+          schedule: { kind: 'weekly', weekdays: [1, 3, 5] },
+        })
+      );
+      expect(isOk(saveRes)).toBe(true);
+      if (!isOk(saveRes)) return;
+      expect(saveRes.value.schedule).toEqual({ kind: 'weekly', weekdays: [1, 3, 5] });
+
+      const getRes = await repo.getPracticePlanTemplate(userId, 'tpl_weekly');
+      expect(isOk(getRes)).toBe(true);
+      if (!isOk(getRes) || !getRes.value) return;
+      expect(getRes.value.schedule).toEqual({ kind: 'weekly', weekdays: [1, 3, 5] });
+
+      const listRes = await repo.listPracticePlanTemplates(userId, { includeDisabled: true });
+      if (!isOk(listRes)) return;
+      expect(listRes.value.find((t) => t.id === 'tpl_weekly')?.schedule).toEqual({
+        kind: 'weekly',
+        weekdays: [1, 3, 5],
+      });
+    });
+
+    it('reads templates without schedule as daily-equivalent (backward compatible)', async () => {
+      await repo.savePracticePlanTemplate(template({ id: 'tpl_legacy', blocks: [quizBlock()] }));
+      const getRes = await repo.getPracticePlanTemplate(userId, 'tpl_legacy');
+      expect(isOk(getRes)).toBe(true);
+      if (!isOk(getRes) || !getRes.value) return;
+      expect(getRes.value.schedule).toBeUndefined();
+    });
+
+    it('updates schedule on re-save and keeps it through copy', async () => {
+      await repo.savePracticePlanTemplate(template({ id: 'tpl_s', blocks: [quizBlock()] }));
+      const r2 = await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_s', blocks: [quizBlock()], schedule: { kind: 'weekly', weekdays: [6, 0] } })
+      );
+      expect(isOk(r2)).toBe(true);
+      if (!isOk(r2)) return;
+      expect(r2.value.revision).toBe(2);
+      expect(r2.value.schedule).toEqual({ kind: 'weekly', weekdays: [6, 0] });
+
+      const copyRes = await repo.copyPracticePlanTemplate(userId, 'tpl_s');
+      expect(isOk(copyRes)).toBe(true);
+      if (!isOk(copyRes)) return;
+      expect(copyRes.value.schedule).toEqual({ kind: 'weekly', weekdays: [6, 0] });
+    });
+
+    it('rejects invalid schedule on save', async () => {
+      const res = await repo.savePracticePlanTemplate(
+        template({
+          id: 'tpl_bad',
+          blocks: [quizBlock()],
+          schedule: { kind: 'weekly', weekdays: [] },
+        })
+      );
+      expect(isErr(res)).toBe(true);
+    });
+  });
+
   describe('today plan integration (P5-E3)', () => {
     it('surfaces active run as a today-plan step and completes it after finalize', async () => {
       // 无 run 时今日计划不含练习计划步骤
