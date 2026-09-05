@@ -10,31 +10,10 @@ import {
   type QuizQuestionItem,
   type StudyCardItem,
 } from '../data/learning-data.js';
+// P1-2 拆分：键与默认用户已下沉 query-keys.ts，此处重导出保持对外不变。
+import { DEFAULT_USER_ID, QUERY_KEYS, invalidateAllLearningQueries } from './query-keys.js';
 
-const DEFAULT_USER_ID = 'student_web_01';
-
-export const QUERY_KEYS = {
-  TEXTBOOKS: ['learner', 'textbooks'] as const,
-  DOCUMENTS: ['learner', 'documents'] as const,
-  ANNOTATIONS: ['learner', 'annotations'] as const,
-  KANA: ['curriculum', 'kana'] as const,
-  READING: ['learner', 'reading'] as const,
-  NEWS_TOPICS: ['learner', 'newsTopics'] as const,
-  PITCH: ['curriculum', 'pitch'] as const,
-  DICTIONARY: ['learner', 'dictionary'] as const,
-  PROFILE: ['learner', 'profile'] as const,
-  MISTAKES: ['learner', 'mistakes'] as const,
-  QUESTIONS: ['learner', 'questions'] as const,
-  CARDS: ['learner', 'cards'] as const,
-  PRACTICE_COLLECTIONS: ['learner', 'practiceCollections'] as const,
-  PRACTICE_ITEMS: ['learner', 'practiceItems'] as const,
-  DAILY_TASK: ['learner', 'dailyTask'] as const,
-  DAILY_PLAN: ['learner', 'dailyPlan'] as const,
-  LEARNING_ANALYSIS: ['learner', 'analysis'] as const,
-  ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
-  PRACTICE_TEMPLATES: ['learner', 'practiceTemplates'] as const,
-  PRACTICE_RUN: ['learner', 'practiceRun'] as const,
-};
+export { DEFAULT_USER_ID, QUERY_KEYS, invalidateAllLearningQueries };
 
 /**
  * 教材知识树查询 (支持 Hono RPC 动态获取持久化教材并与内置教材合流)
@@ -77,22 +56,6 @@ export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
 
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { normalizeTrackLanguage } from '../learning/learning-shell.js';
-
-/**
- * 集中失效全部学习域 Query（在切换轨道或批量更新后使用）
- */
-export async function invalidateAllLearningQueries(queryClient: ReturnType<typeof useQueryClient>) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.QUESTIONS }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.MISTAKES }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.READING }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ACTIVITY_HISTORY }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK }),
-    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN }),
-  ]);
-}
 
 /**
  * 学习者技能画像雷达指标查询 (依托 Hono RPC / Gateway，带语种作用域隔离)
