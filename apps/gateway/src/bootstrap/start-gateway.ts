@@ -1,5 +1,5 @@
 import type { CreatedApp } from '../transport/http/create-app.js';
-import type { GatewayServer } from '../server.js';
+import type { GatewayServer } from '../runtime/gateway-runtime.js';
 import { createWebsocketHandlers } from '../transport/websocket/websocket-handler.js';
 import { PORT } from './config.js';
 

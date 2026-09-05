@@ -1,5 +1,5 @@
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
-import { GatewayServer } from '../server.js';
+import { GatewayServer } from '../runtime/gateway-runtime.js';
 import { dbPath } from './config.js';
 
 /**
