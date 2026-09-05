@@ -542,6 +542,12 @@ export class SqliteLearnerRepository implements LearnerRepository {
   public async deletePracticePlanTemplate(): Promise<Result<void, BusinessError>> {
     return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
   }
+  public async setPracticePlanTemplateEnabled(): Promise<Result<null, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
+  public async copyPracticePlanTemplate(): Promise<Result<never, BusinessError>> {
+    return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
+  }
   public async startPracticePlanRun(): Promise<Result<never, BusinessError>> {
     return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
   }

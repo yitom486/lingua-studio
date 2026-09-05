@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Play, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Pencil, Trash2, Play, Loader2, Sparkles, CopyPlus } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
-import { usePracticeTemplatesQuery, useDeletePracticeTemplateMutation, useStartPracticeRunMutation, useProposeTemplateMutation } from '../../queries/useLearnerQueries.js';
+import { Switch } from '../ui/switch.js';
+import { usePracticeTemplatesQuery, useDeletePracticeTemplateMutation, useStartPracticeRunMutation, useProposeTemplateMutation, useTogglePracticeTemplateMutation, useCopyPracticeTemplateMutation } from '../../queries/useLearnerQueries.js';
 import { PracticePlanEditor } from './PracticePlanEditor.js';
 import { PracticeRunWorkbench } from './PracticeRunWorkbench.js';
 import type { PracticePlanTemplate, PracticeBlockSpec } from '@study-studio/protocol';
@@ -20,6 +21,8 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
   const deleteMutation = useDeletePracticeTemplateMutation(userId);
   const startMutation = useStartPracticeRunMutation(userId);
   const proposeMutation = useProposeTemplateMutation(userId);
+  const toggleMutation = useTogglePracticeTemplateMutation(userId);
+  const copyMutation = useCopyPracticeTemplateMutation(userId);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<PracticePlanTemplate | null>(null);
   const [proposal, setProposal] = useState<{ suggestedName: string; blocks: PracticeBlockSpec[] } | null>(null);
@@ -63,6 +66,22 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
       toast.error((e as Error).message);
     }
   };
+  const handleToggle = async (tpl: PracticePlanTemplate, enabled: boolean) => {
+    try {
+      await toggleMutation.mutateAsync({ templateId: tpl.id, enabled });
+      toast.success(enabled ? '模板已启用' : '模板已停用');
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  const handleCopy = async (tpl: PracticePlanTemplate) => {
+    try {
+      await copyMutation.mutateAsync(tpl.id);
+      toast.success('已创建副本（默认停用），可编辑后启用');
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
 
   if (activeRunId) {
     return (
@@ -100,8 +119,15 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
           <div key={tpl.id} className="flex items-center justify-between rounded-md border border-slate-200 p-3 dark:border-slate-700">
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{tpl.name}</span>
-                {!tpl.enabled && <Badge variant="outline">已停用</Badge>}
+                <Switch
+                  checked={tpl.enabled}
+                  onCheckedChange={(checked) => handleToggle(tpl, checked)}
+                  disabled={toggleMutation.isPending}
+                  title={tpl.enabled ? '点击停用该模板' : '点击启用该模板'}
+                />
+                <span className={tpl.enabled ? 'text-sm font-medium' : 'text-sm font-medium text-slate-400'}>
+                  {tpl.name}
+                </span>
                 <Badge variant="secondary">revision {tpl.revision}</Badge>
               </div>
               <span className="text-xs text-slate-500">
@@ -109,8 +135,17 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
               </span>
             </div>
             <div className="flex gap-1">
-              <Button size="sm" variant="ghost" onClick={() => openEdit(tpl)}><Pencil className="h-3 w-3" /></Button>
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(tpl)}><Trash2 className="h-3 w-3" /></Button>
+              <Button size="sm" variant="ghost" onClick={() => openEdit(tpl)} title="编辑模板"><Pencil className="h-3 w-3" /></Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleCopy(tpl)}
+                disabled={copyMutation.isPending}
+                title="复制模板"
+              >
+                <CopyPlus className="h-3 w-3" />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => handleDelete(tpl)} title="删除模板"><Trash2 className="h-3 w-3" /></Button>
               <Button
                 size="sm"
                 onClick={() => handleStart(tpl)}

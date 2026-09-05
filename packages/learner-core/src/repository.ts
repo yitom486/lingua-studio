@@ -97,6 +97,23 @@ export interface LearnerRepository {
     userId: string,
     templateId: string
   ): Promise<Result<void, BusinessError>>;
+  /**
+   * P5-E2：启用/停用模板。
+   * 仅变更 enabled 与 updatedAt；不递增 revision（revision 只跟踪内容变更，避免污染冻结历史语义）。
+   */
+  setPracticePlanTemplateEnabled(
+    userId: string,
+    templateId: string,
+    enabled: boolean
+  ): Promise<Result<PracticePlanTemplate | null, BusinessError>>;
+  /**
+   * P5-E2：复制模板。
+   * 生成新 id 与新块 id、revision 重置为 1、名称追加「（副本）」、默认停用（用户确认后可手动启用）。
+   */
+  copyPracticePlanTemplate(
+    userId: string,
+    templateId: string
+  ): Promise<Result<PracticePlanTemplate, BusinessError>>;
   startPracticePlanRun(
     userId: string,
     params: {

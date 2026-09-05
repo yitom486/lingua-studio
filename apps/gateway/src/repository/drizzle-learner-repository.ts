@@ -2924,6 +2924,51 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     }
   }
 
+  public async setPracticePlanTemplateEnabled(
+    userId: string,
+    templateId: string,
+    enabled: boolean
+  ): Promise<Result<PracticePlanTemplate | null, BusinessError>> {
+    try {
+      const existing = await this.db
+        .select({ id: practicePlanTemplates.id })
+        .from(practicePlanTemplates)
+        .where(and(eq(practicePlanTemplates.id, templateId), eq(practicePlanTemplates.userId, userId)))
+        .limit(1);
+      if (existing.length === 0) return ok(null);
+      await this.db
+        .update(practicePlanTemplates)
+        .set({ enabled: enabled ? 1 : 0, updatedAt: nowIso() })
+        .where(and(eq(practicePlanTemplates.id, templateId), eq(practicePlanTemplates.userId, userId)));
+      return await this.getPracticePlanTemplate(userId, templateId);
+    } catch (error) {
+      return err(translateToBusinessError(error, { category: 'DATABASE', action: 'setPracticePlanTemplateEnabled', entityId: templateId }));
+    }
+  }
+
+  public async copyPracticePlanTemplate(
+    userId: string,
+    templateId: string
+  ): Promise<Result<PracticePlanTemplate, BusinessError>> {
+    const sourceRes = await this.getPracticePlanTemplate(userId, templateId);
+    if (!isOk(sourceRes)) return err(sourceRes.error);
+    const source = sourceRes.value;
+    if (!source) {
+      return err(new BusinessError('E_PRACTICE_TEMPLATE_NOT_FOUND', '要复制的练习计划模板不存在，可能已被删除', 'VALIDATION'));
+    }
+    const copy: PracticePlanTemplate = {
+      ...source,
+      id: generateId('tpl'),
+      name: `${source.name}（副本）`,
+      enabled: false,
+      revision: 0,
+      blocks: source.blocks.map((b) => ({ ...b, id: generateId('blk') })),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    return await this.savePracticePlanTemplate(copy);
+  }
+
   public async startPracticePlanRun(
     userId: string,
     params: {

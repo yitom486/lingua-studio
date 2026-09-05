@@ -14,6 +14,7 @@ import {
   listNewsTopics,
 } from '@study-studio/protocol';
 import { isOk, generateId, BusinessError } from '@study-studio/shared';
+import { scheduleNextReview } from '@study-studio/learner-core';
 import { formatBusinessErrorResponse } from './errors/http-error-handler.js';
 import { generateNewsPassage } from './services/generate-news-passage.js';
 import {
@@ -621,6 +622,38 @@ export const app = new Hono()
       return formatBusinessErrorResponse(c, e, 'deletePracticePlanTemplate');
     }
   })
+  // P5-E2：启用/停用模板（仅改 enabled，不递增 revision）
+  .patch(
+    '/api/practice/templates/:userId/:templateId/enabled',
+    validator('json', (value) => value as { enabled: boolean }),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        if (typeof body.enabled !== 'boolean') {
+          return formatBusinessErrorResponse(c, new BusinessError('E_INVALID_INPUT', 'enabled 必须为布尔值', 'VALIDATION'));
+        }
+        const res = await drizzleRepo.setPracticePlanTemplateEnabled(
+          c.req.param('userId'),
+          c.req.param('templateId'),
+          body.enabled
+        );
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'setPracticePlanTemplateEnabled');
+      }
+    }
+  )
+  // P5-E2：复制模板（新 id、revision 重置、默认停用）
+  .post('/api/practice/templates/:userId/:templateId/copy', async (c) => {
+    try {
+      const res = await drizzleRepo.copyPracticePlanTemplate(c.req.param('userId'), c.req.param('templateId'));
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'copyPracticePlanTemplate');
+    }
+  })
   // P5：练习运行生命周期
   .post(
     '/api/practice/runs/start',
@@ -906,6 +939,58 @@ export const app = new Hono()
         return c.json({ success: true, count: cardsToSave.length });
       } catch (e: any) {
         return formatBusinessErrorResponse(c, e, 'saveCards');
+      }
+    }
+  )
+  // 3a. 卡片复习评分：Gateway 为唯一 FSRS 计算与持久化者，前端只传 rating
+  .post(
+    '/api/cards/:userId/:cardId/review',
+    validator('json', (value) => value as { rating?: unknown }),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const cardId = c.req.param('cardId');
+        const { rating } = c.req.valid('json');
+        if (rating !== 'AGAIN' && rating !== 'HARD' && rating !== 'GOOD' && rating !== 'EASY') {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '请提供有效的复习评分。', 'VALIDATION'),
+            'reviewCard'
+          );
+        }
+        const cardsRes = await drizzleRepo.getDueCards(userId, 200);
+        if (!isOk(cardsRes)) return formatBusinessErrorResponse(c, cardsRes.error, 'reviewCard');
+        const targetCard = cardsRes.value.find((card) => card.id === cardId);
+        if (!targetCard) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_NOT_FOUND', '未找到待复习卡片，请刷新后重试。', 'LEARNER_STATE'),
+            'reviewCard'
+          );
+        }
+        const currentFsrs = {
+          stability: targetCard.fsrs.stability,
+          difficulty: targetCard.fsrs.difficulty,
+          reps: targetCard.fsrs.reps,
+          lapses: targetCard.fsrs.lapses,
+          dueAt: targetCard.fsrs.dueAt,
+          state: targetCard.fsrs.state,
+          ...(targetCard.fsrs.lastReviewedAt
+            ? { lastReviewedAt: targetCard.fsrs.lastReviewedAt }
+            : {}),
+        };
+        const nextFsrs = scheduleNextReview(currentFsrs, rating);
+        const saveRes = await drizzleRepo.saveCard({ ...targetCard, fsrs: nextFsrs });
+        if (!isOk(saveRes)) return formatBusinessErrorResponse(c, saveRes.error, 'reviewCard');
+        await drizzleRepo.recordDailyActivity(userId, { cards: 1 });
+        return c.json({
+          success: true,
+          cardId,
+          nextFsrs,
+          nextReviewDays: Math.max(1, Math.round(nextFsrs.stability)),
+        });
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'reviewCard');
       }
     }
   )

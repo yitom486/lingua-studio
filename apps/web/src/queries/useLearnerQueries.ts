@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { FsrsState, SkillMetric, DailyTaskProgress, DailyStudyPlan } from '@study-studio/learner-core';
-import type { KanaItem, ReadingPassageSet, NewsTopic, LearningAnalysisReport, PracticePlanTemplate, PracticePlanRun, PracticeItemAttempt, PracticeBlockSpec } from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet, NewsTopic, LearningAnalysisReport, PracticePlanTemplate, PracticePlanRun, PracticeItemAttempt, PracticeBlockSpec, CardReviewRating } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
@@ -485,47 +485,33 @@ export function useAddCardsMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
-/** 更新单张卡片 FSRS 状态并累计足迹 (Hono RPC 持久化至 SQLite) */
+/** 复习单张卡片：只提交 rating，FSRS 计算与持久化由 Gateway 完成 (SSOT) */
 export function useUpdateCardMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
   const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
   const targetLanguage = normalizeTrackLanguage(profileLang);
 
   return useMutation({
-    mutationFn: async (patch: { id: string; fsrs: FsrsState }) => {
-      // 网关是卡片状态唯一写入者：提交完整 FSRS 快照，避免前端和 WS 双写互相覆盖。
-      const existingCards =
-        queryClient.getQueryData<StudyCardItem[]>([
-          ...QUERY_KEYS.CARDS,
-          userId,
-          targetLanguage,
-        ]) || [];
-      const target = existingCards.find((c) => c.id === patch.id);
-      if (!target) throw new Error('未找到待复习卡片，请刷新后重试。');
-
-      const payload = {
-        id: target.id,
-        userId,
-        type: target.type,
-        front: target.frontWord,
-        back: target.backMeaning,
-        phonetic: target.reading || null,
-        audioUrl: null,
-        tags: [target.tag, target.pos, target.exampleJp, target.exampleZh].filter(Boolean),
-        fsrs: patch.fsrs,
-      };
-      const cardResponse = await apiClient.api.cards[':userId'].$post({
-        param: { userId },
-        json: [payload] as any,
-      });
-      if (!cardResponse.ok) throw new Error('保存闪卡复习状态失败');
-
-      const activityResponse = await apiClient.api.task.activity[':userId'].$post({
-        param: { userId },
-        json: { cards: 1 },
-      });
-      if (!activityResponse.ok) throw new Error('记录卡片复习足迹失败');
-      return patch;
+    mutationFn: async (patch: { id: string; rating: CardReviewRating }) => {
+      // 网关是卡片状态唯一写入者：前端只传评分，不在本地计算 FSRS。
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/cards/${encodeURIComponent(userId)}/${encodeURIComponent(patch.id)}/review`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating: patch.rating }),
+        }
+      );
+      const body = (await res.json().catch(() => null)) as {
+        success?: boolean;
+        nextFsrs?: FsrsState;
+        nextReviewDays?: number;
+        error?: { userMessage?: string };
+      } | null;
+      if (!res.ok || !body?.success || !body.nextFsrs) {
+        throw new Error(body?.error?.userMessage ?? '保存闪卡复习状态失败，请稍后重试。');
+      }
+      return { id: patch.id, rating: patch.rating, nextFsrs: body.nextFsrs, nextReviewDays: body.nextReviewDays };
     },
     onSuccess: (patch) => {
       queryClient.setQueryData<StudyCardItem[]>([
@@ -537,15 +523,15 @@ export function useUpdateCardMutation(userId = DEFAULT_USER_ID) {
           c.id === patch.id
             ? {
                 ...c,
-                stability: patch.fsrs.stability,
-                reps: patch.fsrs.reps,
-                difficulty: patch.fsrs.difficulty,
-                lapses: patch.fsrs.lapses,
-                state: patch.fsrs.state,
-                ...(patch.fsrs.lastReviewedAt
-                  ? { lastReviewedAt: patch.fsrs.lastReviewedAt }
+                stability: patch.nextFsrs.stability,
+                reps: patch.nextFsrs.reps,
+                difficulty: patch.nextFsrs.difficulty,
+                lapses: patch.nextFsrs.lapses,
+                state: patch.nextFsrs.state,
+                ...(patch.nextFsrs.lastReviewedAt
+                  ? { lastReviewedAt: patch.nextFsrs.lastReviewedAt }
                   : {}),
-                dueAt: patch.fsrs.dueAt,
+                dueAt: patch.nextFsrs.dueAt,
               }
             : c
         )
@@ -1433,6 +1419,52 @@ export function useDeletePracticeTemplateMutation(userId = DEFAULT_USER_ID) {
         { method: 'DELETE' }
       );
       if (!res.ok) throw new Error('删除模板失败');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId] });
+    },
+  });
+}
+
+/** P5-E2：启用/停用模板（仅改 enabled，不递增 revision） */
+export function useTogglePracticeTemplateMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { templateId: string; enabled: boolean }) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/practice/templates/${userId}/${encodeURIComponent(params.templateId)}/enabled`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: params.enabled }),
+        }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { userMessage?: string } } | null;
+        throw new Error(body?.error?.userMessage ?? '更新模板状态失败');
+      }
+      return (await res.json()) as PracticePlanTemplate;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId] });
+    },
+  });
+}
+
+/** P5-E2：复制模板（新 id、revision 重置、默认停用） */
+export function useCopyPracticeTemplateMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/practice/templates/${userId}/${encodeURIComponent(templateId)}/copy`,
+        { method: 'POST' }
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { userMessage?: string } } | null;
+        throw new Error(body?.error?.userMessage ?? '复制模板失败');
+      }
+      return (await res.json()) as PracticePlanTemplate;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId] });

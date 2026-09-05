@@ -101,6 +101,92 @@ describe('DrizzleLearnerRepository P5 practice plan', () => {
     });
   });
 
+  describe('template copy & enable toggle (P5-E2)', () => {
+    it('copies a template: new id, reset revision, renamed, disabled, new block ids', async () => {
+      const saveRes = await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_src', name: '晚间 35 分钟', blocks: [quizBlock('b1', 5), translationBlock('b2', 3)] })
+      );
+      expect(isOk(saveRes)).toBe(true);
+      if (!isOk(saveRes)) return;
+
+      const copyRes = await repo.copyPracticePlanTemplate(userId, 'tpl_src');
+      expect(isOk(copyRes)).toBe(true);
+      if (!isOk(copyRes)) return;
+      const copy = copyRes.value;
+      expect(copy.id).not.toBe('tpl_src');
+      expect(copy.name).toBe('晚间 35 分钟（副本）');
+      expect(copy.enabled).toBe(false);
+      expect(copy.revision).toBe(1);
+      expect(copy.blocks.map((b) => b.count)).toEqual([5, 3]);
+      expect(copy.blocks.map((b) => b.kind)).toEqual(['QUIZ', 'TRANSLATION']);
+      expect(copy.blocks.map((b) => b.id)).not.toEqual(['b1', 'b2']);
+
+      // 源模板不被污染
+      const srcGet = await repo.getPracticePlanTemplate(userId, 'tpl_src');
+      expect(isOk(srcGet)).toBe(true);
+      if (!isOk(srcGet) || !srcGet.value) return;
+      expect(srcGet.value.enabled).toBe(true);
+      expect(srcGet.value.revision).toBe(1);
+      expect(srcGet.value.blocks[0]!.id).toBe('b1');
+
+      // 副本默认停用：默认列表不含，includeDisabled 才含
+      const listRes = await repo.listPracticePlanTemplates(userId);
+      if (!isOk(listRes)) return;
+      expect(listRes.value.map((t) => t.id)).toEqual(['tpl_src']);
+      const allRes = await repo.listPracticePlanTemplates(userId, { includeDisabled: true });
+      if (!isOk(allRes)) return;
+      expect(allRes.value.map((t) => t.id).sort()).toEqual(['tpl_src', copy.id].sort());
+    });
+
+    it('toggles enabled without bumping revision', async () => {
+      await repo.savePracticePlanTemplate(template({ id: 'tpl_t', blocks: [quizBlock()] }));
+
+      const off = await repo.setPracticePlanTemplateEnabled(userId, 'tpl_t', false);
+      expect(isOk(off)).toBe(true);
+      if (!isOk(off) || !off.value) return;
+      expect(off.value.enabled).toBe(false);
+      expect(off.value.revision).toBe(1);
+      expect(off.value.name).toBe('晚间 35 分钟');
+
+      const on = await repo.setPracticePlanTemplateEnabled(userId, 'tpl_t', true);
+      expect(isOk(on)).toBe(true);
+      if (!isOk(on) || !on.value) return;
+      expect(on.value.enabled).toBe(true);
+      expect(on.value.revision).toBe(1);
+    });
+
+    it('copy of missing template returns friendly error; toggle of missing returns null', async () => {
+      const copyRes = await repo.copyPracticePlanTemplate(userId, 'tpl_missing');
+      expect(isErr(copyRes)).toBe(true);
+      if (!isErr(copyRes)) return;
+      expect(copyRes.error.code).toBe('E_PRACTICE_TEMPLATE_NOT_FOUND');
+      expect(copyRes.error.userMessage).toContain('不存在');
+
+      const toggleRes = await repo.setPracticePlanTemplateEnabled(userId, 'tpl_missing', true);
+      expect(isOk(toggleRes)).toBe(true);
+      if (!isOk(toggleRes)) return;
+      expect(toggleRes.value).toBeNull();
+    });
+
+    it('copy keeps source language and stays language-isolated', async () => {
+      await repo.savePracticePlanTemplate(
+        template({ id: 'tpl_ja', language: 'ja', blocks: [quizBlock()] })
+      );
+      const copyRes = await repo.copyPracticePlanTemplate(userId, 'tpl_ja');
+      expect(isOk(copyRes)).toBe(true);
+      if (!isOk(copyRes)) return;
+      expect(copyRes.value.language).toBe('ja');
+
+      const jaList = await repo.listPracticePlanTemplates(userId, { language: 'ja', includeDisabled: true });
+      if (!isOk(jaList)) return;
+      expect(jaList.value.length).toBe(2);
+
+      const enList = await repo.listPracticePlanTemplates(userId, { language: 'en', includeDisabled: true });
+      if (!isOk(enList)) return;
+      expect(enList.value.length).toBe(0);
+    });
+  });
+
   describe('run freeze isolation', () => {
     it('freezes revision and blocks; modifying template does not affect existing run', async () => {
       await repo.savePracticePlanTemplate(template({ blocks: [quizBlock('b1', 5)] }));

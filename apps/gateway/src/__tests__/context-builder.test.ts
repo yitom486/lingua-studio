@@ -112,6 +112,8 @@ function mockRepo(overrides: {
     listPracticePlanTemplates: async () => ok([]),
     getPracticePlanTemplate: async () => ok(null),
     deletePracticePlanTemplate: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    setPracticePlanTemplateEnabled: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
+    copyPracticePlanTemplate: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
     startPracticePlanRun: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
     getPracticePlanRun: async () => ok(null),
     listPracticePlanRuns: async () => ok([]),
