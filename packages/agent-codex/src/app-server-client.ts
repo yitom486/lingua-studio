@@ -21,8 +21,6 @@ import {
   type TurnStartResponse,
   loadCodexConfigFromEnv,
   buildCodexProcessEnv,
-  resolveCodexHome,
-  resolveCodexBinary,
   type CodexAccountStatus,
   type CodexModelInfo,
   type CodexApprovalHandler,
@@ -44,8 +42,31 @@ import {
   normalizeApprovalPolicy,
 } from './app-server-protocol.js';
 import { mapAppServerNotificationToEvents } from './event-mapper.js';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
+import {
+  listModels,
+  listThreads,
+  listThreadItems,
+  setThreadName,
+  archiveThread,
+  compactThread,
+  forkThread,
+  queueAdd,
+  queueList,
+  queueDelete,
+  queueStart,
+  listSkills,
+  listCollaborationModes,
+  readAccountStatus,
+  readRateLimits,
+  listMcpServerStatus,
+  probeRealtimeCapability,
+  listRealtimeVoices,
+  startRealtime,
+  stopRealtime,
+  appendRealtimeText,
+  appendRealtimeSpeech,
+  appendRealtimeAudio,
+} from './app-server/queries.js';
 
 export type ToolCallHandler = (
   params: DynamicToolCallParams
@@ -55,9 +76,11 @@ export type ToolCallHandler = (
  * 单个 App Server 进程连接；可承载多个 Thread。
  */
 export class CodexAppServerConnection {
-  private readonly rpc = new JsonRpcStdioClient();
+  /** @internal 供 app-server/queries.ts 使用 */
+  public readonly rpc = new JsonRpcStdioClient();
   private initialized = false;
-  private readonly config: CodexAppServerConfig;
+  /** @internal 供 app-server/queries.ts 使用 */
+  public readonly config: CodexAppServerConfig;
   private toolCallHandler: ToolCallHandler | null = null;
   private approvalHandler: CodexApprovalHandler | null = null;
   /** 当前 turn 的审批策略覆盖（never 则自动 accept） */
@@ -487,49 +510,14 @@ export class CodexAppServerConnection {
     return ok(undefined);
   }
 
-  /** 列出本机 Codex 账号可见模型（复用 login 会话）。 */
+  /** 实现已外迁 app-server/queries.ts */
   public async listModels(params?: {
     includeHidden?: boolean;
   }): Promise<Result<CodexModelInfo[], BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{ data?: Array<Record<string, unknown>> }>('model/list', {
-      includeHidden: params?.includeHidden ?? false,
-    });
-    if (!isOk(res)) return res;
-    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
-    const models: CodexModelInfo[] = rows
-      .map((row) => {
-        const info: CodexModelInfo = {
-          id: String(row.id ?? row.model ?? ''),
-          model: String(row.model ?? row.id ?? ''),
-          displayName: String(row.displayName ?? row.model ?? row.id ?? 'model'),
-          isDefault: Boolean(row.isDefault),
-          hidden: Boolean(row.hidden),
-        };
-        if (row.description) info.description = String(row.description);
-        const effortsRaw = row.supportedReasoningEfforts;
-        if (Array.isArray(effortsRaw)) {
-          info.supportedReasoningEfforts = effortsRaw
-            .map((e) => {
-              if (typeof e === 'string') return e;
-              if (e && typeof e === 'object' && 'reasoningEffort' in e) {
-                return String((e as { reasoningEffort: unknown }).reasoningEffort);
-              }
-              return '';
-            })
-            .filter(Boolean);
-        }
-        if (row.defaultReasoningEffort) {
-          info.defaultReasoningEffort = String(row.defaultReasoningEffort);
-        }
-        return info;
-      })
-      .filter((m) => m.id || m.model);
-    return ok(models);
+    return listModels(this, params);
   }
 
-  /** thread/list — 本机持久化会话 */
+  /** 实现已外迁 app-server/queries.ts */
   public async listThreads(params?: {
     limit?: number;
     cursor?: string;
@@ -538,596 +526,160 @@ export class CodexAppServerConnection {
   }): Promise<
     Result<{ threads: CodexThreadSummary[]; nextCursor: string | null }, BusinessError>
   > {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{
-      data?: Array<Record<string, unknown>>;
-      nextCursor?: string | null;
-    }>('thread/list', {
-      limit: params?.limit ?? 40,
-      cursor: params?.cursor ?? null,
-      searchTerm: params?.searchTerm ?? null,
-      archived: params?.archived ?? false,
-      sortKey: 'updated_at',
-      sortDirection: 'desc',
-    });
-    if (!isOk(res)) return res;
-    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
-    const threads: CodexThreadSummary[] = rows
-      .map((row) => {
-        const t: CodexThreadSummary = {
-          id: String(row.id ?? ''),
-          preview: String(row.preview ?? ''),
-          name: row.name != null ? String(row.name) : null,
-          createdAt: Number(row.createdAt ?? 0),
-          updatedAt: Number(row.updatedAt ?? 0),
-          ephemeral: Boolean(row.ephemeral),
-        };
-        if (row.cwd != null) t.cwd = String(row.cwd);
-        if (row.modelProvider != null) t.modelProvider = String(row.modelProvider);
-        return t;
-      })
-      .filter((t) => t.id);
-    return ok({
-      threads,
-      nextCursor: res.value?.nextCursor ?? null,
-    });
+    return listThreads(this, params);
   }
 
-  /** thread/items/list — 恢复气泡用 */
+  /** 实现已外迁 app-server/queries.ts */
   public async listThreadItems(params: {
     threadId: string;
     limit?: number;
   }): Promise<Result<{ items: CodexThreadItemDto[]; nextCursor: string | null }, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{
-      data?: Array<{ turnId?: string; item?: Record<string, unknown> }>;
-      nextCursor?: string | null;
-    }>('thread/items/list', {
-      threadId: params.threadId,
-      limit: params.limit ?? 80,
-      sortDirection: 'asc',
-    });
-    if (!isOk(res)) return res;
-    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
-    const items: CodexThreadItemDto[] = [];
-    for (const row of rows) {
-      const item = row.item;
-      if (!item || typeof item !== 'object') continue;
-      const type = String(item.type ?? 'unknown');
-      const dto: CodexThreadItemDto = {
-        turnId: String(row.turnId ?? ''),
-        type,
-      };
-      if (item.id != null) dto.id = String(item.id);
-      if (type === 'agentMessage' && typeof item.text === 'string') {
-        dto.text = item.text;
-      } else if (type === 'userMessage' && Array.isArray(item.content)) {
-        const texts = item.content
-          .map((c) => {
-            if (c && typeof c === 'object' && 'text' in c) return String((c as { text: unknown }).text ?? '');
-            return '';
-          })
-          .filter(Boolean);
-        dto.text = texts.join('\n');
-      } else if (type === 'reasoning' && Array.isArray(item.summary)) {
-        dto.text = item.summary.map(String).join('\n');
-      } else if (type === 'dynamicToolCall') {
-        dto.toolName = String(item.tool ?? 'tool');
-        if (item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)) {
-          dto.arguments = item.arguments as Record<string, unknown>;
-        }
-      } else if (type === 'mcpToolCall') {
-        const server = item.server ? String(item.server) : '';
-        const tool = item.tool ? String(item.tool) : 'mcp';
-        dto.toolName = server ? `${server}.${tool}` : tool;
-        if (item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)) {
-          dto.arguments = item.arguments as Record<string, unknown>;
-        }
-      } else if (type === 'commandExecution') {
-        dto.toolName = 'command';
-        if (typeof item.command === 'string') dto.text = item.command;
-      }
-      items.push(dto);
-    }
-    return ok({ items, nextCursor: res.value?.nextCursor ?? null });
+    return listThreadItems(this, params);
   }
 
+  /** 实现已外迁 app-server/queries.ts */
   public async setThreadName(
     threadId: string,
     name: string
   ): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/name/set', { threadId, name });
-    if (!isOk(res)) {
-      // 兼容旧方法名
-      const alt = await this.rpc.request('thread/setName', { threadId, name });
-      if (!isOk(alt)) return alt;
-    }
-    return ok(undefined);
+    return setThreadName(this, threadId, name);
   }
 
+  /** 实现已外迁 app-server/queries.ts */
   public async archiveThread(threadId: string): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/archive', { threadId });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return archiveThread(this, threadId);
   }
 
-  /** thread/compact/start — 压缩上下文（异步，App Server 侧执行） */
+  /** 实现已外迁 app-server/queries.ts */
   public async compactThread(threadId: string): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/compact/start', { threadId });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return compactThread(this, threadId);
   }
 
-  /** thread/fork — 从已有会话分叉 */
+  /** 实现已外迁 app-server/queries.ts */
   public async forkThread(params: {
     threadId: string;
     ephemeral?: boolean;
     model?: string;
   }): Promise<Result<{ threadId: string }, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const body: Record<string, unknown> = {
-      threadId: params.threadId,
-      excludeTurns: true,
-    };
-    if (typeof params.ephemeral === 'boolean') body.ephemeral = params.ephemeral;
-    if (params.model) body.model = params.model;
-    const res = await this.rpc.request<{ thread?: { id?: string } }>('thread/fork', body);
-    if (!isOk(res)) return res;
-    const threadId = res.value?.thread?.id;
-    if (!threadId) {
-      return err(
-        new BusinessError('E_CODEX_THREAD', 'thread/fork 未返回 thread.id', 'AGENT_RUNTIME', true)
-      );
-    }
-    return ok({ threadId });
+    return forkThread(this, params);
   }
 
-  /** thread/queue/add */
+  /** 实现已外迁 app-server/queries.ts */
   public async queueAdd(params: {
     threadId: string;
     message: string;
     clientUserMessageId?: string;
   }): Promise<Result<CodexQueuedSubmissionDto, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const clientUserMessageId =
-      params.clientUserMessageId || `q_${Date.now().toString(36)}`;
-    const res = await this.rpc.request<{
-      queuedSubmission?: {
-        id?: string;
-        clientUserMessageId?: string;
-        input?: Array<{ type?: string; text?: string }>;
-      };
-    }>('thread/queue/add', {
-      threadId: params.threadId,
-      clientUserMessageId,
-      input: [{ type: 'text', text: params.message }],
-    });
-    if (!isOk(res)) return res;
-    const q = res.value?.queuedSubmission;
-    if (!q?.id) {
-      return err(
-        new BusinessError('E_CODEX_QUEUE', 'thread/queue/add 未返回队列项', 'AGENT_RUNTIME', true)
-      );
-    }
-    const text =
-      Array.isArray(q.input) && q.input[0]?.text
-        ? String(q.input[0].text)
-        : params.message;
-    return ok({
-      id: String(q.id),
-      text,
-      clientUserMessageId: String(q.clientUserMessageId ?? clientUserMessageId),
-    });
+    return queueAdd(this, params);
   }
 
+  /** 实现已外迁 app-server/queries.ts */
   public async queueList(params: {
     threadId: string;
     limit?: number;
   }): Promise<
     Result<{ items: CodexQueuedSubmissionDto[]; nextCursor: string | null }, BusinessError>
   > {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{
-      data?: Array<{
-        id?: string;
-        clientUserMessageId?: string;
-        input?: Array<{ type?: string; text?: string }>;
-      }>;
-      nextCursor?: string | null;
-    }>('thread/queue/list', {
-      threadId: params.threadId,
-      limit: params.limit ?? 20,
-    });
-    if (!isOk(res)) return res;
-    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
-    const items: CodexQueuedSubmissionDto[] = rows
-      .map((row) => {
-        const text =
-          Array.isArray(row.input) && row.input[0]?.text
-            ? String(row.input[0].text)
-            : '';
-        return {
-          id: String(row.id ?? ''),
-          text,
-          clientUserMessageId: String(row.clientUserMessageId ?? ''),
-        };
-      })
-      .filter((i) => i.id);
-    return ok({ items, nextCursor: res.value?.nextCursor ?? null });
+    return queueList(this, params);
   }
 
+  /** 实现已外迁 app-server/queries.ts */
   public async queueDelete(params: {
     threadId: string;
     queuedSubmissionId: string;
   }): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/queue/delete', {
-      threadId: params.threadId,
-      queuedSubmissionId: params.queuedSubmissionId,
-    });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return queueDelete(this, params);
   }
 
+  /** 实现已外迁 app-server/queries.ts */
   public async queueStart(params: {
     threadId: string;
     queuedSubmissionId?: string;
   }): Promise<Result<{ turnId: string }, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const body: Record<string, unknown> = { threadId: params.threadId };
-    if (params.queuedSubmissionId) body.queuedSubmissionId = params.queuedSubmissionId;
-    const res = await this.rpc.request<{ turn?: { id?: string } }>('thread/queue/start', body);
-    if (!isOk(res)) return res;
-    const turnId = res.value?.turn?.id;
-    if (!turnId) {
-      return err(
-        new BusinessError(
-          'E_CODEX_QUEUE',
-          'thread/queue/start 未返回 turn.id',
-          'AGENT_RUNTIME',
-          true
-        )
-      );
-    }
-    return ok({ turnId: String(turnId) });
+    return queueStart(this, params);
   }
 
-  /** skills/list */
+  /** 实现已外迁 app-server/queries.ts */
   public async listSkills(params?: {
     forceReload?: boolean;
   }): Promise<Result<CodexSkillDto[], BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{
-      data?: Array<{
-        skills?: Array<Record<string, unknown>>;
-      }>;
-    }>('skills/list', {
-      forceReload: params?.forceReload ?? false,
-    });
-    if (!isOk(res)) return res;
-    const groups = Array.isArray(res.value?.data) ? res.value.data : [];
-    const skills: CodexSkillDto[] = [];
-    for (const g of groups) {
-      const rows = Array.isArray(g.skills) ? g.skills : [];
-      for (const row of rows) {
-        const s: CodexSkillDto = {
-          name: String(row.name ?? ''),
-          description: String(row.description ?? row.shortDescription ?? ''),
-          enabled: Boolean(row.enabled),
-        };
-        if (row.scope != null) s.scope = String(row.scope);
-        if (row.path != null) s.path = String(row.path);
-        if (s.name) skills.push(s);
-      }
-    }
-    return ok(skills);
+    return listSkills(this, params);
   }
 
-  /** collaborationMode/list */
+  /** 实现已外迁 app-server/queries.ts */
   public async listCollaborationModes(): Promise<
     Result<CodexCollaborationModeDto[], BusinessError>
   > {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{ data?: Array<Record<string, unknown>> }>(
-      'collaborationMode/list',
-      {}
-    );
-    if (!isOk(res)) return res;
-    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
-    return ok(
-      rows.map((row) => ({
-        name: String(row.name ?? row.mode ?? 'default'),
-        mode: row.mode != null ? String(row.mode) : null,
-        model: row.model != null ? String(row.model) : null,
-        reasoningEffort:
-          row.reasoning_effort != null
-            ? String(row.reasoning_effort)
-            : row.reasoningEffort != null
-              ? String(row.reasoningEffort)
-              : null,
-      }))
-    );
+    return listCollaborationModes(this);
   }
 
-  /** 探测本机 Codex 登录态（不读取/复制密钥，只问 App Server）。 */
+  /** 实现已外迁 app-server/queries.ts */
   public async readAccountStatus(): Promise<Result<CodexAccountStatus, BusinessError>> {
-    const binary = this.config.command || resolveCodexBinary();
-    const codexHome = resolveCodexHome(this.config.codexHome);
-    const authHint = Boolean(codexHome && existsSync(path.join(codexHome, 'auth.json')));
-
-    const ready = await this.connect();
-    if (!isOk(ready)) {
-      const status: CodexAccountStatus = {
-        linked: false,
-        requiresOpenaiAuth: true,
-        binary,
-        message: ready.error.userMessage || ready.error.message,
-      };
-      if (codexHome) status.codexHome = codexHome;
-      return ok(status);
-    }
-
-    const res = await this.rpc.request<{
-      account?: { email?: string; planType?: string } | null;
-      requiresOpenaiAuth?: boolean;
-    }>('account/read', {});
-    if (!isOk(res)) {
-      const status: CodexAccountStatus = {
-        linked: authHint,
-        requiresOpenaiAuth: true,
-        binary,
-        message: res.error.userMessage || res.error.message,
-      };
-      if (codexHome) status.codexHome = codexHome;
-      return ok(status);
-    }
-
-    const account = res.value?.account ?? null;
-    const requires = Boolean(res.value?.requiresOpenaiAuth);
-    const linked = Boolean(account) || (authHint && !requires);
-    const status: CodexAccountStatus = {
-      linked,
-      requiresOpenaiAuth: requires,
-      planType: account?.planType ?? null,
-      email: account?.email ?? null,
-      binary,
-      message: linked
-        ? '已联动本机 Codex 登录态'
-        : requires
-          ? '本机 Codex 尚未登录，请先在终端执行 codex login'
-          : '已检测到本机 Codex 配置，可直接发起对话',
-    };
-    if (codexHome) status.codexHome = codexHome;
-    return ok(status);
+    return readAccountStatus(this);
   }
 
-  /** account/rateLimits/read */
+  /** 实现已外迁 app-server/queries.ts */
   public async readRateLimits(): Promise<Result<CodexRateLimitsDto, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{
-      rateLimits?: {
-        limitId?: string | null;
-        limitName?: string | null;
-        planType?: string | null;
-        primary?: { usedPercent?: number; resetsAt?: number | null } | null;
-        secondary?: { usedPercent?: number; resetsAt?: number | null } | null;
-      };
-    }>('account/rateLimits/read', {});
-    if (!isOk(res)) return res;
-    const snap = res.value?.rateLimits;
-    return ok({
-      limitId: snap?.limitId ?? null,
-      limitName: snap?.limitName ?? null,
-      planType: snap?.planType != null ? String(snap.planType) : null,
-      primaryUsedPercent:
-        typeof snap?.primary?.usedPercent === 'number' ? snap.primary.usedPercent : null,
-      primaryResetsAt:
-        typeof snap?.primary?.resetsAt === 'number' ? snap.primary.resetsAt : null,
-      secondaryUsedPercent:
-        typeof snap?.secondary?.usedPercent === 'number'
-          ? snap.secondary.usedPercent
-          : null,
-      secondaryResetsAt:
-        typeof snap?.secondary?.resetsAt === 'number' ? snap.secondary.resetsAt : null,
-    });
+    return readRateLimits(this);
   }
 
-  /** mcpServerStatus/list — 只读观测本机 Codex 已配置的 MCP（非学习域工具总线） */
+  /** 实现已外迁 app-server/queries.ts */
   public async listMcpServerStatus(params?: {
     cursor?: string;
     limit?: number;
   }): Promise<
     Result<{ servers: CodexMcpServerStatusDto[]; nextCursor: string | null }, BusinessError>
   > {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const body: Record<string, unknown> = {
-      limit: params?.limit ?? 40,
-    };
-    if (params?.cursor) body.cursor = params.cursor;
-    const res = await this.rpc.request<{
-      data?: Array<{
-        name?: string;
-        pluginId?: string | null;
-        authStatus?: string | { status?: string };
-        tools?: Record<string, unknown>;
-      }>;
-      nextCursor?: string | null;
-    }>('mcpServerStatus/list', body);
-    if (!isOk(res)) return res;
-    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
-    const servers: CodexMcpServerStatusDto[] = rows.map((row) => {
-      const auth =
-        typeof row.authStatus === 'string'
-          ? row.authStatus
-          : row.authStatus && typeof row.authStatus === 'object'
-            ? String((row.authStatus as { status?: string }).status ?? 'unknown')
-            : 'unknown';
-      return {
-        name: String(row.name ?? ''),
-        authStatus: auth,
-        toolCount: row.tools ? Object.keys(row.tools).length : 0,
-        pluginId: row.pluginId != null ? String(row.pluginId) : null,
-      };
-    }).filter((s) => s.name);
-    return ok({
-      servers,
-      nextCursor: res.value?.nextCursor ?? null,
-    });
+    return listMcpServerStatus(this, params);
   }
 
-  /**
-   * EXPERIMENTAL — thread/realtime/listVoices + 能力探测。
-   * 成功仅代表本机 App Server 识别该 RPC；不代表 Study Studio 已接音频 UI。
-   */
+  /** 实现已外迁 app-server/queries.ts */
   public async probeRealtimeCapability(): Promise<
     Result<CodexRealtimeCapabilityDto, BusinessError>
   > {
-    const voicesRes = await this.listRealtimeVoices();
-    if (!isOk(voicesRes)) {
-      return ok({
-        available: false,
-        experimental: true,
-        message:
-          voicesRes.error.userMessage ||
-          voicesRes.error.message ||
-          '本机 Codex 暂未响应 realtime voices；接口已预留，待引擎支持后再用。',
-      });
-    }
-    return ok({
-      available: true,
-      experimental: true,
-      message:
-        '本机 App Server 已响应 realtime voices（实验性）。Study Studio 尚未接 UI/音频管线，请勿当作可用产品能力。',
-      voices: voicesRes.value,
-    });
+    return probeRealtimeCapability(this);
   }
 
+  /** 实现已外迁 app-server/queries.ts */
   public async listRealtimeVoices(): Promise<Result<CodexRealtimeVoicesDto, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request<{
-      voices?: {
-        v1?: string[];
-        v2?: string[];
-        defaultV1?: string;
-        defaultV2?: string;
-      };
-    }>('thread/realtime/listVoices', {});
-    if (!isOk(res)) return res;
-    const v = res.value?.voices;
-    return ok({
-      v1: Array.isArray(v?.v1) ? v.v1.map(String) : [],
-      v2: Array.isArray(v?.v2) ? v.v2.map(String) : [],
-      defaultV1: v?.defaultV1 != null ? String(v.defaultV1) : null,
-      defaultV2: v?.defaultV2 != null ? String(v.defaultV2) : null,
-    });
+    return listRealtimeVoices(this);
   }
 
-  /** EXPERIMENTAL — thread/realtime/start */
+  /** 实现已外迁 app-server/queries.ts */
   public async startRealtime(
     params: CodexRealtimeStartParams
   ): Promise<Result<{ ok: true }, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const body: Record<string, unknown> = {
-      threadId: params.threadId,
-      outputModality: params.outputModality,
-    };
-    if (params.model) body.model = params.model;
-    if (params.voice) body.voice = params.voice;
-    if (params.prompt) body.prompt = params.prompt;
-    if (params.transport) body.transport = params.transport;
-    if (params.version) body.version = params.version;
-    if (params.realtimeSessionId) body.realtimeSessionId = params.realtimeSessionId;
-    if (params.realtimeStartInstructions) {
-      body.realtimeStartInstructions = params.realtimeStartInstructions;
-    }
-    if (params.realtimeEndInstructions) {
-      body.realtimeEndInstructions = params.realtimeEndInstructions;
-    }
-    const res = await this.rpc.request('thread/realtime/start', body);
-    if (!isOk(res)) return res;
-    return ok({ ok: true });
+    return startRealtime(this, params);
   }
 
-  /** EXPERIMENTAL — thread/realtime/stop */
+  /** 实现已外迁 app-server/queries.ts */
   public async stopRealtime(threadId: string): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/realtime/stop', { threadId });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return stopRealtime(this, threadId);
   }
 
-  /** EXPERIMENTAL — thread/realtime/appendText */
+  /** 实现已外迁 app-server/queries.ts */
   public async appendRealtimeText(params: {
     threadId: string;
     text: string;
     role?: CodexRealtimeTextRole;
   }): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/realtime/appendText', {
-      threadId: params.threadId,
-      text: params.text,
-      role: params.role ?? 'user',
-    });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return appendRealtimeText(this, params);
   }
 
-  /** EXPERIMENTAL — thread/realtime/appendSpeech */
+  /** 实现已外迁 app-server/queries.ts */
   public async appendRealtimeSpeech(params: {
     threadId: string;
     text: string;
   }): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const res = await this.rpc.request('thread/realtime/appendSpeech', {
-      threadId: params.threadId,
-      text: params.text,
-    });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return appendRealtimeSpeech(this, params);
   }
 
-  /** EXPERIMENTAL — thread/realtime/appendAudio */
+  /** 实现已外迁 app-server/queries.ts */
   public async appendRealtimeAudio(params: {
     threadId: string;
     audio: CodexRealtimeAudioChunkDto;
   }): Promise<Result<void, BusinessError>> {
-    const ready = await this.connect();
-    if (!isOk(ready)) return ready;
-    const audio: Record<string, unknown> = {
-      data: params.audio.data,
-      sampleRate: params.audio.sampleRate,
-      numChannels: params.audio.numChannels,
-      samplesPerChannel: params.audio.samplesPerChannel ?? null,
-      itemId: params.audio.itemId ?? null,
-    };
-    const res = await this.rpc.request('thread/realtime/appendAudio', {
-      threadId: params.threadId,
-      audio,
-    });
-    if (!isOk(res)) return res;
-    return ok(undefined);
+    return appendRealtimeAudio(this, params);
   }
 
   public async close(): Promise<Result<void, BusinessError>> {
