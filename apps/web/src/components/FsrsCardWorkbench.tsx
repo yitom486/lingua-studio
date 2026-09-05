@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { scheduleNextReview } from '@study-studio/learner-core';
 import type { CardReviewRating } from '@study-studio/protocol';
 import { fireSuccessConfetti } from './magicui/index.js';
 import { sound, type SupportedLanguage } from '../utils/audio.js';
@@ -51,37 +50,37 @@ export function FsrsCardWorkbench() {
     sound.playClick();
     if (!activeCard) return;
 
-    const fsrsCurrent = {
-      stability: activeCard.stability,
-      difficulty: activeCard.difficulty ?? 5.0,
-      reps: activeCard.reps,
-      lapses: activeCard.lapses ?? 0,
-      dueAt: activeCard.dueAt ?? new Date().toISOString(),
-      state: activeCard.state ?? (activeCard.reps > 0 ? 'REVIEW' : 'NEW'),
-    };
-    const nextFsrs = scheduleNextReview(fsrsCurrent, rating);
+    updateCard.mutate(
+      {
+        id: activeCard.id,
+        rating,
+      },
+      {
+        onSuccess: (data) => {
+          setCardFlipped(false);
 
-    updateCard.mutate({
-      id: activeCard.id,
-      fsrs: nextFsrs,
-    });
+          const nextDays = data.nextReviewDays ?? Math.round(data.nextFsrs.stability);
+          if (rating === 'GOOD' || rating === 'EASY') {
+            sound.playSuccess();
+            fireSuccessConfetti();
+            toast.success(`评级成功：下次复习将在 ${nextDays} 天后`);
+          } else {
+            sound.playMistake();
+            toast('已加入今日重练队列，稍后将再次强化。');
+          }
 
-    setCardFlipped(false);
-
-    if (rating === 'GOOD' || rating === 'EASY') {
-      sound.playSuccess();
-      fireSuccessConfetti();
-      toast.success(`评级成功：下次复习将在 ${Math.round(nextFsrs.stability)} 天后`);
-    } else {
-      sound.playMistake();
-      toast('已加入今日重练队列，稍后将再次强化。');
-    }
-
-    if (currentCardIndex < filteredCards.length - 1) {
-      setCurrentCardIndex((prev) => prev + 1);
-    } else {
-      setCurrentCardIndex(0);
-    }
+          if (currentCardIndex < filteredCards.length - 1) {
+            setCurrentCardIndex((prev) => prev + 1);
+          } else {
+            setCurrentCardIndex(0);
+          }
+        },
+        onError: (e) => {
+          sound.playMistake();
+          toast.error(e instanceof Error ? e.message : '保存复习状态失败，请稍后重试。');
+        },
+      }
+    );
   };
 
   return (
