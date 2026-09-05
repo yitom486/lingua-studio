@@ -34,6 +34,8 @@ export interface StreamTurnOptions {
     threadId?: string;
     ephemeral?: boolean;
     collaborationMode?: string;
+    /** coach=聊天界面；learning=出题/批改/题目导师（与聊天隔离） */
+    lane?: 'coach' | 'learning';
   };
   onStart?: () => void;
   onDelta: (delta: string, accumulated: string) => void;
@@ -71,6 +73,7 @@ export interface StreamTurnOptions {
 export interface StreamQueueStartOptions {
   queuedSubmissionId?: string;
   approvalPolicy?: string;
+  lane?: 'coach' | 'learning';
   onStart?: () => void;
   onDelta: (delta: string, accumulated: string) => void;
   onReasoningDelta?: (delta: string, accumulated: string) => void;
@@ -412,6 +415,7 @@ export class GatewayClient {
       sessionId: this.sessionId ?? 'active_session',
       type: WsEventTypes.CLIENT_QUEUE_START,
       payload: {
+        lane: options.lane ?? 'coach',
         ...(options.queuedSubmissionId
           ? { queuedSubmissionId: options.queuedSubmissionId }
           : {}),
@@ -422,14 +426,19 @@ export class GatewayClient {
     return true;
   }
 
-  public interruptTurn(): boolean {
-    return this.sendEnvelope(WsEventTypes.CLIENT_TURN_INTERRUPT, {});
+  public interruptTurn(lane?: 'coach' | 'learning'): boolean {
+    return this.sendEnvelope(WsEventTypes.CLIENT_TURN_INTERRUPT, {
+      ...(lane ? { lane } : {}),
+    });
   }
 
-  public steerTurn(message: string): boolean {
+  public steerTurn(message: string, lane?: 'coach' | 'learning'): boolean {
     const text = message.trim();
     if (!text) return false;
-    return this.sendEnvelope(WsEventTypes.CLIENT_TURN_STEER, { input: text });
+    return this.sendEnvelope(WsEventTypes.CLIENT_TURN_STEER, {
+      input: text,
+      ...(lane ? { lane } : {}),
+    });
   }
 
   public respondApproval(

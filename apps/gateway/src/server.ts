@@ -1,4 +1,4 @@
-import { SessionManager } from './session/session-manager.js';
+import { SessionManager, type AgentLane } from './session/session-manager.js';
 import { ContextBuilder } from './context/context-builder.js';
 import { ToolRouter } from './router/tool-router.js';
 import { ToolRegistry, ToolLocations } from '@study-studio/tool-core';
@@ -42,6 +42,16 @@ import {
 import { selectAgentRoute } from './router/agent-router.js';
 import { resolveResponsesLiteCoach } from './services/responses-lite-coach.js';
 
+function resolveAgentLane(
+  intent: string,
+  explicit?: string | null
+): AgentLane {
+  if (explicit === 'coach' || explicit === 'learning') return explicit;
+  // 聊天界面专用；出题/批改/题目讲解走 learning，与 coach thread 隔离
+  if (intent === 'FREE_COACH') return 'coach';
+  return 'learning';
+}
+
 
 export class GatewayServer {
   public readonly sessionManager = new SessionManager();
@@ -55,6 +65,8 @@ export class GatewayServer {
   private readonly activeStreamControllers = new Map<string, AbortController>();
   /** 当前 Turn 的 WS 下发器：供 Codex dynamic tool 触发 Client Tools */
   private activeTurnEmit: ((env: WsEnvelope) => void) | undefined;
+  /** sessionId → 当前进行中的 Agent lane（steer / interrupt / approval） */
+  private readonly activeTurnLane = new Map<string, AgentLane>();
   /** sessionId → 持久 WS 下发（旁路通知用） */
   private readonly sessionEmitters = new Map<string, (env: WsEnvelope) => void>();
 
@@ -181,7 +193,10 @@ export class GatewayServer {
     for (const [sessionId, emit] of this.sessionEmitters) {
       const sess = this.sessionManager.getSession(sessionId);
       if (!isOk(sess)) continue;
-      if (sess.value.agentSession?.threadId !== threadId) continue;
+      const lanes = sess.value.agentByLane;
+      const hit =
+        lanes.coach?.threadId === threadId || lanes.learning?.threadId === threadId;
+      if (!hit) continue;
       emit({
         version: '1.0',
         id: generateId('note'),
@@ -744,6 +759,8 @@ export class GatewayServer {
             threadId?: string;
             ephemeral?: boolean;
             collaborationMode?: string;
+            /** coach=聊天；learning=出题/批改/题目导师 */
+            lane?: string;
           };
         };
         const userId = payload.userId || 'student_web_01';
@@ -787,12 +804,13 @@ export class GatewayServer {
 
         // 2. 发出回合启动通知
         const intent = payload.intent || snapshot.userIntentHint || 'EXPLAIN';
+        const agentLane = resolveAgentLane(intent, payload.agentOptions?.lane);
         const startEnvelope: WsEnvelope = {
           version: '1.0',
           id: generateId('turn'),
           sessionId: envelope.sessionId,
           type: WsEventTypes.AGENT_TURN_START,
-          payload: { intent, focus: snapshot.focus },
+          payload: { intent, focus: snapshot.focus, lane: agentLane },
           timestamp: Date.now(),
         };
         if (emit) emit(startEnvelope);
@@ -801,6 +819,7 @@ export class GatewayServer {
         const abortController = new AbortController();
         this.activeStreamControllers.set(envelope.sessionId, abortController);
         this.activeTurnEmit = emit;
+        this.activeTurnLane.set(envelope.sessionId, agentLane);
 
         let reply = '';
         let toolResults: any = undefined;
@@ -993,12 +1012,9 @@ export class GatewayServer {
                 this.toolRegistry.get('ui.present'),
               ].filter(Boolean);
 
-              // 同 Gateway session 复用 Codex thread；若前端指定了不同 threadId 则重建
-              const existingGw = this.sessionManager.getSession(envelope.sessionId);
+              // 按 lane 复用 Codex thread（coach 与 learning 互不共享）
               let agentSession =
-                isOk(existingGw) && existingGw.value.agentSession
-                  ? existingGw.value.agentSession
-                  : null;
+                this.sessionManager.getAgentSession(envelope.sessionId, agentLane) ?? null;
 
               if (
                 agentSession &&
@@ -1007,9 +1023,7 @@ export class GatewayServer {
                 agentSession.threadId !== preferredThreadId
               ) {
                 void agentSession.close();
-                if (isOk(existingGw)) {
-                  delete existingGw.value.agentSession;
-                }
+                this.sessionManager.detachAgentSession(envelope.sessionId, agentLane);
                 agentSession = null;
               }
 
@@ -1023,7 +1037,8 @@ export class GatewayServer {
                   resumeThreadId?: string;
                   ephemeral?: boolean;
                 } = {
-                  sessionId: envelope.sessionId,
+                  // 同一 Gateway WS session 下按 lane 分 key，避免 CodexAdapter 互相覆盖
+                  sessionId: `${envelope.sessionId}:${agentLane}`,
                   userId,
                   tools: learningTools as any,
                 };
@@ -1037,7 +1052,8 @@ export class GatewayServer {
                 if (isOk(sessionRes)) {
                   this.sessionManager.attachAgentSession(
                     envelope.sessionId,
-                    sessionRes.value
+                    sessionRes.value,
+                    agentLane
                   );
                   agentSession = sessionRes.value;
                 } else {
@@ -1071,7 +1087,12 @@ export class GatewayServer {
                         id: generateId('delta'),
                         sessionId: envelope.sessionId,
                         type: WsEventTypes.AGENT_TEXT_DELTA,
-                        payload: { delta: ev.delta, textDelta: ev.delta, source: 'codex' },
+                        payload: {
+                          delta: ev.delta,
+                          textDelta: ev.delta,
+                          source: 'codex',
+                          lane: agentLane,
+                        },
                         timestamp: Date.now(),
                       });
                     }
@@ -1082,7 +1103,7 @@ export class GatewayServer {
                         id: generateId('reason'),
                         sessionId: envelope.sessionId,
                         type: WsEventTypes.AGENT_REASONING_DELTA,
-                        payload: { delta: ev.delta },
+                        payload: { delta: ev.delta, lane: agentLane },
                         timestamp: Date.now(),
                       });
                     }
@@ -1098,6 +1119,7 @@ export class GatewayServer {
                           toolName: ev.toolName,
                           arguments: ev.input,
                           args: ev.input,
+                          lane: agentLane,
                         },
                         timestamp: Date.now(),
                       });
@@ -1115,6 +1137,7 @@ export class GatewayServer {
                           description: ev.description,
                           riskLevel: ev.riskLevel,
                           expiresAt: ev.expiresAt,
+                          lane: agentLane,
                         },
                         timestamp: Date.now(),
                       });
@@ -1130,6 +1153,7 @@ export class GatewayServer {
                           approvalId: ev.approvalId,
                           decision: ev.decision,
                           reason: ev.reason,
+                          lane: agentLane,
                         },
                         timestamp: Date.now(),
                       });
@@ -1142,10 +1166,7 @@ export class GatewayServer {
                     codexFailHint = ev.error?.userMessage || ev.error?.message || '';
                     // 出错时丢弃坏会话，下轮重建
                     void agentSession.close();
-                    const broken = this.sessionManager.getSession(envelope.sessionId);
-                    if (isOk(broken)) {
-                      delete broken.value.agentSession;
-                    }
+                    this.sessionManager.detachAgentSession(envelope.sessionId, agentLane);
                     break;
                   }
                 }
@@ -1213,6 +1234,7 @@ export class GatewayServer {
         } finally {
           this.activeStreamControllers.delete(envelope.sessionId);
           this.activeTurnEmit = undefined;
+          this.activeTurnLane.delete(envelope.sessionId);
         }
 
         const isInterrupted = abortController.signal.aborted;
@@ -1233,6 +1255,7 @@ export class GatewayServer {
             source: replySource,
             model: preferredModel,
             queueRemaining,
+            lane: agentLane,
             ...(codexThreadId ? { threadId: codexThreadId } : {}),
           },
           timestamp: Date.now(),
@@ -1246,9 +1269,21 @@ export class GatewayServer {
         const payload = (envelope.payload ?? {}) as {
           queuedSubmissionId?: string;
           approvalPolicy?: string;
+          lane?: string;
         };
-        const sess = this.sessionManager.getSession(envelope.sessionId);
-        if (!isOk(sess) || !sess.value.agentSession) {
+        const lane: AgentLane =
+          payload.lane === 'learning' || payload.lane === 'coach'
+            ? payload.lane
+            : this.activeTurnLane.get(envelope.sessionId) ?? 'coach';
+        const agentSession = this.sessionManager.getAgentSession(envelope.sessionId, lane) as
+          | (ReturnType<SessionManager['getAgentSession']> & {
+              sendQueued?: (opts?: {
+                queuedSubmissionId?: string;
+                approvalPolicy?: string;
+              }) => AsyncIterable<import('@study-studio/agent-core').AgentEvent>;
+            })
+          | undefined;
+        if (!agentSession) {
           return err(
             new BusinessError(
               'E_SESSION_NOT_FOUND',
@@ -1257,12 +1292,6 @@ export class GatewayServer {
             )
           );
         }
-        const agentSession = sess.value.agentSession as typeof sess.value.agentSession & {
-          sendQueued?: (opts?: {
-            queuedSubmissionId?: string;
-            approvalPolicy?: string;
-          }) => AsyncIterable<import('@study-studio/agent-core').AgentEvent>;
-        };
         if (typeof agentSession.sendQueued !== 'function') {
           return err(
             new BusinessError(
@@ -1276,6 +1305,7 @@ export class GatewayServer {
         const abortController = new AbortController();
         this.activeStreamControllers.set(envelope.sessionId, abortController);
         this.activeTurnEmit = emit;
+        this.activeTurnLane.set(envelope.sessionId, lane);
 
         if (emit) {
           emit({
@@ -1388,6 +1418,7 @@ export class GatewayServer {
         } finally {
           this.activeStreamControllers.delete(envelope.sessionId);
           this.activeTurnEmit = undefined;
+          this.activeTurnLane.delete(envelope.sessionId);
         }
 
         const isInterrupted = abortController.signal.aborted;
@@ -1408,6 +1439,7 @@ export class GatewayServer {
             source: replySource,
             fromQueue: true,
             queueRemaining,
+            lane,
             ...(threadId ? { threadId } : {}),
           },
           timestamp: Date.now(),
@@ -1421,6 +1453,7 @@ export class GatewayServer {
           approvalId?: string;
           approved?: boolean;
           decision?: string;
+          lane?: string;
         };
         const approvalId = String(payload.approvalId || '');
         if (!approvalId) {
@@ -1450,8 +1483,12 @@ export class GatewayServer {
           );
         }
 
-        const sess = this.sessionManager.getSession(envelope.sessionId);
-        if (!isOk(sess) || !sess.value.agentSession) {
+        const lane: AgentLane =
+          payload.lane === 'learning' || payload.lane === 'coach'
+            ? payload.lane
+            : this.activeTurnLane.get(envelope.sessionId) ?? 'coach';
+        const agentSession = this.sessionManager.getAgentSession(envelope.sessionId, lane);
+        if (!agentSession) {
           return err(
             new BusinessError(
               'E_SESSION_NOT_FOUND',
@@ -1460,7 +1497,7 @@ export class GatewayServer {
             )
           );
         }
-        const res = await sess.value.agentSession.submitApproval(
+        const res = await agentSession.submitApproval(
           approvalId,
           decision as boolean | 'accept' | 'acceptForSession' | 'decline' | 'cancel'
         );
@@ -1473,6 +1510,7 @@ export class GatewayServer {
           payload: {
             status: 'APPROVAL_ACK',
             approvalId,
+            lane,
             decision:
               typeof decision === 'string'
                 ? decision
@@ -1494,30 +1532,43 @@ export class GatewayServer {
           controller.abort();
           this.activeStreamControllers.delete(envelope.sessionId);
         }
-        const sess = this.sessionManager.getSession(envelope.sessionId);
-        if (isOk(sess) && sess.value.agentSession) {
-          void sess.value.agentSession.interrupt();
+        const payload = (envelope.payload ?? {}) as { lane?: string };
+        const lane: AgentLane =
+          payload.lane === 'learning' || payload.lane === 'coach'
+            ? payload.lane
+            : this.activeTurnLane.get(envelope.sessionId) ?? 'coach';
+        const agentSession = this.sessionManager.getAgentSession(envelope.sessionId, lane);
+        if (agentSession) {
+          void agentSession.interrupt();
         }
         return ok({
           version: '1.0',
           id: generateId('msg'),
           sessionId: envelope.sessionId,
           type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: { status: 'INTERRUPTED' },
+          payload: { status: 'INTERRUPTED', lane },
           timestamp: Date.now(),
         });
       }
 
       case WsEventTypes.CLIENT_TURN_STEER: {
-        const payload = (envelope.payload ?? {}) as { input?: string; message?: string };
+        const payload = (envelope.payload ?? {}) as {
+          input?: string;
+          message?: string;
+          lane?: string;
+        };
         const message = String(payload.input || payload.message || '').trim();
         if (!message) {
           return err(
             new BusinessError('E_INVALID_INPUT', '引导消息不能为空', 'VALIDATION')
           );
         }
-        const sess = this.sessionManager.getSession(envelope.sessionId);
-        if (!isOk(sess) || !sess.value.agentSession) {
+        const lane: AgentLane =
+          payload.lane === 'learning' || payload.lane === 'coach'
+            ? payload.lane
+            : this.activeTurnLane.get(envelope.sessionId) ?? 'coach';
+        const agentSession = this.sessionManager.getAgentSession(envelope.sessionId, lane);
+        if (!agentSession) {
           return err(
             new BusinessError(
               'E_SESSION_NOT_FOUND',
@@ -1526,14 +1577,14 @@ export class GatewayServer {
             )
           );
         }
-        const res = await sess.value.agentSession.steer(message);
+        const res = await agentSession.steer(message);
         if (!isOk(res)) return err(res.error);
         return ok({
           version: '1.0',
           id: generateId('steer_ack'),
           sessionId: envelope.sessionId,
           type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: { status: 'STEER_ACK', message },
+          payload: { status: 'STEER_ACK', message, lane },
           timestamp: Date.now(),
         });
       }

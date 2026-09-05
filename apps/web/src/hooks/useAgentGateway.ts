@@ -42,8 +42,9 @@ export function useAgentGateway() {
     startQueueStream: (
       opts: import('../lib/gateway-client.js').StreamQueueStartOptions
     ) => gatewayClient.startQueueStream(opts),
-    interruptTurn: () => gatewayClient.interruptTurn(),
-    steerTurn: (message: string) => gatewayClient.steerTurn(message),
+    interruptTurn: (lane?: 'coach' | 'learning') => gatewayClient.interruptTurn(lane),
+    steerTurn: (message: string, lane?: 'coach' | 'learning') =>
+      gatewayClient.steerTurn(message, lane),
     respondApproval: (
       approvalId: string,
       decision: boolean | 'accept' | 'acceptForSession' | 'decline' | 'cancel'

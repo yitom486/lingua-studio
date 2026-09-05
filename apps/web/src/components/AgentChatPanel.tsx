@@ -400,6 +400,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       };
 
       const ok = gateway.startQueueStream({
+        lane: 'coach',
         ...(queuedSubmissionId ? { queuedSubmissionId } : {}),
         ...(coachApprovalPolicy ? { approvalPolicy: coachApprovalPolicy } : {}),
         onDelta: (_d, acc) => {
@@ -498,7 +499,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           ...prev,
           { id: `steer_${Date.now()}`, role: 'user', text: `↗ ${text}` },
         ]);
-        gateway.steerTurn?.(text);
+        gateway.steerTurn?.(text, 'coach');
         return;
       }
 
@@ -528,6 +529,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         contextSnapshot: snapshot(),
         agentOptions: {
           preferCodex: true,
+          lane: 'coach',
           ephemeral: !coachPersistThread,
           ...(coachModelId ? { model: coachModelId } : {}),
           ...(coachEffort ? { effort: coachEffort } : {}),
@@ -682,7 +684,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const interrupt = () => {
     sound.playClick();
     queueDrainRef.current = false;
-    gateway.interruptTurn();
+    gateway.interruptTurn('coach');
     setBusy(false);
     setMessages((prev) =>
       prev.map((m) => (m.streaming ? { ...m, streaming: false } : m))

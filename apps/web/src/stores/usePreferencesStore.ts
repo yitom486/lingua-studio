@@ -32,6 +32,8 @@ export interface PreferencesState {
   coachApprovalPolicy: string;
   /** 恢复的 Codex thread id；空=新建 */
   coachThreadId: string;
+  /** 学习闭环（题目导师 / 出题批改）Codex thread；与聊天隔离 */
+  learningThreadId: string;
   /** false=ephemeral 临时；true=落盘持久化 */
   coachPersistThread: boolean;
   /** collaborationMode：default | plan | 服务端返回的 name */
@@ -56,6 +58,7 @@ export interface PreferencesState {
   setCoachEffort: (effort: string) => void;
   setCoachApprovalPolicy: (policy: string) => void;
   setCoachThreadId: (threadId: string) => void;
+  setLearningThreadId: (threadId: string) => void;
   setCoachPersistThread: (persist: boolean) => void;
   setCoachCollaborationMode: (mode: string) => void;
 }
@@ -88,6 +91,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       coachEffort: 'medium',
       coachApprovalPolicy: 'never',
       coachThreadId: '',
+      learningThreadId: '',
       coachPersistThread: true,
       coachCollaborationMode: '',
 
@@ -129,6 +133,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCoachEffort: (coachEffort: string) => set({ coachEffort }),
       setCoachApprovalPolicy: (coachApprovalPolicy: string) => set({ coachApprovalPolicy }),
       setCoachThreadId: (coachThreadId: string) => set({ coachThreadId }),
+      setLearningThreadId: (learningThreadId: string) => set({ learningThreadId }),
       setCoachPersistThread: (coachPersistThread: boolean) => set({ coachPersistThread }),
       setCoachCollaborationMode: (coachCollaborationMode: string) =>
         set({ coachCollaborationMode }),

@@ -5,6 +5,7 @@ import { sound } from '../utils/audio.js';
 import { useAgentGateway } from '../hooks/useAgentGateway.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import {
   Sheet,
   SheetContent,
@@ -101,6 +102,7 @@ export function AiTutorDrawer({
 
   const activeTab = useStudySessionStore((s) => s.activeTab);
   const profile = useUserProfileStore((s) => s.profile);
+  const setLearningThreadId = usePreferencesStore((s) => s.setLearningThreadId);
 
   const buildSnapshot = useCallback((): Partial<ContextSnapshot> | undefined => {
     if (!context) return undefined;
@@ -114,10 +116,18 @@ export function AiTutorDrawer({
     (aiMsgId: string, input: string, intent: 'EXPLAIN' | 'FREE_COACH' = 'EXPLAIN') => {
       if (!gateway.isConnected) return false;
 
+      const threadId = usePreferencesStore.getState().learningThreadId;
+
       return gateway.sendTurnStream({
         input,
         intent,
         contextSnapshot: buildSnapshot(),
+        agentOptions: {
+          preferCodex: true,
+          lane: 'learning',
+          ephemeral: false,
+          ...(threadId ? { threadId } : {}),
+        },
         onDelta: (_delta, accumulated) => {
           setMessages((prev) =>
             prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulated } : m))
@@ -134,6 +144,7 @@ export function AiTutorDrawer({
           sound.playCorrect();
           setIsTyping(false);
           activeStreamMsgIdRef.current = null;
+          if (data.threadId) setLearningThreadId(data.threadId);
           setMessages((prev) =>
             prev.map((m) =>
               m.id === aiMsgId
@@ -165,7 +176,7 @@ export function AiTutorDrawer({
         },
       });
     },
-    [gateway, buildSnapshot]
+    [gateway, buildSnapshot, setLearningThreadId]
   );
 
   useEffect(() => {
@@ -227,7 +238,7 @@ export function AiTutorDrawer({
 
   const handleInterrupt = () => {
     if (gateway) {
-      gateway.interruptTurn();
+      gateway.interruptTurn('learning');
     }
     setIsTyping(false);
     if (activeStreamMsgIdRef.current) {
