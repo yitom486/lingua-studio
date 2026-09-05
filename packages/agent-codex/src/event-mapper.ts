@@ -7,33 +7,51 @@ import { translateCodexNotificationParams, translateCodexTurnError } from './cod
  */
 export function mapAppServerNotificationToEvents(
   method: string,
-  params: any
+  params: unknown
 ): AgentEvent[] {
   const events: AgentEvent[] = [];
+  // App Server 通知 params 为弱结构 JSON；此处一次性收窄，后续只读 p。
+  const p = (params ?? {}) as {
+    delta?: unknown;
+    text?: unknown;
+    item?: {
+      type?: unknown;
+      id?: unknown;
+      tool?: unknown;
+      name?: unknown;
+      arguments?: unknown;
+      status?: unknown;
+      success?: unknown;
+      contentItems?: unknown;
+      text?: unknown;
+    };
+    itemId?: unknown;
+    turn?: unknown;
+  };
 
   switch (method) {
     case 'item/agentMessage/delta': {
-      const delta = String(params?.delta ?? params?.text ?? '');
+      const delta = String(p.delta ?? p.text ?? '');
       if (delta) events.push({ type: 'TEXT_DELTA', delta });
       break;
     }
     case 'item/reasoning/summaryTextDelta':
     case 'item/reasoning/textDelta': {
-      const delta = String(params?.delta ?? params?.text ?? '');
+      const delta = String(p.delta ?? p.text ?? '');
       if (delta) {
         events.push({ type: 'REASONING_DELTA', delta });
       }
       break;
     }
     case 'item/started': {
-      const item = params?.item;
+      const item = p.item;
       if (item?.type === 'reasoning') {
         events.push({ type: 'REASONING_STARTED' });
       }
       if (item?.type === 'dynamicToolCall') {
         events.push({
           type: 'TOOL_CALL_REQUESTED',
-          callId: String(item.id || params?.itemId || ''),
+          callId: String(item.id || p.itemId || ''),
           toolName: String(item.tool || item.name || 'tool'),
           input: normalizeArgs(item.arguments),
         });
@@ -41,7 +59,7 @@ export function mapAppServerNotificationToEvents(
       break;
     }
     case 'item/completed': {
-      const item = params?.item;
+      const item = p.item;
       if (item?.type === 'reasoning') {
         events.push({ type: 'REASONING_COMPLETED' });
       }
@@ -67,7 +85,7 @@ export function mapAppServerNotificationToEvents(
       break;
     }
     case 'turn/completed': {
-      const turn = params?.turn ?? params;
+      const turn = (p.turn ?? params) as { status?: unknown; error?: unknown };
       if (turn?.status === 'failed' || turn?.error) {
         events.push({
           type: 'ERROR',

@@ -237,7 +237,7 @@ export class JsonRpcStdioClient {
   private async onLine(line: string): Promise<void> {
     const trimmed = line.trim();
     if (!trimmed) return;
-    let msg: any;
+    let msg: unknown;
     try {
       msg = JSON.parse(trimmed);
     } catch {
@@ -272,17 +272,19 @@ export class JsonRpcStdioClient {
       this.pending.delete(key);
       if ('error' in msg && msg.error) {
         const rpcText = extractErrorText(msg.error);
+        const rpcError = msg.error as { code?: unknown; data?: unknown };
         pending.reject(
           new BusinessError(
             'E_CODEX_RPC',
             rpcText ? `Codex RPC 失败：${rpcText}` : 'Codex RPC 调用失败。',
             'AGENT_RUNTIME',
             true,
-            { code: msg.error.code, data: msg.error.data }
+            { code: rpcError.code, data: rpcError.data }
           )
         );
       } else {
-        pending.resolve(msg.result);
+        const rpcResult = (msg as { result?: unknown }).result;
+        pending.resolve(rpcResult);
       }
       return;
     }

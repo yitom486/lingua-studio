@@ -48,12 +48,21 @@ export function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 function convertZod(schema: z.ZodTypeAny): Record<string, unknown> {
-  const def = (schema as any)._def;
-  const typeName = def?.typeName as string | undefined;
+  // zod 内部 _def 为弱结构；此处一次性收窄为本文件实际读取的子集。
+  const def = schema._def as {
+    typeName?: unknown;
+    shape?: () => Record<string, z.ZodTypeAny>;
+    type?: z.ZodTypeAny;
+    values?: unknown;
+    value?: unknown;
+    innerType?: z.ZodTypeAny;
+    options?: z.ZodTypeAny[];
+  };
+  const typeName = typeof def.typeName === 'string' ? def.typeName : undefined;
 
   switch (typeName) {
     case 'ZodObject': {
-      const shape = def.shape();
+      const shape = def.shape?.() ?? {};
       const properties: Record<string, unknown> = {};
       const required: string[] = [];
       for (const key of Object.keys(shape)) {
@@ -75,18 +84,18 @@ function convertZod(schema: z.ZodTypeAny): Record<string, unknown> {
     case 'ZodBoolean':
       return { type: 'boolean' };
     case 'ZodArray':
-      return { type: 'array', items: convertZod(def.type) };
+      return { type: 'array', items: convertZod(def.type as z.ZodTypeAny) };
     case 'ZodEnum':
       return { type: 'string', enum: def.values };
     case 'ZodLiteral':
       return { const: def.value };
     case 'ZodOptional':
     case 'ZodDefault':
-      return convertZod(def.innerType);
+      return convertZod(def.innerType as z.ZodTypeAny);
     case 'ZodNullable':
-      return { anyOf: [convertZod(def.innerType), { type: 'null' }] };
+      return { anyOf: [convertZod(def.innerType as z.ZodTypeAny), { type: 'null' }] };
     case 'ZodUnion':
-      return { anyOf: (def.options as z.ZodTypeAny[]).map(convertZod) };
+      return { anyOf: (def.options as z.ZodTypeAny[] | undefined)?.map(convertZod) ?? [] };
     case 'ZodRecord':
       return { type: 'object', additionalProperties: true };
     default:
@@ -95,6 +104,7 @@ function convertZod(schema: z.ZodTypeAny): Record<string, unknown> {
 }
 
 function isOptional(schema: z.ZodTypeAny): boolean {
-  const typeName = (schema as any)._def?.typeName;
+  const def = schema._def as { typeName?: unknown } | undefined;
+  const typeName = def?.typeName;
   return typeName === 'ZodOptional' || typeName === 'ZodDefault';
 }

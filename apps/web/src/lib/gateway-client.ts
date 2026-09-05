@@ -121,6 +121,18 @@ export interface SubjectiveGradePayload {
   contextSentence?: string;
 }
 
+/** AGENT_TURN_COMPLETED payload 的前端消费视图（与 StreamTurnOptions.onComplete 入参同源）。 */
+export type TurnCompletedPayload = Parameters<StreamTurnOptions['onComplete']>[0];
+
+/** 从未知形状的 WS payload 中安全读取字符串字段（缺失/非字符串一律 undefined）。 */
+function payloadStringField(payload: unknown, key: string): string | undefined {
+  if (typeof payload === 'object' && payload !== null && key in payload) {
+    const value = (payload as Record<string, unknown>)[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+  return undefined;
+}
+
 type ActiveStream = {
   onStart?: (() => void) | undefined;
   onDelta: (delta: string, accumulated: string) => void;
@@ -132,8 +144,8 @@ type ActiveStream = {
   }) => void) | undefined;
   onApprovalRequest?: StreamTurnOptions['onApprovalRequest'];
   onApprovalResolved?: StreamTurnOptions['onApprovalResolved'];
-  onComplete: (data: any) => void;
-  onError?: ((err: any) => void) | undefined;
+  onComplete: (data: TurnCompletedPayload) => void;
+  onError?: ((err: unknown) => void) | undefined;
   accumulatedText: string;
   accumulatedReasoning: string;
 };
@@ -497,15 +509,15 @@ export class GatewayClient {
         this.activeStream?.onStart?.();
       } else if (envelope.type === WsEventTypes.AGENT_TEXT_DELTA) {
         if (this.activeStream) {
-          const p = envelope.payload as any;
-          const delta = p?.delta || p?.textDelta || '';
+          const p = envelope.payload as { delta?: unknown; textDelta?: unknown };
+          const delta = payloadStringField(p, 'delta') || payloadStringField(p, 'textDelta') || '';
           this.activeStream.accumulatedText += delta;
           this.activeStream.onDelta(delta, this.activeStream.accumulatedText);
         }
       } else if (envelope.type === WsEventTypes.AGENT_REASONING_DELTA) {
         if (this.activeStream) {
-          const p = envelope.payload as any;
-          const delta = p?.delta || '';
+          const p = envelope.payload as { delta?: unknown };
+          const delta = payloadStringField(p, 'delta') || '';
           this.activeStream.accumulatedReasoning += delta;
           this.activeStream.onReasoningDelta?.(
             delta,
@@ -513,27 +525,27 @@ export class GatewayClient {
           );
         }
       } else if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
-        const status = (envelope.payload as any)?.status;
+        const status = (envelope.payload as { status?: unknown })?.status;
         if (status === 'APPROVAL_ACK' || status === 'STEER_ACK') return;
 
         if (this.activeStream) {
           const listener = this.activeStream;
           this.activeStream = null;
-          listener.onComplete(envelope.payload);
+          listener.onComplete(envelope.payload as TurnCompletedPayload);
         }
 
         if (status === 'INITIALIZED') {
           this.sessionId = envelope.sessionId;
           useGatewayStore.getState().setSessionId(envelope.sessionId);
-        } else if (Array.isArray((envelope.payload as any)?.questions)) {
+        } else if (Array.isArray((envelope.payload as { questions?: unknown })?.questions)) {
           const resolver = this.pendingResolvers.get(WsEventTypes.CLIENT_QUIZ_GENERATE);
           if (resolver) {
             this.pendingResolvers.delete(WsEventTypes.CLIENT_QUIZ_GENERATE);
             resolver(envelope.payload);
           }
         } else if (
-          (envelope.payload as any)?.refinementSuggestion !== undefined ||
-          (envelope.payload as any)?.errorDiagnosis !== undefined
+          (envelope.payload as { refinementSuggestion?: unknown })?.refinementSuggestion !== undefined ||
+          (envelope.payload as { errorDiagnosis?: unknown })?.errorDiagnosis !== undefined
         ) {
           const resolver = this.pendingResolvers.get(
             WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE
@@ -593,12 +605,12 @@ export class GatewayClient {
           this.activeStream = null;
           listener.onError?.(envelope.payload);
         }
-        const errPayload = (envelope.payload as any)?.error ?? envelope.payload;
+        const errPayload = (envelope.payload as { error?: unknown })?.error ?? envelope.payload;
         const userMsg =
           typeof errPayload === 'string'
             ? errPayload
-            : errPayload?.userMessage ||
-              errPayload?.message ||
+            : payloadStringField(errPayload, 'userMessage') ||
+              payloadStringField(errPayload, 'message') ||
               '本轮请求未完成，请稍后重试。';
         toast.error(userMsg);
       }
