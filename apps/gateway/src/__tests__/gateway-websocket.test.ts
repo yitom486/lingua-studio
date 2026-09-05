@@ -7,6 +7,10 @@ describe('Gateway WebSocket Server E2E', () => {
   const TEST_PORT = 8999;
   let server: ReturnType<typeof startGatewayServer>;
 
+  /** WS 回包 payload 的测试期字段探测（未知形状按 key 读取，不断言时不抛）。 */
+  const payloadField = (envelope: WsEnvelope, key: string): unknown =>
+    ((envelope.payload ?? {}) as Record<string, unknown>)[key];
+
   beforeAll(() => {
     server = startGatewayServer(TEST_PORT);
   });
@@ -47,7 +51,7 @@ describe('Gateway WebSocket Server E2E', () => {
     const initReplyPromise = new Promise<WsEnvelope>((resolve) => {
       const handler = (evt: MessageEvent) => {
         const data = JSON.parse(evt.data.toString()) as WsEnvelope;
-        if ((data.payload as any)?.status === 'INITIALIZED') {
+        if (payloadField(data, 'status') === 'INITIALIZED') {
           ws.removeEventListener('message', handler);
           resolve(data);
         }
@@ -107,7 +111,7 @@ describe('Gateway WebSocket Server E2E', () => {
     const quizPromise = new Promise<WsEnvelope>((resolve) => {
       const handler = (evt: MessageEvent) => {
         const data = JSON.parse(evt.data.toString()) as WsEnvelope;
-        if ((data.payload as any)?.status === 'RECORDED') {
+        if (payloadField(data, 'status') === 'RECORDED') {
           ws.removeEventListener('message', handler);
           resolve(data);
         }
@@ -117,7 +121,7 @@ describe('Gateway WebSocket Server E2E', () => {
 
     ws.send(JSON.stringify(quizEnvelope));
     const quizReply = await quizPromise;
-    expect((quizReply.payload as any)?.persistedToDb).toBe(true);
+    expect(payloadField(quizReply, 'persistedToDb')).toBe(true);
 
     // 4. 发送 quiz.generate 自适应出题
     const genEnvelope: WsEnvelope = {
@@ -132,7 +136,7 @@ describe('Gateway WebSocket Server E2E', () => {
     const genPromise = new Promise<WsEnvelope>((resolve) => {
       const handler = (evt: MessageEvent) => {
         const data = JSON.parse(evt.data.toString()) as WsEnvelope;
-        if (Array.isArray((data.payload as any)?.questions)) {
+        if (Array.isArray(payloadField(data, 'questions'))) {
           ws.removeEventListener('message', handler);
           resolve(data);
         }
@@ -142,8 +146,8 @@ describe('Gateway WebSocket Server E2E', () => {
 
     ws.send(JSON.stringify(genEnvelope));
     const genReply = await genPromise;
-    expect((genReply.payload as any)?.questions?.length).toBe(1);
-    expect((genReply.payload as any)?.targetSkillId).toBeDefined();
+    expect((payloadField(genReply, 'questions') as unknown[])?.length).toBe(1);
+    expect(payloadField(genReply, 'targetSkillId')).toBeDefined();
 
     // 5. 发送 quiz.grade_subjective 主观题多维深度批改
     const gradeEnvelope: WsEnvelope = {
@@ -165,7 +169,7 @@ describe('Gateway WebSocket Server E2E', () => {
     const gradePromise = new Promise<WsEnvelope>((resolve) => {
       const handler = (evt: MessageEvent) => {
         const data = JSON.parse(evt.data.toString()) as WsEnvelope;
-        if ((data.payload as any)?.errorDiagnosis !== undefined) {
+        if (payloadField(data, 'errorDiagnosis') !== undefined) {
           ws.removeEventListener('message', handler);
           resolve(data);
         }
@@ -188,7 +192,7 @@ describe('Gateway WebSocket Server E2E', () => {
     const profileGetPromise = new Promise<WsEnvelope>((resolve) => {
       const handler = (evt: MessageEvent) => {
         const data = JSON.parse(evt.data.toString()) as WsEnvelope;
-        if ((data.payload as any)?.userId === testUserId) {
+        if (payloadField(data, 'userId') === testUserId) {
           ws.removeEventListener('message', handler);
           resolve(data);
         }
@@ -198,7 +202,7 @@ describe('Gateway WebSocket Server E2E', () => {
 
     ws.send(JSON.stringify(profileGetEnvelope));
     const profileGetReply = await profileGetPromise;
-    expect((profileGetReply.payload as any)?.studyGoal).toBe('JLPT_N2');
+    expect(payloadField(profileGetReply, 'studyGoal')).toBe('JLPT_N2');
 
     // 7. 测试更新 profile
     const profileUpdateEnvelope: WsEnvelope = {
@@ -228,9 +232,9 @@ describe('Gateway WebSocket Server E2E', () => {
 
     ws.send(JSON.stringify(profileUpdateEnvelope));
     const profileUpdateReply = await profileUpdatePromise;
-    expect((profileUpdateReply.payload as any)?.displayName).toBe('极光学者');
-    expect((profileUpdateReply.payload as any)?.studyGoal).toBe('JLPT_N1');
-    expect((profileUpdateReply.payload as any)?.dailyGoalQuizzes).toBe(6);
+    expect(payloadField(profileUpdateReply, 'displayName')).toBe('极光学者');
+    expect(payloadField(profileUpdateReply, 'studyGoal')).toBe('JLPT_N1');
+    expect(payloadField(profileUpdateReply, 'dailyGoalQuizzes')).toBe(6);
 
     // 8. 测试 HTTP 每日打卡端点
     const taskHttpRes = await fetch(`http://localhost:${TEST_PORT}/api/task/progress/${testUserId}`);

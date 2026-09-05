@@ -240,7 +240,15 @@ describe('P3-A 词典包安装与来源追溯', () => {
     const sourceRow = repo
       .getRawDb()
       .query('SELECT id, license_name, license_url, attribution, entry_count FROM dictionary_sources WHERE id = ?')
-      .get(KENGDIC_SOURCE_ID) as any;
+      .get(KENGDIC_SOURCE_ID) as
+      | {
+          id?: unknown;
+          license_name?: unknown;
+          license_url?: unknown;
+          attribution?: unknown;
+          entry_count?: unknown;
+        }
+      | undefined;
     expect(sourceRow).toBeDefined();
     expect(sourceRow?.license_name).toBe('CC BY-SA 3.0 / LGPL 2.0');
     expect(sourceRow?.attribution).toContain('Joe Speigle');
@@ -294,7 +302,7 @@ describe('P3-A 词典包安装与来源追溯', () => {
     const cardRow = repo
       .getRawDb()
       .query('SELECT id, front, back FROM flashcards WHERE id = ?')
-      .get(card.id) as any;
+      .get(card.id) as { id?: unknown; front?: unknown; back?: unknown } | undefined;
     expect(cardRow).toBeDefined();
     expect(cardRow?.front).toBe(entry.headword);
   });
@@ -324,7 +332,15 @@ describe('P3-A 词典包安装与来源追溯', () => {
     const sourceRow = repo
       .getRawDb()
       .query('SELECT id, license_name, license_url, attribution, entry_count FROM dictionary_sources WHERE id = ?')
-      .get(JMDICT_E_SOURCE_ID) as any;
+      .get(JMDICT_E_SOURCE_ID) as
+      | {
+          id?: unknown;
+          license_name?: unknown;
+          license_url?: unknown;
+          attribution?: unknown;
+          entry_count?: unknown;
+        }
+      | undefined;
     expect(sourceRow).toBeDefined();
     expect(sourceRow?.license_name).toBe('CC BY-SA 4.0');
     expect(sourceRow?.attribution).toContain('Breen');
@@ -389,7 +405,7 @@ describe('P3-A 词典包安装与来源追溯', () => {
     const cardRow = repo
       .getRawDb()
       .query('SELECT id, front, back FROM flashcards WHERE id = ?')
-      .get(card.id) as any;
+      .get(card.id) as { id?: unknown; front?: unknown; back?: unknown } | undefined;
     expect(cardRow).toBeDefined();
     expect(cardRow?.front).toBe('学生');
   });

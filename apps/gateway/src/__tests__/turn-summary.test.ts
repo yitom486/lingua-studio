@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { GatewayServer } from '../runtime/gateway-runtime.js';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { WsEventTypes, type WsEnvelope, type TurnExecutionSummary } from '@study-studio/protocol';
-import { isOk, BusinessError } from '@study-studio/shared';
+import { isOk, ok, err, BusinessError } from '@study-studio/shared';
 import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../runtime/turn-summary-builder.js';
 import type { AgentEvent, AgentSession } from '@study-studio/agent-core';
 import type { Result } from '@study-studio/shared';
@@ -152,7 +152,7 @@ function makeMockAdapter(opts: {
   streamError?: BusinessError;
 }): CodexAdapter {
   const threadId = opts.threadId ?? 'mock-thread-001';
-  const okResult = <T>(value: T): Result<T, BusinessError> => ({ ok: true, value } as any);
+  const okResult = <T>(value: T): Result<T, BusinessError> => ok(value);
 
   const session: AgentSession & {
     sendQueued(opts?: { queuedSubmissionId?: string; approvalPolicy?: string }): AsyncIterable<AgentEvent>;
@@ -213,15 +213,14 @@ function makeMockAdapter(opts: {
     name: 'Mock',
     async createSession(): Promise<Result<AgentSession, BusinessError>> {
       if (opts.scenario === 'session-create-fail') {
-        return {
-          ok: false,
-          error: new BusinessError(
+        return err(
+          new BusinessError(
             'E_CODEX_SESSION_CREATE',
             'Codex 登录态失效，请重新 login。',
             'AGENT_RUNTIME',
             true
-          ),
-        } as any;
+          )
+        );
       }
       return okResult(session);
     },
@@ -312,7 +311,7 @@ describe('P3-C Gateway 回合执行摘要（4 场景端到端）', () => {
     expect(summary?.failure?.code).toBe('E_CODEX_SESSION_CREATE');
     expect(summary?.failure?.userMessage).toBe('Codex 登录态失效，请重新 login。');
     expect(summary?.failure?.retryable).toBe(true);
-    expect((summary as any)?.codexOutcome).toBe('fallback');
+    expect((summary as unknown as { codexOutcome?: unknown })?.codexOutcome).toBe('fallback');
     expect(typeof summary?.elapsedMs).toBe('number');
     expect(summary?.failure?.userMessage).not.toMatch(/ECONN|fetch failed|stack/i);
   });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { app } from '../index.js';
-import { mapCategoryToHttpStatus } from '../errors/http-error-handler.js';
+import { mapCategoryToHttpStatus, type StandardErrorPayload } from '../errors/http-error-handler.js';
 import { BusinessError } from '@study-studio/shared';
 
 describe('Gateway Unified HTTP Error Handler', () => {
@@ -18,7 +18,7 @@ describe('Gateway Unified HTTP Error Handler', () => {
   it('should return 404 with structured BusinessError on non-existent route', async () => {
     const res = await app.request('/api/some-non-existent-route');
     expect(res.status).toBe(404);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as StandardErrorPayload;
     expect(body.success).toBe(false);
     expect(body.error).toBeDefined();
     expect(body.error.code).toBe('E_NOT_FOUND');
@@ -36,7 +36,7 @@ describe('Gateway Unified HTTP Error Handler', () => {
 
     const res = await testApp.request('/api/test-crash');
     expect(res.status).toBe(500);
-    const body = (await res.json()) as any;
+    const body = (await res.json()) as StandardErrorPayload;
     expect(body.success).toBe(false);
     expect(body.error.userMessage).toBeDefined();
     // 严禁暴露 raw SQLITE 堆栈给用户

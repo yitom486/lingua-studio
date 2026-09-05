@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { app } from '../index.js';
 import { isOk } from '@study-studio/shared';
+import type { KanaItem } from '@study-studio/protocol';
 
 describe('Curriculum Kana Repository & Seeds (Companion Integration)', () => {
   let repo: DrizzleLearnerRepository;
@@ -90,13 +91,13 @@ describe('Curriculum Kana Hono RPC Routes', () => {
   it('should get full kana and filtered kana via HTTP GET', async () => {
     const resAll = await app.request('/api/curriculum/kana');
     expect(resAll.status).toBe(200);
-    const allKana = (await resAll.json()) as any[];
+    const allKana = (await resAll.json()) as KanaItem[];
     expect(Array.isArray(allKana)).toBe(true);
     expect(allKana.length).toBeGreaterThanOrEqual(100);
 
     const resSeion = await app.request('/api/curriculum/kana?type=SEION');
     expect(resSeion.status).toBe(200);
-    const seion = (await resSeion.json()) as any[];
+    const seion = (await resSeion.json()) as KanaItem[];
     expect(seion.every((k) => k.type === 'SEION')).toBe(true);
   });
 
@@ -111,7 +112,7 @@ describe('Curriculum Kana Hono RPC Routes', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const data = (await res.json()) as any;
+    const data = (await res.json()) as { success?: unknown; proficiency?: unknown };
     expect(data.success).toBe(true);
     expect(typeof data.proficiency).toBe('number');
   });

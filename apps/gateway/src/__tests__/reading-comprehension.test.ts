@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { app } from '../index.js';
 import { isOk } from '@study-studio/shared';
+import type { ReadingPassageSet } from '@study-studio/protocol';
 
 describe('Reading Comprehension Repository & Seeds (Companion Integration)', () => {
   let sqlite: Database;
@@ -132,7 +133,7 @@ describe('Reading Comprehension Hono RPC Routes', () => {
   it('should list reading sets via GET /api/reading/sets/:userId', async () => {
     const res = await app.request(`/api/reading/sets/${testUserId}`);
     expect(res.status).toBe(200);
-    const data = (await res.json()) as any[];
+    const data = (await res.json()) as ReadingPassageSet[];
     expect(Array.isArray(data)).toBe(true);
     expect(data.length).toBeGreaterThan(0);
   });
@@ -152,7 +153,7 @@ describe('Reading Comprehension Hono RPC Routes', () => {
     });
 
     expect(res.status).toBe(200);
-    const created = (await res.json()) as any;
+    const created = (await res.json()) as ReadingPassageSet;
     expect(created.id).toBeDefined();
     expect(created.title).toContain('旅行と温泉');
     expect(created.questions.length).toBeGreaterThanOrEqual(2);
@@ -173,7 +174,7 @@ describe('Reading Comprehension Hono RPC Routes', () => {
     });
 
     expect(res.status).toBe(200);
-    const result = (await res.json()) as any;
+    const result = (await res.json()) as { success?: unknown; proficiency?: unknown };
     expect(result.success).toBe(true);
     expect(typeof result.proficiency).toBe('number');
   });

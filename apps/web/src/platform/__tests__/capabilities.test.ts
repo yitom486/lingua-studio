@@ -53,11 +53,13 @@ describe('WebPlatformCapabilities', () => {
       clipboard: { writeText: async () => {} },
       userAgent: 'TestAgent/1.0',
     };
-    // 保留 URL 上除 createObjectURL 外的现有实现
-    const urlCtor = originalCreateObjectURL ?? (globalThis as { URL?: object }).URL;
-    (globalThis as { URL?: object }).URL = Object.assign(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (urlCtor as any) ?? function () {},
+    // 保留 URL 上除 createObjectURL 外的现有实现（测试桩边界的显式断言）。
+    const urlCtor = (originalCreateObjectURL ??
+      (globalThis as { URL?: unknown }).URL) as unknown as
+      | (new (...args: never[]) => object)
+      | undefined;
+    (globalThis as { URL?: unknown }).URL = Object.assign(
+      urlCtor ?? function () {},
       {
         createObjectURL: () => 'blob:test',
         revokeObjectURL: () => {},

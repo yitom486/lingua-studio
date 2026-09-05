@@ -3,6 +3,7 @@ import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repo
 import { app } from '../index.js';
 import { isOk, isErr } from '@study-studio/shared';
 import type { DocumentItem, AnnotationItem } from '@study-studio/protocol';
+import type { StandardErrorPayload } from '../errors/http-error-handler.js';
 
 describe('Document & Annotation Repository (Companion Integration)', () => {
   let repo: DrizzleLearnerRepository;
@@ -192,7 +193,7 @@ describe('Document & Annotation Hono RPC Routes', () => {
 
     const getRes = await app.request(`/api/documents/${testUserId}`);
     expect(getRes.status).toBe(200);
-    const docs = (await getRes.json()) as any[];
+    const docs = (await getRes.json()) as DocumentItem[];
     expect(Array.isArray(docs)).toBe(true);
     expect(docs.some((d) => d.id === 'doc_http_test_01')).toBe(true);
   });
@@ -207,7 +208,7 @@ describe('Document & Annotation Hono RPC Routes', () => {
       }),
     });
     expect(postRes.status).toBe(400);
-    const body = (await postRes.json()) as any;
+    const body = (await postRes.json()) as StandardErrorPayload;
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('E_INVALID_INPUT');
     expect(body.error.userMessage).toContain('批注必须包含所属文档与划线摘录');

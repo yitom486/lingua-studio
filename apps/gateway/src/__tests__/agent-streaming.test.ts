@@ -53,15 +53,25 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
     // 验证 Delta 文本流非空
     const deltas = emittedEvents.filter((e) => e.type === WsEventTypes.AGENT_TEXT_DELTA);
     expect(deltas.length).toBeGreaterThan(1);
-    const accumulatedText = deltas.map((d) => (d.payload as any).delta).join('');
+    const accumulatedText = deltas
+      .map((d) => {
+        const delta = (d.payload as { delta?: unknown }).delta;
+        return typeof delta === 'string' ? delta : '';
+      })
+      .join('');
     expect(accumulatedText).toContain('例句');
 
     // 验证最终完成事件
     const completeEvt = emittedEvents.find((e) => e.type === WsEventTypes.AGENT_TURN_COMPLETED);
     expect(completeEvt).toBeDefined();
-    expect((completeEvt?.payload as any).status).toBe('COMPLETED');
-    expect((completeEvt?.payload as any).finalOutput).toBe(accumulatedText);
-    expect((completeEvt?.payload as any).codexOutcome).toBe('not_requested');
+    const completedPayload = (completeEvt?.payload ?? {}) as {
+      status?: unknown;
+      finalOutput?: unknown;
+      codexOutcome?: unknown;
+    };
+    expect(completedPayload.status).toBe('COMPLETED');
+    expect(completedPayload.finalOutput).toBe(accumulatedText);
+    expect(completedPayload.codexOutcome).toBe('not_requested');
   });
 
   it('should allow CLIENT_TURN_INTERRUPT to halt streaming generation', async () => {
@@ -101,7 +111,9 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
 
     // 验证流被中止并且状态为 INTERRUPTED
     const completeEvt = emittedEvents.find(
-      (e) => e.type === WsEventTypes.AGENT_TURN_COMPLETED && (e.payload as any).status === 'INTERRUPTED'
+      (e) =>
+        e.type === WsEventTypes.AGENT_TURN_COMPLETED &&
+        (e.payload as { status?: unknown }).status === 'INTERRUPTED'
     );
     expect(completeEvt).toBeDefined();
   });
