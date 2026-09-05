@@ -20,13 +20,15 @@
       "@study-studio/gateway": ["../gateway/src/index.ts"],
       "@study-studio/shared": ["../../packages/shared/src/index.ts"],
       "@study-studio/protocol": ["../../packages/protocol/src/index.ts"],
-      "@study-studio/learner-core": ["../../packages/learner-core/src/index.ts"]
+      "@study-studio/learner-core": ["../../packages/learner-core/src/index.ts"],
+      "@study-studio/tts-core": ["../../packages/tts-core/src/index.ts"]
     }
   },
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/protocol" },
     { "path": "../../packages/learner-core" },
+    { "path": "../../packages/tts-core" },
     { "path": "../gateway" }
   ],
   "include": ["src"]

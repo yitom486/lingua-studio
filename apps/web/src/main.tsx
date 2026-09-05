@@ -9,7 +9,11 @@ import {
 import { toast } from 'sonner';
 import { App } from './App.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
+import { ensureTtsEngines } from './tts/tts-engines.js';
 import './index.css';
+
+// TTS 引擎注册（默认 Web Speech 真机；未来神经引擎实现同一接口即可替换）。
+ensureTtsEngines();
 
 /** 后端 BusinessError 透出的 retryable 标记（error 为未知形状时一律视为可重试）。 */
 function isRetryableFalse(error: unknown): boolean {

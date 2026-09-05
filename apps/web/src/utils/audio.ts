@@ -4,6 +4,12 @@
  */
 
 import { logger } from '@study-studio/shared';
+import {
+  normalizeTtsTrackLanguage,
+  resolveTtsSpeakRequest,
+  scoreVoiceName,
+  type TtsPurpose,
+} from '@study-studio/tts-core';
 
 export type TtsGender = 'FEMALE' | 'MALE';
 export type SupportedLanguage = 'JA' | 'EN' | 'KO';
@@ -234,77 +240,17 @@ class SpeechStudioEngine {
     return this.voices.find((v) => v.voiceURI === voiceURI) ?? null;
   }
 
-  private scoreVoiceForGender(voice: SpeechSynthesisVoice, gender: TtsGender): number {
-    const name = voice.name.toLowerCase();
-    // 扩展名单：覆盖 Windows / Edge / Chrome 常见英日韩音色
-    const femaleHints = [
-      'nanami',
-      'jenny',
-      'zira',
-      'susan',
-      'samantha',
-      'kyoko',
-      'sunhi',
-      'yuna',
-      'heami',
-      'aria',
-      'jenny',
-      'michelle',
-      'sara',
-      'hazel',
-      'catherine',
-      'sonia',
-      'female',
-      'woman',
-      'girl',
-      '女士',
-      '女声',
-    ];
-    const maleHints = [
-      'keita',
-      'otoya',
-      'ichiro',
-      'guy',
-      'david',
-      'mark',
-      'daniel',
-      'james',
-      'george',
-      'ryan',
-      'christopher',
-      'eric',
-      'andrew',
-      'thomas',
-      'steffan',
-      'brian',
-      'ravi',
-      'injoon',
-      'bongjin',
-      'male',
-      'man',
-      'boy',
-      '男声',
-      '男士',
-    ];
-
-    let score = 0;
-    const own = gender === 'FEMALE' ? femaleHints : maleHints;
-    const opposite = gender === 'FEMALE' ? maleHints : femaleHints;
-
-    for (const kw of own) {
-      if (name.includes(kw)) score += 100;
-    }
-    for (const kw of opposite) {
-      if (name.includes(kw)) score -= 120;
-    }
-
-    // 本地桌面音色通常比单一 Google 云端音色更易分出男女
-    if (voice.localService) score += 15;
-    // 避免把含 Neural 但未点名的默认云端女声当男声高分
-    if (gender === 'MALE' && (name.includes('jenny') || name.includes('zira') || name.includes('aria'))) {
-      score -= 200;
-    }
-    return score;
+  private scoreVoiceForGender(
+    voice: SpeechSynthesisVoice,
+    gender: TtsGender,
+    lang: SupportedLanguage = 'EN'
+  ): number {
+    // 音色名线索表收归 tts-core（分语言）；此处仅做平台类型适配，数学不变。
+    return scoreVoiceName(
+      { name: voice.name, localService: voice.localService },
+      normalizeTtsTrackLanguage(lang.toLowerCase()),
+      gender
+    );
   }
 
   /**
@@ -327,7 +273,7 @@ class SpeechStudioEngine {
     let best: SpeechSynthesisVoice | null = null;
     let bestScore = -Infinity;
     for (const v of langVoices) {
-      const s = this.scoreVoiceForGender(v, gender);
+      const s = this.scoreVoiceForGender(v, gender, lang);
       if (s > bestScore) {
         bestScore = s;
         best = v;
@@ -337,7 +283,7 @@ class SpeechStudioEngine {
     // 若最高分仍 ≤0，说明没有正向性别线索：男声时尽量避开高分女声名
     if (best && bestScore <= 0 && gender === 'MALE') {
       const nonFemale = langVoices
-        .map((v) => ({ v, s: this.scoreVoiceForGender(v, 'MALE') }))
+        .map((v) => ({ v, s: this.scoreVoiceForGender(v, 'MALE', lang) }))
         .sort((a, b) => b.s - a.s);
       return nonFemale[0]?.v ?? best;
     }
@@ -348,7 +294,7 @@ class SpeechStudioEngine {
   /** 当前系统是否能为该语种找到「具名」对应性别音色 */
   public hasNamedGenderVoice(lang: SupportedLanguage, gender: TtsGender): boolean {
     const langVoices = this.listVoicesForLang(lang);
-    return langVoices.some((v) => this.scoreVoiceForGender(v, gender) >= 100);
+    return langVoices.some((v) => this.scoreVoiceForGender(v, gender, lang) >= 100);
   }
 
   private isSpeaking: boolean = false;
@@ -374,6 +320,12 @@ class SpeechStudioEngine {
       gender?: TtsGender;
       rate?: number;
       preferredVoiceURI?: string | null;
+      /** 朗读用途（听写更慢等），透传 tts-core 规约器；缺省 general。 */
+      purpose?: TtsPurpose;
+      /** 人设昵称（Jenny / 七海 / Yuna…），用于音色名匹配与上下文记录。 */
+      personaName?: string;
+      /** 神经引擎透传（voiceId 覆盖小外挂默认音色；Web Speech 忽略）。 */
+      neural?: { voiceId?: string; stylePrompt?: string };
       onStart?: (() => void) | undefined;
       onEnd?: (() => void) | undefined;
       onError?: ((err?: unknown) => void) | undefined;
@@ -386,7 +338,20 @@ class SpeechStudioEngine {
 
     const lang = options?.lang || 'EN';
     const gender = options?.gender || this.gender;
-    const rate = options?.rate || this.rate;
+    // 分语言提示词 / 上下文 / 语速规约（tts-core 纯函数；用户语速设置优先）。
+    const request = resolveTtsSpeakRequest({
+      text,
+      trackLanguage: lang.toLowerCase(),
+      purpose: options?.purpose ?? 'general',
+      prefs: {
+        gender,
+        rate: options?.rate ?? this.rate,
+        preferredVoiceURI: options?.preferredVoiceURI,
+        ...(options?.personaName ? { personaName: options.personaName } : {}),
+      },
+      ...(options?.neural ? { neural: options.neural } : {}),
+    });
+    const rate = request.rate;
     const hasNamed = this.hasNamedGenderVoice(lang, gender);
 
     this.isSpeaking = true;
@@ -408,7 +373,8 @@ class SpeechStudioEngine {
         const payload = {
           input: text,
           model: 'tts-1',
-          voice: gender === 'FEMALE' ? 'alloy' : 'echo',
+          voice: request.neural.voiceId || (gender === 'FEMALE' ? 'alloy' : 'echo'),
+          language: request.bcp47,
         };
         const res = await fetch(this.customPluginUrl, {
           method: 'POST',
@@ -456,13 +422,13 @@ class SpeechStudioEngine {
         utterance.voice = voice;
         utterance.lang = voice.lang;
       } else {
-        utterance.lang = lang === 'EN' ? 'en-US' : lang === 'KO' ? 'ko-KR' : 'ja-JP';
+        utterance.lang = request.bcp47;
       }
 
       utterance.rate = rate;
       // 无具名男声时大幅降调（Chrome 常只有一条 Google US English 女声）
       utterance.pitch =
-        gender === 'FEMALE' ? 1.08 : hasNamed ? 0.88 : 0.55;
+        gender === 'FEMALE' ? request.pitch : hasNamed ? request.pitch : 0.55;
 
       utterance.onstart = () => {
         this.isSpeaking = true;
