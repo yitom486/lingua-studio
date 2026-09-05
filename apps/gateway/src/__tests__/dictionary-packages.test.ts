@@ -7,6 +7,7 @@ import {
   listDictionaryPackages,
   installDictionaryPackage,
   parseKengdicTsv,
+  parseJmdictXml,
 } from '../services/dictionary-packages.js';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
 import { isOk, generateId } from '@study-studio/shared';
@@ -46,6 +47,38 @@ function makeFailingFetcher(status = 503): typeof fetch {
   return impl as unknown as typeof fetch;
 }
 
+// 构造一份足够大的 mock JMdict_e XML（≥ minEntryCount=100_000）以通过完整性校验
+function makeMockJmdictXml(rows = 100_001): string {
+  const parts: string[] = ['<JMdict>'];
+  for (let i = 1; i <= rows; i++) {
+    if (i === 1) {
+      parts.push(
+        '<entry><ent_seq>1000001</ent_seq><k_ele><keb>学生</keb></k_ele><r_ele><reb>がくせい</reb></r_ele><sense><pos>&n;</pos><gloss>student</gloss></sense></entry>'
+      );
+    } else {
+      parts.push(
+        `<entry><ent_seq>${1000000 + i}</ent_seq><k_ele><keb>単語${i}</keb></k_ele><r_ele><reb>たんご${i}</reb></r_ele><sense><pos>&n;</pos><gloss>word number ${i}</gloss></sense></entry>`
+      );
+    }
+  }
+  parts.push('</JMdict>');
+  return parts.join('');
+}
+
+function makeMockGzipFetcher(xml: string): typeof fetch {
+  const impl = async (_url: string): Promise<Response> => {
+    const gzipped = Bun.gzipSync(new TextEncoder().encode(xml));
+    return {
+      ok: true,
+      status: 200,
+      async arrayBuffer() {
+        return gzipped.buffer.slice(gzipped.byteOffset, gzipped.byteOffset + gzipped.byteLength);
+      },
+    } as unknown as Response;
+  };
+  return impl as unknown as typeof fetch;
+}
+
 describe('P3-A 词典包 manifest/catalog', () => {
   it('目录登记三种语种包，每个 manifest 含许可证/署名/来源 URL', () => {
     expect(DICTIONARY_PACKAGE_CATALOG.length).toBeGreaterThanOrEqual(3);
@@ -63,11 +96,12 @@ describe('P3-A 词典包 manifest/catalog', () => {
     }
   });
 
-  it('JMdict manifest 已登记但 installerReady=false（解析器待实现）', () => {
+  it('JMdict manifest 已登记且 installerReady=true（XML 解析器已实现）', () => {
     const jmdict = DICTIONARY_PACKAGE_CATALOG.find((m) => m.id === JMDICT_E_SOURCE_ID);
     expect(jmdict).toBeDefined();
-    expect(jmdict?.installerReady).toBe(false);
+    expect(jmdict?.installerReady).toBe(true);
     expect(jmdict?.licenseName).toBe('CC BY-SA 4.0');
+    expect(jmdict?.language).toBe('ja');
   });
 
   it('Kengdic manifest 标记为可安装', () => {
@@ -96,6 +130,41 @@ describe('P3-A Kengdic TSV 解析器', () => {
   });
 });
 
+describe('JMdict XML 解析器', () => {
+  const fixture = [
+    '<JMdict>',
+    '<entry><ent_seq>1000110</ent_seq><k_ele><keb>学生</keb></k_ele><r_ele><reb>がくせい</reb></r_ele><sense><pos>&n;</pos><gloss>student</gloss><gloss>pupil</gloss></sense></entry>',
+    '<entry><ent_seq>1000120</ent_seq><r_ele><reb>ひらがな</reb></r_ele><sense><pos>&n;</pos><gloss>hiragana</gloss><gloss xml:lang="fre">hiragana (fr)</gloss></sense></entry>',
+    '<entry><ent_seq>1000130</ent_seq><k_ele><keb>食べる</keb></k_ele><r_ele><reb>たべる</reb></r_ele><sense><pos>&v1;</pos><gloss>to eat</gloss></sense><sense><pos>&v1;</pos><gloss>to live on</gloss></sense></entry>',
+    '<entry><ent_seq>1000140</ent_seq><k_ele><keb>無釈義</keb></k_ele><r_ele><reb>むしゃくぎ</reb></r_ele><sense><pos>&n;</pos></sense></entry>',
+    '</JMdict>',
+  ].join('');
+
+  it('汉字表记取 keb、读音取 reb、词性映射、多释义聚合', () => {
+    const entries = parseJmdictXml(fixture);
+    expect(entries).toHaveLength(3);
+    expect(entries[0]?.id).toBe('jmdict-1000110');
+    expect(entries[0]?.headword).toBe('学生');
+    expect(entries[0]?.reading).toBe('がくせい');
+    expect(entries[0]?.partOfSpeech).toBe('noun');
+    expect(entries[0]?.meanings).toEqual(['student', 'pupil']);
+  });
+
+  it('无 keb 时 headword 取 reb 并置空 reading；非英文 gloss 被过滤', () => {
+    const entries = parseJmdictXml(fixture);
+    expect(entries[1]?.headword).toBe('ひらがな');
+    expect(entries[1]?.reading).toBeUndefined();
+    expect(entries[1]?.meanings).toEqual(['hiragana']);
+  });
+
+  it('多 sense 聚合释义、无英文释义的 entry 被跳过', () => {
+    const entries = parseJmdictXml(fixture);
+    expect(entries[2]?.headword).toBe('食べる');
+    expect(entries[2]?.partOfSpeech).toBe('ichidan verb');
+    expect(entries[2]?.meanings).toEqual(['to eat', 'to live on']);
+  });
+});
+
 describe('P3-A 词典包安装与来源追溯', () => {
   let repo: DrizzleLearnerRepository;
 
@@ -112,19 +181,19 @@ describe('P3-A 词典包安装与来源追溯', () => {
     }
   });
 
-  it('JMdict（installerReady=false）→ 友好错误，不下载', async () => {
-    const fetcher = jestLikeFailingFetcher();
+  it('JMdict 下载失败 → 不改库（dictionary_sources 仍为空，可读失败原因）', async () => {
     const res = await installDictionaryPackage(
       repo.getRawDb(),
       JMDICT_E_SOURCE_ID,
-      fetcher
+      makeFailingFetcher(503)
     );
     expect(isOk(res)).toBe(false);
     if (!isOk(res)) {
-      expect(res.error.code).toBe('E_DICTIONARY_PACKAGE_INSTALLER_NOT_READY');
-      expect(res.error.userMessage).toContain('解析器尚在实现中');
-      expect(res.error.userMessage).not.toMatch(/ECONN|fetch failed/i);
+      expect(res.error.userMessage.length).toBeGreaterThan(0);
+      expect(res.error.userMessage).not.toMatch(/at\s+\w+\.\w+|stack trace/i);
     }
+    const pkgs = listDictionaryPackages(repo.getRawDb()).filter((p) => p.installed);
+    expect(pkgs).toHaveLength(0);
   });
 
   it('下载失败 → 不改库（dictionary_sources 仍为空，可读失败原因）', async () => {
@@ -229,12 +298,99 @@ describe('P3-A 词典包安装与来源追溯', () => {
     expect(cardRow).toBeDefined();
     expect(cardRow?.front).toBe(entry.headword);
   });
-});
 
-// 辅助：用于「不应下载」断言的 fetcher（若被调用则抛错）
-function jestLikeFailingFetcher(): typeof fetch {
-  const impl = async (): Promise<Response> => {
-    throw new Error('JMdict 安装器未就绪，fetcher 不应被调用');
-  };
-  return impl as unknown as typeof fetch;
-}
+  it('JMdict 安装成功 → 来源可追溯（许可证/署名/条目数），汉字与读音均可检索', async () => {
+    const xml = makeMockJmdictXml();
+    const res = await installDictionaryPackage(
+      repo.getRawDb(),
+      JMDICT_E_SOURCE_ID,
+      makeMockGzipFetcher(xml)
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.installed).toBe(true);
+      expect(res.value.language).toBe('ja');
+      expect(res.value.licenseName).toBe('CC BY-SA 4.0');
+      expect(res.value.entryCount).toBeGreaterThanOrEqual(100_000);
+      expect(res.value.attribution).toContain('Breen');
+    }
+
+    const jmdictPkg = listDictionaryPackages(repo.getRawDb()).find(
+      (p) => p.id === JMDICT_E_SOURCE_ID
+    );
+    expect(jmdictPkg?.installed).toBe(true);
+    expect(jmdictPkg?.entryCount).toBeGreaterThanOrEqual(100_000);
+
+    const sourceRow = repo
+      .getRawDb()
+      .query('SELECT id, license_name, license_url, attribution, entry_count FROM dictionary_sources WHERE id = ?')
+      .get(JMDICT_E_SOURCE_ID) as any;
+    expect(sourceRow).toBeDefined();
+    expect(sourceRow?.license_name).toBe('CC BY-SA 4.0');
+    expect(sourceRow?.attribution).toContain('Breen');
+
+    // 按汉字检索（课程种子中亦有“学生”，按来源过滤到 JMdict 行）
+    const byKanji = await repo.searchLocalDictionary('ja', '学生');
+    expect(isOk(byKanji)).toBe(true);
+    if (isOk(byKanji)) {
+      const jmdictEntry = byKanji.value.find((e) => e.sourceLabel.includes('JMdict'));
+      expect(jmdictEntry).toBeDefined();
+      expect(jmdictEntry?.headword).toBe('学生');
+      expect(jmdictEntry?.reading).toBe('がくせい');
+      expect(jmdictEntry?.meanings).toContain('student');
+      expect(jmdictEntry?.licenseNote).toContain('CC BY-SA 4.0');
+    }
+
+    // 按假名读音检索
+    const byReading = await repo.searchLocalDictionary('ja', 'がくせい');
+    expect(isOk(byReading)).toBe(true);
+    if (isOk(byReading)) {
+      const jmdictEntry = byReading.value.find((e) => e.sourceLabel.includes('JMdict'));
+      expect(jmdictEntry).toBeDefined();
+      expect(jmdictEntry?.headword).toBe('学生');
+    }
+  });
+
+  it('JMdict 词条可收集为 FSRS 卡（下载/搜索/收集闭环）', async () => {
+    const xml = makeMockJmdictXml();
+    await installDictionaryPackage(
+      repo.getRawDb(),
+      JMDICT_E_SOURCE_ID,
+      makeMockGzipFetcher(xml)
+    );
+
+    const searchRes = await repo.searchLocalDictionary('ja', '学生');
+    expect(isOk(searchRes)).toBe(true);
+    if (!isOk(searchRes)) return;
+    // 课程种子中亦有“学生”，取 JMdict 来源行
+    const entry = searchRes.value.find((e) => e.sourceLabel.includes('JMdict'));
+    expect(entry).toBeDefined();
+    if (!entry) return;
+
+    const card: Flashcard = {
+      id: generateId('card'),
+      userId: 'student_ja_01',
+      type: 'VOCABULARY',
+      front: entry.headword,
+      back: entry.meanings.join('; '),
+      tags: ['ja', 'jmdict'],
+      fsrs: {
+        stability: 2.5,
+        difficulty: 4.8,
+        reps: 0,
+        lapses: 0,
+        dueAt: new Date().toISOString(),
+        state: 'NEW',
+      },
+    };
+    const saveRes = await repo.saveCard(card);
+    expect(isOk(saveRes)).toBe(true);
+
+    const cardRow = repo
+      .getRawDb()
+      .query('SELECT id, front, back FROM flashcards WHERE id = ?')
+      .get(card.id) as any;
+    expect(cardRow).toBeDefined();
+    expect(cardRow?.front).toBe('学生');
+  });
+});

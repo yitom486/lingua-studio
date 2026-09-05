@@ -70,10 +70,10 @@ export const DICTIONARY_PACKAGE_CATALOG: DictionaryPackageManifest[] = [
     attribution:
       'Contains data from JMdict/EDICT (CC BY-SA 4.0), © James William Breen and the EDRDG. See https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project',
     description:
-      '日语-英语离线词典（EDRDG JMdict_e）。manifest 已登记；XML 解析器待实现（2026-05 起 NG 版并行分发中，暂用 legacy 稳定版）。',
+      '日语-英语离线词典（EDRDG JMdict_e legacy 稳定版）。安装后词条保存在本机 SQLite，可离线检索；汉字表记可查，假名读音同步可检索。',
     parser: 'jmdict-xml',
     minEntryCount: 100_000,
-    installerReady: false,
+    installerReady: true,
   },
   {
     id: KENGDIC_SOURCE_ID,
@@ -113,6 +113,8 @@ export type DictionaryPackage = {
 type ParsedEntry = {
   id: string;
   headword: string;
+  /** 日语包：假名读音（kana reading），写入 reading 列供读音检索；其他包可空 */
+  reading?: string | undefined;
   partOfSpeech?: string;
   pronunciation?: string;
   meanings: string[];
@@ -247,6 +249,128 @@ async function loadKengdicTsv(fetcher: Fetcher): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// JMdict（日语）解析器：EDRDG JMdict_e legacy 版（entry/k_ele/r_ele/sense 结构）
+// NG 版（lsrc/全新 schema）不在此解析器覆盖范围，见 DICTIONARY-SOURCING-REPORT。
+// ---------------------------------------------------------------------------
+
+/**
+ * JMdict 词性实体 → 可读英文标签（高频子集；未收录实体回退为去 &; 后的原始名）。
+ * 静态配置表：见 STATIC-DATA-INVENTORY 登记（P1 配置保留）。
+ */
+export const JMDICT_POS_LABELS: Record<string, string> = {
+  n: 'noun',
+  'adj-na': 'adjectival noun',
+  'adj-no': 'pre-noun adjectival',
+  'adj-i': 'i-adjective',
+  'adj-pn': 'pre-noun adjectival (prenominal)',
+  'adj-t': 'tari adjective',
+  adv: 'adverb',
+  'adv-to': 'adverb taking the to particle',
+  aux: 'auxiliary',
+  'aux-v': 'auxiliary verb',
+  'aux-adj': 'auxiliary adjective',
+  conj: 'conjunction',
+  cop: 'copula',
+  ctr: 'counter',
+  exp: 'expression',
+  int: 'interjection',
+  'n-adv': 'adverbial noun',
+  'n-suf': 'noun suffix',
+  'n-pref': 'noun prefix',
+  'n-t': 'noun (temporal)',
+  num: 'numeric',
+  pn: 'pronoun',
+  pref: 'prefix',
+  prt: 'particle',
+  suf: 'suffix',
+  unc: 'unclassified',
+  v1: 'ichidan verb',
+  'v1-s': 'ichidan verb (kureru special)',
+  v5aru: 'godan verb (aru special)',
+  v5b: 'godan verb (bu ending)',
+  v5g: 'godan verb (gu ending)',
+  v5k: 'godan verb (ku ending)',
+  v5m: 'godan verb (mu ending)',
+  v5n: 'godan verb (nu ending)',
+  v5r: 'godan verb (ru ending)',
+  v5s: 'godan verb (su ending)',
+  v5t: 'godan verb (tsu ending)',
+  v5u: 'godan verb (u ending)',
+  vi: 'intransitive verb',
+  vk: 'kuru verb (special)',
+  vn: 'irregular nu verb',
+  vs: 'suru verb (noun+する)',
+  'vs-c': 'su verb (precursor to modern suru)',
+  'vs-i': 'suru verb (included)',
+  'vs-s': 'suru verb (special)',
+  vt: 'transitive verb',
+};
+
+function jmdictPosLabel(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const name = raw.replace(/^&/, '').replace(/;$/, '');
+  return JMDICT_POS_LABELS[name] ?? name;
+}
+
+/**
+ * 将 JMdict_e XML 解析为可导入的扁平词条。
+ * - headword 取首 keb（汉字表记），无 keb 时取首 reb（假名表记）；
+ * - reading 取首 reb（与 headword 相同时置空，避免重复）；
+ * - 仅收英文 gloss（无 xml:lang 或 xml:lang="en"/"eng"），聚合全部 sense，上限 4 条；
+ * - partOfSpeech 取首 sense 的首个 pos 映射标签；
+ * - 无 headword 或无英文释义的 entry 跳过。
+ */
+export function parseJmdictXml(xml: string): ParsedEntry[] {
+  const entries: ParsedEntry[] = [];
+  for (const match of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)) {
+    const body = match[1]!;
+    const entSeq = /<ent_seq>(\d+)<\/ent_seq>/.exec(body)?.[1];
+    if (!entSeq) continue;
+
+    const keb = /<k_ele>[\s\S]*?<keb>([\s\S]*?)<\/keb>/.exec(body)?.[1];
+    const reb = /<r_ele>[\s\S]*?<reb>([\s\S]*?)<\/reb>/.exec(body)?.[1];
+    const headword = keb ? decodeXml(keb) : reb ? decodeXml(reb) : undefined;
+    if (!headword) continue;
+
+    const meanings: string[] = [];
+    let partOfSpeech: string | undefined;
+    for (const senseMatch of body.matchAll(/<sense>([\s\S]*?)<\/sense>/g)) {
+      const sense = senseMatch[1]!;
+      if (!partOfSpeech) {
+        const posRaw = /<pos>([^<]*)<\/pos>/.exec(sense)?.[1];
+        if (posRaw) partOfSpeech = jmdictPosLabel(decodeXml(posRaw));
+      }
+      for (const glossMatch of sense.matchAll(/<gloss\b([^>]*)>([\s\S]*?)<\/gloss>/g)) {
+        const lang = readAttribute(glossMatch[1]!, 'xml:lang')?.toLowerCase();
+        if (lang && lang !== 'en' && lang !== 'eng') continue;
+        const gloss = decodeXml(glossMatch[2]!);
+        if (gloss && !meanings.includes(gloss)) meanings.push(gloss);
+        if (meanings.length >= 4) break;
+      }
+      if (meanings.length >= 4) break;
+    }
+    if (meanings.length === 0) continue;
+
+    const reading = reb ? decodeXml(reb) : undefined;
+    entries.push({
+      id: `jmdict-${entSeq}`,
+      headword,
+      ...(reading && reading !== headword ? { reading } : {}),
+      ...(partOfSpeech ? { partOfSpeech } : {}),
+      meanings,
+    });
+  }
+  return entries;
+}
+
+async function loadJmdictXml(fetcher: Fetcher): Promise<string> {
+  const response = await fetcher(JMDICT_E_URL);
+  if (!response.ok) throw new Error(`JMdict download failed: HTTP ${response.status}`);
+  const compressed = new Uint8Array(await response.arrayBuffer());
+  return new TextDecoder().decode(Bun.gunzipSync(compressed));
+}
+
+// ---------------------------------------------------------------------------
 // 通用安装：事务替换，失败不改库
 // ---------------------------------------------------------------------------
 
@@ -263,13 +387,14 @@ function insertEntries(
     INSERT INTO local_dictionary_entries (
       id, language, headword, reading, romanization, meanings_json,
       pronunciation_json, part_of_speech, source_id, source_label, license_note, created_at
-    ) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const entry of entries) {
     insert.run(
       `${manifest.id}:${entry.id}`,
       manifest.language,
       entry.headword,
+      entry.reading ?? null,
       JSON.stringify(entry.meanings),
       entry.pronunciation ? JSON.stringify({ ipa: entry.pronunciation }) : null,
       entry.partOfSpeech ?? null,
@@ -400,6 +525,9 @@ export async function installDictionaryPackage(
   }
   if (manifest.parser === 'kengdic-tsv') {
     return installFromManifest(sqlite, manifest, fetcher, () => loadKengdicTsv(fetcher), parseKengdicTsv);
+  }
+  if (manifest.parser === 'jmdict-xml') {
+    return installFromManifest(sqlite, manifest, fetcher, () => loadJmdictXml(fetcher), parseJmdictXml);
   }
   return err(
     new BusinessError('E_UNSUPPORTED', `解析器「${manifest.parser}」尚未实现。`, 'AGENT_RUNTIME')
