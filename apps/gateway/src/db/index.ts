@@ -14,6 +14,7 @@ import {
 } from './seeds/learning-seed.js';
 import { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
 import { PITCH_LEXICON } from './seeds/pitch-seed.js';
+import { TEXTBOOK_BOOKS } from './seeds/textbook-seed.js';
 
 export * from './schema.js';
 export { KANA_SEEDS } from './seeds/kana-seed.js';
@@ -29,6 +30,7 @@ export {
 } from './seeds/learning-seed.js';
 export { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
 export { PITCH_LEXICON } from './seeds/pitch-seed.js';
+export { TEXTBOOK_BOOKS } from './seeds/textbook-seed.js';
 
 
 export type DrizzleDb = BunSQLiteDatabase<typeof schema>;
@@ -565,6 +567,35 @@ export function initSchema(sqlite: Database): void {
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed reading passages:', e);
+    }
+
+    // 2.5 自动填充内置课程教材（若缺；增量补种，按文档 id 去重）
+    try {
+      const insertTextbookIgnore = sqlite.prepare(`
+        INSERT OR IGNORE INTO documents (
+          id, user_id, title, source_kind, language, content, ast_json, topic, difficulty, source_url, source_publisher, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const now = new Date().toISOString();
+      for (const book of TEXTBOOK_BOOKS) {
+        insertTextbookIgnore.run(
+          book.id,
+          'default_user',
+          book.title,
+          'curriculum_textbook',
+          (book.language || 'JA').toLowerCase(),
+          book.title,
+          JSON.stringify(book),
+          'curriculum',
+          1,
+          null,
+          book.publisher,
+          now,
+          now
+        );
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed curriculum textbooks:', e);
     }
 
     // 3. 自动填充 FSRS 闪卡初始种子（按语种分仓）

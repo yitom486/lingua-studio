@@ -8,7 +8,7 @@ import type {
   MistakeNotebookItem,
   QuizQuestionItem,
   StudyCardItem,
-} from '../data/learning-data.js';
+} from '../models/learning.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { normalizeTrackLanguage } from '../learning/learning-shell.js';

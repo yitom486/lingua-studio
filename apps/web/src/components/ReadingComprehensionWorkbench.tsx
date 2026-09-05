@@ -37,11 +37,8 @@ import { Progress } from './ui/progress.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import { toPlainReadingText } from '../utils/plain-text.js';
-import {
-  DEMO_READING_SETS,
-  NEWS_TOPIC_OPTIONS,
-  type PassageOrigin,
-} from '../data/reading-demo-data.js';
+import type { ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
+import { NEWS_TOPICS } from '@study-studio/protocol';
 import {
   useReadingSetsQuery,
   useGenerateReadingSetMutation,
@@ -50,7 +47,6 @@ import {
   useAddCardsMutation,
   useNewsTopicsQuery,
 } from '../queries/useLearnerQueries.js';
-import type { ReadingPassageSet } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 import { PlanIntentBanner } from './PlanIntentBanner.js';
 
@@ -67,14 +63,14 @@ export function ReadingComprehensionWorkbench({
   const furiganaEnabled = usePreferencesStore((s) => s.furiganaEnabled);
   const toggleFurigana = usePreferencesStore((s) => s.toggleFurigana);
 
-  const [origin, setOrigin] = useState<PassageOrigin>('ai');
+  const [origin, setOrigin] = useState<'ai' | 'news'>('ai');
   // 阅读内容由当前学习轨道决定，不在工作台内提供跨语言切换。
   const readingLanguage = shell.defaultReadingLang;
   const [aiDifficulty, setAiDifficulty] = useState('2');
   const [newsTopic, setNewsTopic] = useState('world');
 
   // TanStack Query 服务端状态对接
-  const { data: newsTopics = NEWS_TOPIC_OPTIONS } = useNewsTopicsQuery();
+  const { data: newsTopics = NEWS_TOPICS } = useNewsTopicsQuery();
   const { data: dbReadingSets = [], isLoading: isSetsLoading } = useReadingSetsQuery(
     origin,
     readingLanguage
@@ -84,15 +80,9 @@ export function ReadingComprehensionWorkbench({
   const addAnnotationMutation = useAddAnnotationMutation();
   const addCardsMutation = useAddCardsMutation();
 
-  // 有库数据时不再 merge 前端 DEMO；仅空库/失败时兜底
-  const combinedSets: ReadingPassageSet[] = useMemo(() => {
-    if (dbReadingSets.length > 0) return dbReadingSets;
-    return DEMO_READING_SETS.filter((demo) => {
-      if (origin && demo.origin !== origin) return false;
-      if (demo.language !== readingLanguage) return false;
-      return true;
-    });
-  }, [dbReadingSets, origin, readingLanguage]);
+  // 阅读篇目仅来自 Gateway / SQLite；空结果表示当前筛选条件确实无篇目，
+  // 由已有空状态提示导入或生成，不再静默回退前端演示文章。
+  const combinedSets: ReadingPassageSet[] = useMemo(() => dbReadingSets, [dbReadingSets]);
 
   const [activeSetId, setActiveSetId] = useState<string>('');
   const [stepIndex, setStepIndex] = useState(0);
@@ -143,7 +133,7 @@ export function ReadingComprehensionWorkbench({
   const progressPct = ((stepIndex + (submitted ? 1 : 0)) / totalQuestions) * 100;
 
   // 切换篇目来源
-  const switchOrigin = (next: PassageOrigin) => {
+  const switchOrigin = (next: 'ai' | 'news') => {
     sound.playClick();
     speechStudio.stop();
     setIsPlayingAudio(false);
@@ -713,7 +703,7 @@ export function ReadingComprehensionWorkbench({
 
         <div className="flex flex-wrap items-center gap-2">
           {/* 篇目来源切换 */}
-          <Tabs value={origin} onValueChange={(v) => v && switchOrigin(v as PassageOrigin)}>
+          <Tabs value={origin} onValueChange={(v) => v && switchOrigin(v as 'ai' | 'news')}>
             <TabsList className="bg-stone-200/60 dark:bg-stone-800">
               <TabsIndicator />
               <TabsTrigger value="ai" className="text-xs gap-1">

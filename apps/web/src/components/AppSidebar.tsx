@@ -34,7 +34,7 @@ import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { useStudySessionStore, type NavigationTab } from '../stores/useStudySessionStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
-import { findStudyGoalOption } from '../data/learner-profile-options.js';
+import { findStudyGoalOption } from '../config/learner-profile-options.js';
 import {
   SIDEBAR_AST_SECTION,
   SIDEBAR_AST_TREE,
@@ -48,7 +48,7 @@ import {
   type SidebarIconKey,
   type SidebarNavItemDef,
   type SidebarRuntimeCounts,
-} from '../data/sidebar-nav-data.js';
+} from '../config/sidebar-nav.js';
 import {
   useCardsQuery,
   useLearnerProfileQuery,

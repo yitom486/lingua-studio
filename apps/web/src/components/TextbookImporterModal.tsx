@@ -14,8 +14,8 @@ import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
 import { sound } from '../utils/audio.js';
 import { getPlatform } from '../platform/capabilities.js';
-import type { TextbookBook, FuriganaWord } from '../data/textbook-data.js';
-import { SAMPLE_TEXTBOOK_JSON } from '../data/textbook-sample-ast.js';
+import type { TextbookBook, FuriganaWord } from '../models/textbook.js';
+import { SAMPLE_TEXTBOOK_JSON } from '../fixtures/textbook-sample-ast.js';
 import {
   Dialog,
   DialogContent,

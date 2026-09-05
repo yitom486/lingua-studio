@@ -22,7 +22,7 @@ import {
 import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
-import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../data/textbook-data.js';
+import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../models/textbook.js';
 import { useAnnotationsQuery, useAddAnnotationMutation } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';

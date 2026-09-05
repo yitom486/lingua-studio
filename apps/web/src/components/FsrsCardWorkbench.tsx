@@ -8,14 +8,14 @@ import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useCardsQuery, useUpdateCardMutation } from '../queries/useLearnerQueries.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
-import { trackToSpeechLang } from '../data/tts-voice-personas.js';
+import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
 import { DictionaryLookupPanel } from './DictionaryLookupPanel.js';
 import { PlanIntentBanner } from './PlanIntentBanner.js';
-import type { StudyCardItem } from '../data/learning-data.js';
+import type { StudyCardItem } from '../models/learning.js';
 
 export function FsrsCardWorkbench() {
   const { data: cards = [] } = useCardsQuery();

@@ -279,17 +279,14 @@ export function usePitchLexiconQuery(search = '') {
       try {
         const qs = search ? `?q=${encodeURIComponent(search)}` : '';
         const res = await fetch(`${GATEWAY_BASE_URL}/api/curriculum/pitch${qs}`);
-        if (res.ok) {
-          const data = (await res.json()) as { pitchEntries?: PitchLexiconItem[] };
-          if (Array.isArray(data.pitchEntries) && data.pitchEntries.length > 0) {
-            return data.pitchEntries;
-          }
-        }
+        if (!res.ok) throw new Error('暂时无法读取声调基准词表，请稍后重试。');
+        const data = (await res.json()) as { pitchEntries?: PitchLexiconItem[] };
+        if (!Array.isArray(data.pitchEntries)) throw new Error('声调基准词表返回格式异常。');
+        return data.pitchEntries;
       } catch (e) {
-        console.warn('[usePitchLexiconQuery] fallback to local demo lexicon', e);
+        console.warn('[usePitchLexiconQuery] gateway request failed', e);
+        throw e instanceof Error ? e : new Error('暂时无法读取声调基准词表。');
       }
-      const { BENCHMARK_PITCH_WORDS } = await import('../data/pitch-accent-demo-data.js');
-      return BENCHMARK_PITCH_WORDS as PitchLexiconItem[];
     },
     staleTime: 1000 * 60 * 10,
   });

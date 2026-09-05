@@ -1,73 +1,9 @@
-export interface FuriganaWord {
-  surface: string;
-  reading?: string;
-  romaji?: string;
-  meaning?: string;
-  pos?: string;
-  pitchAccent?: string; // e.g. "⓪ 平板型"
-}
-
-export interface TextbookSentence {
-  id: string;
-  speaker: string;
-  speakerAvatar?: string;
-  japanese: string;
-  furiganaTokens: FuriganaWord[];
-  chinese: string;
-  grammarNotes?: string[];
-}
-
-export interface TextbookVocabulary {
-  id: string;
-  kanji: string;
-  kana: string;
-  romaji: string;
-  chinese: string;
-  pos: string; // 词性: 名词, 动词I类, 形容词 等
-  pitchAccent: string; // 声调: ⓪ ① ② 等
-  pitchType: '平板型' | '头高型' | '中高型' | '尾高型';
-  exampleSentence: string;
-  exampleTranslation: string;
-}
-
-export interface TextbookGrammarPoint {
-  id: string;
-  title: string;
-  structure: string; // 接续方式: 名词 + は + 名词 + です
-  explanation: string;
-  contrast?: string; // 易混淆辨析
-  examples: {
-    ja: string;
-    zh: string;
-  }[];
-}
-
-export interface TextbookLesson {
-  id: string;
-  bookId: string;
-  lessonNumber: number;
-  title: string;
-  subTitle: string;
-  targetLevel: string;
-  scene: string; // 场景: 见面初次寒暄, 购物问路等
-  dialogues: TextbookSentence[];
-  vocabularies: TextbookVocabulary[];
-  grammarPoints: TextbookGrammarPoint[];
-  associatedQuizTag: string; // 关联题库标签
-}
-
-export interface TextbookBook {
-  id: string;
-  language?: 'JA' | 'EN' | 'KO';
-  title: string;
-  shortTitle: string;
-  publisher: string;
-  totalLessons: number;
-  level: string;
-  lessons: TextbookLesson[];
-}
-
-export const TEXTBOOK_BOOKS: TextbookBook[] = [
+/**
+ * 内置课程教材资产（Gateway 种子，SSOT）。
+ * 由 apps/web/src/data/textbook-data.ts 迁入：教材 AST 启动时入库到 documents 表，
+ * 前端仅保留类型定义，不再内置任何教材内容兜底。
+ */
+export const TEXTBOOK_BOOKS = [
   {
     id: 'biaori-primary-1',
     language: 'JA',

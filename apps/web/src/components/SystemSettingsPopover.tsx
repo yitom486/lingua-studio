@@ -35,7 +35,7 @@ import {
   getPreviewText,
   getTtsVoicePack,
   trackToSpeechLang,
-} from '../data/tts-voice-personas.js';
+} from '../config/tts-voice-personas.js';
 import {
   useDictionaryPackagesQuery,
   useInstallDictionaryPackageMutation,

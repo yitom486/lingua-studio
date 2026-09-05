@@ -18,7 +18,7 @@ import { SubjectiveWritingWorkbench } from './SubjectiveWritingWorkbench.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
-import type { QuizQuestionItem } from '../data/learning-data.js';
+import type { QuizQuestionItem } from '../models/learning.js';
 import { toUiQuizType } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';

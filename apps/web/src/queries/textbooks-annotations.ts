@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/api-client.js';
-import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
+import type { TextbookBook } from '../models/textbook.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
 
 /** P1-2 拆分：教材 / 批注组（自 useLearnerQueries.ts 逐行平移，仅改 import）。 */
 
 /**
- * 教材知识树查询 (支持 Hono RPC 动态获取持久化教材并与内置教材合流)
+ * 教材知识树查询（Gateway documents 为 SSOT；空库 / 失败时返回空数组，
+ * 由 UI 显式提示导入或等待内置课程种子，不再回退到前端内置教材内容）。
  */
 export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
   return useQuery<TextbookBook[]>({
@@ -30,15 +31,13 @@ export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
                 }
               }
             }
-            if (dynamicBooks.length > 0) {
-              return dynamicBooks;
-            }
+            return dynamicBooks;
           }
         }
       } catch (e) {
-        console.warn('[useTextbooksQuery] Hono RPC fallback to local textbook assets', e);
+        console.warn('[useTextbooksQuery] failed to load documents from gateway', e);
       }
-      return TEXTBOOK_BOOKS;
+      return [];
     },
     staleTime: 1000 * 60 * 5,
   });

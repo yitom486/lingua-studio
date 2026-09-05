@@ -21,12 +21,14 @@ import { Progress } from './ui/progress.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
-import { BENCHMARK_PITCH_WORDS, type PitchWord } from '../data/pitch-accent-demo-data.js';
 import { useDictionaryLookupQuery, usePitchLexiconQuery } from '../queries/useLearnerQueries.js';
+import type { PitchLexiconItem } from '../queries/useLearnerQueries.js';
 
 export function PitchAccentCoach() {
-  const { data: lexicon = BENCHMARK_PITCH_WORDS } = usePitchLexiconQuery();
-  const words = (lexicon.length > 0 ? lexicon : BENCHMARK_PITCH_WORDS) as PitchWord[];
+  const pitchQuery = usePitchLexiconQuery();
+  // 词表唯一来源：Gateway curriculum.pitch（本地词典库 SSOT）；
+  // 加载失败 / 空列表由下方空状态显式呈现，不再回退前端演示词表。
+  const words = pitchQuery.data ?? [];
   const [selectedWordIndex, setSelectedWordIndex] = useState(0);
   const [dictionaryInput, setDictionaryInput] = useState('');
   const [dictionaryQuery, setDictionaryQuery] = useState('');
@@ -46,7 +48,27 @@ export function PitchAccentCoach() {
   const animFrameIdRef = useRef<number | null>(null);
 
   const safeIndex = Math.min(selectedWordIndex, Math.max(words.length - 1, 0));
-  const currentWord = words[safeIndex] ?? words[0]!;
+  const currentWord: PitchLexiconItem | undefined = words[safeIndex] ?? words[0];
+
+  if (!currentWord) {
+    return (
+      <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-10 border border-amber-900/10 dark:border-amber-500/15 shadow-sm text-center space-y-3">
+        <AlertCircle className="w-8 h-8 mx-auto text-amber-500" />
+        <p className="text-sm text-stone-600 dark:text-stone-300">
+          {pitchQuery.isError
+            ? '声调基准词表加载失败，请确认 Gateway 已启动后重试。'
+            : pitchQuery.isLoading
+              ? '正在从 Gateway 读取声调基准词表…'
+              : '本地词典库暂无声调基准词条，请先安装日语词典包。'}
+        </p>
+        {pitchQuery.isError && (
+          <Button variant="outline" size="sm" onClick={() => pitchQuery.refetch()}>
+            重新加载
+          </Button>
+        )}
+      </div>
+    );
+  }
 
   // 播放标准音调模拟（双音纯音演示高低调）
   const playStandardPitch = (pattern: ('L' | 'H')[], moras: string[]) => {

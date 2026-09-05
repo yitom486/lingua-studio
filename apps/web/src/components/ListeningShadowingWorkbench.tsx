@@ -18,8 +18,8 @@ import {
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
 import { toast } from 'sonner';
-import { type TextbookLesson, type TextbookSentence } from '../data/textbook-data.js';
-import { DICTATION_CHALLENGES, type DictationItem } from '../data/dictation-demo-data.js';
+import { type TextbookLesson, type TextbookSentence } from '../models/textbook.js';
+import { type DictationItem } from '../models/practice.js';
 import { useGenerateDictationMutation, useTextbooksQuery } from '../queries/useLearnerQueries.js';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 import { useTts } from '../hooks/useTts.js';
@@ -94,8 +94,8 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
   const setMaskText = usePreferencesStore((s) => s.setMaskTextEnabled);
   const [shadowStep, setShadowStep] = useState<'IDLE' | 'LISTENING' | 'SHADOWING'>('IDLE');
 
-  // 挖词听写状态
-  const [dictationPool, setDictationPool] = useState<DictationItem[]>(DICTATION_CHALLENGES);
+  // 挖词听写状态（题池由 Gateway learning.content 生成；空池时显式提示，不内置演示题）
+  const [dictationPool, setDictationPool] = useState<DictationItem[]>([]);
   const [dictationIndex, setDictationIndex] = useState<number>(0);
   const [userInput, setUserInput] = useState<string>('');
   const [hasChecked, setHasChecked] = useState<boolean>(false);
@@ -103,7 +103,8 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
   const generateDictation = useGenerateDictationMutation();
 
   const activeSentence: TextbookSentence | undefined = activeLesson?.dialogues[sentenceIndex];
-  const activeDictation = dictationPool[dictationIndex] ?? dictationPool[0]!;
+  const activeDictation: DictationItem | undefined =
+    dictationPool[dictationIndex] ?? dictationPool[0];
 
   // 播放当前句子并驱动影子跟读流程
   const playActiveSentence = () => {
@@ -142,7 +143,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
     } else {
       if (activeSubMode === 'SHADOWING' && activeSentence) {
         playActiveSentence();
-      } else if (activeSubMode === 'DICTATION') {
+      } else if (activeSubMode === 'DICTATION' && activeDictation) {
         speak(activeDictation.fullJapanese, { lang: 'JA' });
       }
     }
@@ -174,6 +175,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
 
   // 挖词听写提交比对
   const handleCheckDictation = () => {
+    if (!activeDictation) return;
     if (!userInput.trim()) {
       toast.warning('请输入您听到的假名或助词');
       return;
@@ -231,9 +233,10 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
       setHasChecked(false);
       setIsDictationCorrect(null);
       toast.success('已从 learning.content 刷新听写题池');
-    } catch {
-      toast.message('网关不可用，继续使用本地听写题池');
-      setDictationPool(DICTATION_CHALLENGES);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : '暂时无法生成听写题，请确认 Gateway 已启动后重试。'
+      );
     }
   };
 
@@ -592,6 +595,22 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
       {/* ========================================================================= */}
       {activeSubMode === 'DICTATION' && (
         <div className="flex flex-col gap-5">
+          {!activeDictation ? (
+            <div className="p-10 rounded-2xl bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm text-center space-y-4">
+              <Sparkles className="w-8 h-8 mx-auto text-amber-500" />
+              <p className="text-sm text-stone-600 dark:text-stone-300">
+                题池为空。听写题由 Gateway learning.content 依据教材考点实时生成并入库，不内置演示题。
+              </p>
+              <Button
+                onClick={handleRefreshDictation}
+                disabled={generateDictation.isPending}
+                className="bg-gradient-to-tr from-amber-500 to-amber-600 hover:brightness-105"
+              >
+                <Sparkles className="w-4 h-4 mr-1" />
+                {generateDictation.isPending ? '生成中…' : '生成听写题'}
+              </Button>
+            </div>
+          ) : (
           <motion.div
             key={activeDictation.id}
             initial={{ opacity: 0, y: 6 }}
@@ -707,6 +726,7 @@ export const ListeningShadowingWorkbench: React.FC<ListeningShadowingWorkbenchPr
               </motion.div>
             )}
           </motion.div>
+          )}
         </div>
       )}
     </div>

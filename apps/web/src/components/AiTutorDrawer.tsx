@@ -21,16 +21,12 @@ import {
   buildTutorOfflineReply,
   buildTutorOpeningGreeting,
   getTutorTrackCopy,
-} from '../data/tutor-track-copy.js';
+} from '../copy/tutor-track-copy.js';
 import { normalizeTrackLanguage, type TrackLanguage } from '../learning/learning-shell.js';
 
-export interface AiTutorContext {
-  questionText: string;
-  userAnswer?: string | undefined;
-  correctAnswer: string;
-  skillTag: string;
-  explanation: string;
-}
+import type { AiTutorContext } from '../stores/tutor-context.js';
+
+export type { AiTutorContext };
 
 interface MessageItem {
   id: string;

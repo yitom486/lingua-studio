@@ -18,10 +18,7 @@ import type { QuizGradingResult } from '@study-studio/protocol';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
-import {
-  INITIAL_SUBJECTIVE_EXERCISES,
-  type SubjectiveExercise,
-} from '../data/subjective-demo-data.js';
+import type { SubjectiveExercise } from '../models/practice.js';
 import {
   useGenerateWritingPromptsMutation,
   type WritingPromptItem,
@@ -55,9 +52,8 @@ export function SubjectiveWritingWorkbench({
   difficulty = 3,
 }: SubjectiveWritingWorkbenchProps) {
   const gradeSubjective = useGradeSubjectiveMutation();
-  const [localExercises, setLocalExercises] = useState<SubjectiveExercise[]>(
-    INITIAL_SUBJECTIVE_EXERCISES
-  );
+  // 题干由 Gateway learning.content 生成；空列表显式提示生成，不内置演示题干
+  const [localExercises, setLocalExercises] = useState<SubjectiveExercise[]>([]);
   const exercises = controlledExercises ?? localExercises;
   const setExercises = (next: SubjectiveExercise[]) => {
     if (onExercisesChange) onExercisesChange(next);
@@ -70,7 +66,7 @@ export function SubjectiveWritingWorkbench({
   const [gradingResult, setGradingResult] = useState<QuizGradingResult | null>(null);
   const generateMutation = useGenerateWritingPromptsMutation();
 
-  const currentExercise = exercises[exerciseIndex] ?? exercises[0] ?? INITIAL_SUBJECTIVE_EXERCISES[0]!;
+  const currentExercise = exercises[exerciseIndex] ?? exercises[0];
 
   const handleSwitchExercise = (idx: number) => {
     sound.playClick();
@@ -94,14 +90,15 @@ export function SubjectiveWritingWorkbench({
       setInputSubmission('');
       setGradingResult(null);
       toast.success(`已生成 ${mapped.length} 道写作题干并写入练习队列`);
-    } catch {
-      toast.message('网关暂不可用，继续使用本地演示题干');
-      setExercises(INITIAL_SUBJECTIVE_EXERCISES);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : '暂时无法生成写作题干，请确认 Gateway 已启动后重试。'
+      );
     }
   };
 
   const handleGradeSubmit = async () => {
-    if (!inputSubmission.trim() || isGrading) return;
+    if (!inputSubmission.trim() || isGrading || !currentExercise) return;
 
     sound.playClick();
     setIsGrading(true);
@@ -128,42 +125,37 @@ export function SubjectiveWritingWorkbench({
           `批改完成：发现 ${result.errorDiagnosis?.category ?? '语法'} 偏差，已自动录入错题本！`
         );
       }
-    } catch {
-      setTimeout(() => {
-        const isExact = inputSubmission.trim() === currentExercise.standardAnswer;
-        const fakeResult: QuizGradingResult = {
-          questionId: currentExercise.id,
-          isCorrect: isExact,
-          score: isExact ? 100 : 70,
-          correctAnswer: currentExercise.standardAnswer,
-          userSubmission: inputSubmission.trim(),
-          explanation: isExact
-            ? '完美无瑕的地道日文表达！'
-            : '助词使用存在偏差，请注意区分「で」与「に」的功能。',
-          errorDiagnosis: isExact
-            ? undefined
-            : {
-                category: 'PARTICLE',
-                description: '格助词缺失或功能混淆',
-                motherTongueInterference:
-                  '中文直译容易漏掉日语动作发生场所必须的格助词「で」。',
-              },
-          refinementSuggestion: currentExercise.standardAnswer,
-          followUpTip: '日语句子中的名词必须借由助词与谓语动词紧密连接。',
-          mistakeRecorded: !isExact,
-        };
-        setGradingResult(fakeResult);
-        if (isExact) {
-          sound.playSuccess();
-          fireSuccessConfetti();
-        } else {
-          sound.playMistake();
-        }
-      }, 600);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : '批改服务暂时不可用，请稍后重试；本次未记录任何结果。'
+      );
     } finally {
       setIsGrading(false);
     }
   };
+
+  if (!currentExercise) {
+    return (
+      <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-10 border border-amber-900/10 dark:border-amber-500/15 shadow-sm text-center space-y-4">
+        <Sparkles className="w-8 h-8 mx-auto text-amber-500" />
+        <p className="text-sm text-stone-600 dark:text-stone-300">
+          暂无写作题干。题目由 Gateway learning.content 生成并写入练习队列，不内置演示题。
+        </p>
+        <Button
+          variant="outline"
+          onClick={handleGenerate}
+          disabled={generateMutation.isPending}
+        >
+          {generateMutation.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Sparkles className="w-3.5 h-3.5" />
+          )}
+          生成新题干
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-3xl p-6 sm:p-8 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-6">

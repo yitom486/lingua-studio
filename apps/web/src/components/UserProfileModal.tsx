@@ -42,7 +42,7 @@ import {
   findStudyGoalOption,
   findTrackGroup,
   defaultGoalForTrack,
-} from '../data/learner-profile-options.js';
+} from '../config/learner-profile-options.js';
 
 export function UserProfileModal() {
   const queryClient = useQueryClient();

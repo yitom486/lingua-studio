@@ -47,7 +47,7 @@ import {
   buildTutorFreeGreeting,
   buildTutorOfflineReply,
   getTutorTrackCopy,
-} from '../data/tutor-track-copy.js';
+} from '../copy/tutor-track-copy.js';
 import { normalizeTrackLanguage } from '../learning/learning-shell.js';
 import {
   useArchiveCodexThreadMutation,

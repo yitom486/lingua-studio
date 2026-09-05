@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 import {
   type FuriganaWord,
   type TextbookVocabulary,
-} from '../data/textbook-data.js';
+} from '../models/textbook.js';
 import { sound } from '../utils/audio.js';
 import { ShimmerButton } from './magicui/index.js';
 import { InteractivePdfReader } from './InteractivePdfReader.js';
@@ -86,7 +86,25 @@ export function TextbookCurriculum({
 
   if (!currentBook || !currentLesson) {
     return (
-      <div className="p-8 text-center text-sm text-stone-500">教材结构加载中…</div>
+      <div className="p-10 text-center space-y-3">
+        <p className="text-sm text-stone-500">
+          {booksList.length === 0
+            ? '暂无教材。内置课程教材由 Gateway 启动时自动入库；也可导入自定义教材 AST。'
+            : '教材结构加载中…'}
+        </p>
+        {booksList.length === 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              sound.playClick();
+              setIsImporterOpen(true);
+            }}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-4"
+          >
+            打开教材导入器
+          </button>
+        )}
+      </div>
     );
   }
 

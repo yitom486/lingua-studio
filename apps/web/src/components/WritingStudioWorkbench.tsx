@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from './ui/select.js';
 import { useGenerateWritingPromptsMutation } from '../queries/useLearnerQueries.js';
-import type { SubjectiveExercise } from '../data/subjective-demo-data.js';
+import type { SubjectiveExercise } from '../models/practice.js';
 
 export function WritingStudioWorkbench() {
   const [genre, setGenre] = useState('translation');
