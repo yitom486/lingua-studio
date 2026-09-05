@@ -25,6 +25,7 @@ import {
   installDictionaryPackage,
   listDictionaryPackages,
 } from './services/dictionary-packages.js';
+import { runLearningAnalysis } from './services/learning-analysis.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -551,6 +552,25 @@ export const app = new Hono()
       }
     }
   )
+  // P4-C：AI 学习分析（缓存 + 模型 + 本地规则回退）
+  .get('/api/learning/analysis/:userId', async (c) => {
+    try {
+      const userId = c.req.param('userId');
+      const forceRefresh = c.req.query('refresh') === '1';
+      const model = c.req.query('model') || undefined;
+      const res = await runLearningAnalysis({
+        adapter: gatewayServer.agentAdapter,
+        repo: drizzleRepo,
+        userId,
+        forceRefresh,
+        model,
+      });
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'runLearningAnalysis');
+    }
+  })
   // 3. FSRS 闪卡存取
   .get('/api/cards/:userId', async (c) => {
     const userId = c.req.param('userId');

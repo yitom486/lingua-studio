@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { FsrsState, SkillMetric, DailyTaskProgress, DailyStudyPlan } from '@study-studio/learner-core';
-import type { KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet, NewsTopic, LearningAnalysisReport } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
@@ -30,6 +30,7 @@ export const QUERY_KEYS = {
   PRACTICE_ITEMS: ['learner', 'practiceItems'] as const,
   DAILY_TASK: ['learner', 'dailyTask'] as const,
   DAILY_PLAN: ['learner', 'dailyPlan'] as const,
+  LEARNING_ANALYSIS: ['learner', 'analysis'] as const,
   ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
 };
 
@@ -324,6 +325,48 @@ export function useCompletePlanStepMutation(userId = DEFAULT_USER_ID) {
       );
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+    },
+  });
+}
+
+/**
+ * P4-C：AI 学习分析查询。
+ * 模型不可用时 Gateway 回退上次可信分析或本地规则建议，前端始终拿到一份报告。
+ * 做题/闪卡评分/错题攻克后失效该查询，触发重算。
+ */
+export function useLearningAnalysisQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<LearningAnalysisReport | null>({
+    queryKey: [...QUERY_KEYS.LEARNING_ANALYSIS, userId, targetLanguage],
+    queryFn: async () => {
+      try {
+        const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/analysis/${userId}`);
+        if (res.ok) {
+          return (await res.json()) as LearningAnalysisReport;
+        }
+      } catch (e) {
+        console.warn('[useLearningAnalysisQuery] Failed to load learning analysis', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
+/** 强制刷新分析（带 refresh=1 重新请求模型）。 */
+export function useRefreshLearningAnalysisMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/analysis/${userId}?refresh=1`);
+      if (!res.ok) throw new Error('刷新分析失败，请稍后重试。');
+      return (await res.json()) as LearningAnalysisReport;
+    },
+    onSuccess: (report) => {
+      queryClient.setQueryData([...QUERY_KEYS.LEARNING_ANALYSIS, userId, report.language], report);
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.LEARNING_ANALYSIS });
     },
   });
 }

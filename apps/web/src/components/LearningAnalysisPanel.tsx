@@ -1,0 +1,99 @@
+import React from 'react';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import { Brain, RefreshCw, Lightbulb, Target, BookOpen, Sparkles } from 'lucide-react';
+import type { LearningAnalysisReport, LearningSuggestion } from '@study-studio/protocol';
+import {
+  useLearningAnalysisQuery,
+  useRefreshLearningAnalysisMutation,
+} from '../queries/useLearnerQueries.js';
+import { Badge } from './ui/badge.js';
+import { Button } from './ui/button.js';
+
+const SOURCE_LABEL: Record<LearningAnalysisReport['source'], { text: string; tone: string }> = {
+  ai: { text: 'AI 分析', tone: 'bg-blue-500/10 text-blue-600 dark:text-blue-400' },
+  cached: { text: '上次可信分析', tone: 'bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  'local-rules': { text: '本地规则建议', tone: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+};
+
+const KIND_ICON: Record<LearningSuggestion['kind'], React.ReactNode> = {
+  WEAKNESS: <Target className="h-4 w-4 text-rose-500" />,
+  PLAN: <BookOpen className="h-4 w-4 text-indigo-500" />,
+  TIP: <Lightbulb className="h-4 w-4 text-amber-500" />,
+  ENCOURAGEMENT: <Sparkles className="h-4 w-4 text-emerald-500" />,
+};
+
+/**
+ * P4-C：AI 学习分析面板。
+ * 模型不可用时展示上次可信分析或本地规则建议（source 徽标区分来源）；
+ * AI 结论只给建议，不直接改学习状态。
+ */
+export function LearningAnalysisPanel({ userId }: { userId?: string }) {
+  const { data, isLoading, isError } = useLearningAnalysisQuery(userId);
+  const refresh = useRefreshLearningAnalysisMutation(userId);
+
+  const report = data ?? null;
+  const source = report?.source ?? 'local-rules';
+
+  const handleRefresh = () => {
+    refresh.mutate(undefined, {
+      onSuccess: () => toast.success('已重新生成学习分析'),
+      onError: () => toast.error('刷新分析失败，请稍后重试'),
+    });
+  };
+
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
+      <header className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Brain className="h-5 w-5 text-primary" />
+          <h3 className="text-base font-semibold">学习分析</h3>
+          {report && (
+            <Badge variant="secondary" className={SOURCE_LABEL[source].tone}>
+              {SOURCE_LABEL[source].text}
+            </Badge>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleRefresh}
+          disabled={refresh.isPending}
+          aria-label="重新生成学习分析"
+        >
+          <RefreshCw className={`h-4 w-4 ${refresh.isPending ? 'animate-spin' : ''}`} />
+          <span className="ml-1">刷新</span>
+        </Button>
+      </header>
+
+      {isLoading && <p className="text-sm text-muted-foreground">正在生成学习分析…</p>}
+      {isError && <p className="text-sm text-destructive">分析加载失败，请稍后重试。</p>}
+
+      {report && (
+        <>
+          <p className="text-sm text-foreground/80">{report.summary}</p>
+          <ul className="flex flex-col gap-2">
+            {report.suggestions.map((s, idx) => (
+              <motion.li
+                key={`${s.kind}-${idx}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.04 }}
+                className="flex gap-2 rounded-lg border bg-background/60 p-2.5"
+              >
+                <span className="mt-0.5 shrink-0">{KIND_ICON[s.kind]}</span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">{s.title}</span>
+                  <span className="text-xs text-muted-foreground">{s.detail}</span>
+                </div>
+              </motion.li>
+            ))}
+            {report.suggestions.length === 0 && (
+              <li className="text-sm text-muted-foreground">暂无紧急任务，可探索新内容或查词学新词。</li>
+            )}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
