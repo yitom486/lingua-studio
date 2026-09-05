@@ -1,4 +1,4 @@
-import { eq, and, or, like } from 'drizzle-orm';
+import { eq, and, or, like, sql } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -38,6 +38,40 @@ export interface DictionaryEntryCollection {
   created: boolean;
 }
 
+type LocalDictionaryRow = typeof localDictionaryEntries.$inferSelect;
+
+/** DB 行 → 领域条目（读侧永不抛；meanings 解析失败回退空数组）。 */
+function toLocalDictionaryEntry(row: LocalDictionaryRow): LocalDictionaryEntry {
+  let meanings: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(row.meaningsJson);
+    if (Array.isArray(parsed)) {
+      meanings = parsed.filter((m): m is string => typeof m === 'string');
+    }
+  } catch {
+    meanings = [];
+  }
+  const entry: LocalDictionaryEntry = {
+    id: row.id,
+    language: row.language as TrackLanguage,
+    headword: row.headword,
+    meanings,
+    sourceLabel: row.sourceLabel,
+    licenseNote: row.licenseNote,
+  };
+  if (row.reading) entry.reading = row.reading;
+  if (row.romanization) entry.romanization = row.romanization;
+  if (row.pronunciationJson) {
+    try {
+      entry.pronunciation = JSON.parse(row.pronunciationJson) as Record<string, unknown>;
+    } catch {
+      entry.pronunciation = undefined;
+    }
+  }
+  if (row.partOfSpeech) entry.partOfSpeech = row.partOfSpeech;
+  return entry;
+}
+
 /**
  * 查询本地、可再分发的词典资产。第三方词典只可作为外链兜底，绝不在此抓取。
  */
@@ -67,31 +101,41 @@ export async function searchLocalDictionary(
       )
       .limit(Math.min(Math.max(limit, 1), 50));
 
-    return ok(
-      rows.map((row): LocalDictionaryEntry => {
-        const entry: LocalDictionaryEntry = {
-          id: row.id,
-          language: row.language as TrackLanguage,
-          headword: row.headword,
-          meanings: JSON.parse(row.meaningsJson) as string[],
-          sourceLabel: row.sourceLabel,
-          licenseNote: row.licenseNote,
-        };
-        if (row.reading) entry.reading = row.reading;
-        if (row.romanization) entry.romanization = row.romanization;
-        if (row.pronunciationJson) {
-          entry.pronunciation = JSON.parse(row.pronunciationJson) as Record<string, unknown>;
-        }
-        if (row.partOfSpeech) entry.partOfSpeech = row.partOfSpeech;
-        return entry;
-      })
-    );
+    return ok(rows.map(toLocalDictionaryEntry));
   } catch (error) {
     return err(
       translateToBusinessError(error, {
         category: 'DATABASE',
         action: 'searchLocalDictionary',
         entityId: query,
+      })
+    );
+  }
+}
+
+/**
+ * 随机抽取本地词典条目（假名单词听写等“系统随机出题”场景用）。
+ * 返回原始条目；假名可用性等过滤由调用方按需完成。
+ */
+export async function sampleLocalDictionaryEntries(
+  deps: RepoDeps,
+  language: TrackLanguage,
+  limit = 10
+): Promise<Result<LocalDictionaryEntry[], BusinessError>> {
+  try {
+    const rows = await deps.db
+      .select()
+      .from(localDictionaryEntries)
+      .where(eq(localDictionaryEntries.language, language))
+      .orderBy(sql`RANDOM()`)
+      .limit(Math.min(Math.max(limit, 1), 50));
+    return ok(rows.map(toLocalDictionaryEntry));
+  } catch (error) {
+    return err(
+      translateToBusinessError(error, {
+        category: 'DATABASE',
+        action: 'sampleLocalDictionaryEntries',
+        entityId: language,
       })
     );
   }

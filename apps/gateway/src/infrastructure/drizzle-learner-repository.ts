@@ -42,6 +42,7 @@ import type {
 import {
   searchLocalDictionary as searchLocalDictionaryDomain,
   collectDictionaryEntry as collectDictionaryEntryDomain,
+  sampleLocalDictionaryEntries as sampleLocalDictionaryEntriesDomain,
 } from '../modules/dictionary/persistence/dictionary.js';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
@@ -179,6 +180,17 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     entryId: string
   ): Promise<Result<DictionaryEntryCollection, BusinessError>> {
     return collectDictionaryEntryDomain(this.deps, userId, entryId);
+  }
+
+  /**
+   * 随机抽取本地词典条目（假名单词听写等系统随机出题场景）。
+   * 实现已下沉 dictionary 域，此处仅委托。
+   */
+  public async sampleLocalDictionaryEntries(
+    language: TrackLanguage,
+    limit = 10
+  ): Promise<Result<LocalDictionaryEntry[], BusinessError>> {
+    return sampleLocalDictionaryEntriesDomain(this.deps, language, limit);
   }
 
   private get deps(): RepoDeps {

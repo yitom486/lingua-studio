@@ -14,6 +14,7 @@ import { MSG, resolveContentLanguage } from './learning-content/shared.js';
 import { handleQuizAction, buildDictation } from './learning-content/quiz.js';
 import { handleExplainAction, handleExampleSetAction } from './learning-content/explain.js';
 import { handleKanaDrillAction } from './learning-content/kana.js';
+import { handleKanaWordsAction, type KanaWord } from './learning-content/kana-words.js';
 import { handleWritingPromptAction } from './learning-content/writing.js';
 import { handlePassageAction } from './learning-content/passage.js';
 import { generateForBlock } from './learning-content/synthesize-content.js';
@@ -26,6 +27,8 @@ export const LearningContentInputSchema = z.object({
     'explain',
     'example_set',
     'kana_drill',
+    // 假名单词听写/词义巩固：从本地词典随机抽取带假名读音的词语（系统随机，零成本）
+    'generate_kana_words',
     'generate_passage',
     'generate_writing_prompt',
     // P5-E7：按练习计划块规格批量生成（模板驱动，不调 LLM；READING 走篇目链路另行接入）
@@ -50,6 +53,8 @@ export const LearningContentInputSchema = z.object({
   topic: z.string().optional(),
   /** translation | email | essay | diary | news_response */
   genre: z.string().optional(),
+  /** generate_kana_words：目标书写体（缺省 HIRAGANA；不足时另一书写体补齐） */
+  script: z.enum(['HIRAGANA', 'KATAKANA']).optional(),
   /** Persist into practice_collections / practice_items when true */
   collect: z.boolean().optional(),
   collectionTitle: z.string().optional(),
@@ -106,6 +111,8 @@ export interface LearningContentOutput {
     questions?: GeneratedQuestion[];
     errorCode?: string;
   }> | undefined;
+  /** generate_kana_words：带假名读音的词语（含词典 entryId，可一键转生词卡） */
+  kanaWords?: KanaWord[] | undefined;
   collectionId?: string | undefined;
 }
 
@@ -152,6 +159,8 @@ export class LearningContentTool
           return handleExplainAction(repo, input, language);
         case 'kana_drill':
           return handleKanaDrillAction(repo, context, input);
+        case 'generate_kana_words':
+          return handleKanaWordsAction(repo, context, input);
         case 'generate_writing_prompt':
           return handleWritingPromptAction(repo, context, input, language);
         case 'generate_passage':
