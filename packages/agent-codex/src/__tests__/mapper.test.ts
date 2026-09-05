@@ -6,6 +6,7 @@ import {
   loadCodexConfigFromEnv,
   normalizeSandboxMode,
   normalizeApprovalPolicy,
+  buildLearnerContextEntry,
 } from '../index.js';
 import { isErr } from '@study-studio/shared';
 
@@ -64,6 +65,16 @@ describe('Agent Codex - Mapper & Adapter', () => {
       delta: 'こんにちは',
     });
     expect(events).toEqual([{ type: 'TEXT_DELTA', delta: 'こんにちは' }]);
+  });
+
+  it('builds learner context as additionalContext, not user text', () => {
+    const ctx = buildLearnerContextEntry({
+      targetLanguage: 'en',
+      learnerLevel: 'B2',
+    });
+    expect(ctx?.kind).toBe('application');
+    expect(ctx?.value).toContain('targetLanguage: en');
+    expect(ctx?.value).not.toContain('[StudyStudio Context]');
   });
 
   it('maps App Server reasoning text deltas', () => {

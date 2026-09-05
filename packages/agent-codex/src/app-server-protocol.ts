@@ -45,6 +45,8 @@ export interface TurnStartParams {
   effort?: CodexReasoningEffort | null;
   approvalPolicy?: CodexApprovalPolicy | null;
   summary?: string | null;
+  /** 学情快照等应用上下文：不进入 userMessage 气泡 */
+  additionalContext?: Record<string, { value: string; kind: 'untrusted' | 'application' }> | null;
   /** EXPERIMENTAL：{ mode, settings } */
   collaborationMode?: {
     mode: string;
@@ -88,6 +90,8 @@ export interface CodexThreadItemDto {
   type: string;
   text?: string;
   id?: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
 }
 
 export interface CodexCollaborationModeDto {

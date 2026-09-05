@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUp,
   Bot,
-  ChevronDown,
-  ChevronRight,
   History,
   ListOrdered,
   Play,
@@ -14,7 +12,6 @@ import {
   Trash2,
   GitFork,
   Minimize2,
-  Wrench,
   X,
   Wifi,
   WifiOff,
@@ -36,6 +33,15 @@ import {
   SelectValue,
 } from './ui/select.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
+import { BorderBeam } from './magicui/index.js';
+import { ChatTurnActivity, StreamingReplyPlaceholder } from './ChatTurnActivity.js';
+import {
+  mapThreadItemsToBubbles,
+  markToolCallsDone,
+  stripTranscriptNoise,
+  upsertToolCall,
+  type ToolCallTrace,
+} from '../lib/chat-transcript.js';
 import { sound } from '../utils/audio.js';
 import {
   buildTutorFreeGreeting,
@@ -70,7 +76,7 @@ interface ChatMessage {
   reasoning?: string;
   streaming?: boolean;
   source?: string;
-  toolHints?: string[];
+  toolCalls?: ToolCallTrace[];
   approval?: {
     approvalId: string;
     action: string;
@@ -116,7 +122,6 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [reasoningOpen, setReasoningOpen] = useState(true);
   const endRef = useRef<HTMLDivElement>(null);
   const bootedRef = useRef(false);
 
@@ -303,28 +308,10 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   useEffect(() => {
     if (!coachThreadId) return;
     if (threadItems.length) {
-      const mapped: ChatMessage[] = [];
-      for (const item of threadItems) {
-        if (item.type === 'userMessage' && item.text) {
-          mapped.push({
-            id: item.id || `u_${item.turnId}_${mapped.length}`,
-            role: 'user',
-            text: item.text,
-          });
-        } else if (item.type === 'agentMessage' && item.text) {
-          mapped.push({
-            id: item.id || `a_${item.turnId}_${mapped.length}`,
-            role: 'assistant',
-            text: item.text,
-            source: 'codex',
-          });
-        } else if (item.type === 'reasoning' && item.text) {
-          const last = mapped[mapped.length - 1];
-          if (last?.role === 'assistant') {
-            last.reasoning = item.text;
-          }
-        }
-      }
+      const mapped: ChatMessage[] = mapThreadItemsToBubbles(threadItems).map((b) => ({
+        ...b,
+        text: b.role === 'user' ? stripTranscriptNoise(b.text) : b.text,
+      }));
       if (mapped.length) setMessages(mapped);
       return;
     }
@@ -364,7 +351,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           text: '',
           reasoning: '',
           streaming: true,
-          toolHints: [],
+          toolCalls: [],
         },
       ]);
       setBusy(true);
@@ -391,6 +378,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
               text: data.finalOutput || m.text,
               streaming: false,
             };
+            const doneCalls = markToolCallsDone(m.toolCalls);
+            if (doneCalls) next.toolCalls = doneCalls;
             if (data.source) next.source = data.source;
             return next;
           })
@@ -419,10 +408,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           setMessages((prev) =>
             prev.map((m) => {
               if (m.id !== aiId) return m;
-              const label = info.toolName;
-              const hints = [...(m.toolHints ?? [])];
-              if (!hints.includes(label)) hints.push(label);
-              return { ...m, toolHints: hints };
+              return { ...m, toolCalls: upsertToolCall(m.toolCalls ?? [], info) };
             })
           );
         },
@@ -512,7 +498,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       setMessages((prev) => [
         ...prev,
         { id: userId, role: 'user', text },
-        { id: aiId, role: 'assistant', text: '', reasoning: '', streaming: true, toolHints: [] },
+        { id: aiId, role: 'assistant', text: '', reasoning: '', streaming: true, toolCalls: [] },
       ]);
       setBusy(true);
 
@@ -555,10 +541,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           setMessages((prev) =>
             prev.map((m) => {
               if (m.id !== aiId) return m;
-              const label = info.toolName;
-              const hints = [...(m.toolHints ?? [])];
-              if (!hints.includes(label)) hints.push(label);
-              return { ...m, toolHints: hints };
+              return { ...m, toolCalls: upsertToolCall(m.toolCalls ?? [], info) };
             })
           );
         },
@@ -620,6 +603,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 text: data.finalOutput || m.text,
                 streaming: false,
               };
+              const doneCalls = markToolCallsDone(m.toolCalls);
+              if (doneCalls) next.toolCalls = doneCalls;
               if (data.source) next.source = data.source;
               return next;
             })
@@ -1128,54 +1113,55 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             ) : (
               <>
             {m.role !== 'user' && (
-              <div className="mt-0.5 w-7 h-7 rounded-full bg-stone-800 flex items-center justify-center shrink-0">
-                <Bot className="w-3.5 h-3.5 text-emerald-400" />
+              <div
+                className={`mt-0.5 w-7 h-7 rounded-full bg-stone-800 flex items-center justify-center shrink-0 ${
+                  m.streaming ? 'ring-2 ring-sky-400/40' : ''
+                }`}
+              >
+                <Bot
+                  className={`w-3.5 h-3.5 ${
+                    m.streaming ? 'text-sky-300' : 'text-emerald-400'
+                  }`}
+                />
               </div>
             )}
             <div
-              className={`max-w-[88%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed whitespace-pre-wrap ${
+              className={`relative max-w-[88%] overflow-hidden rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${
                 m.role === 'user'
                   ? 'bg-sky-700/25 border border-sky-600/30 text-stone-50'
-                  : 'bg-transparent text-stone-200'
+                  : m.streaming
+                    ? 'border border-sky-500/25 bg-stone-900/40 text-stone-200'
+                    : 'bg-transparent text-stone-200'
               }`}
             >
-              {m.reasoning ? (
-                <div className="mb-2">
-                  <button
-                    type="button"
-                    className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-300"
-                    onClick={() => setReasoningOpen((v) => !v)}
-                  >
-                    {reasoningOpen ? (
-                      <ChevronDown className="w-3 h-3" />
-                    ) : (
-                      <ChevronRight className="w-3 h-3" />
-                    )}
-                    Thinking · {effortLabel(coachEffort)}
-                  </button>
-                  {reasoningOpen && (
-                    <div className="mt-1 text-[11px] text-stone-500 border-l border-stone-700 pl-2 whitespace-pre-wrap">
-                      {m.reasoning}
-                    </div>
-                  )}
-                </div>
+              {m.role !== 'user' && m.streaming ? (
+                <BorderBeam
+                  size={140}
+                  duration={7}
+                  colorFrom="#38bdf8"
+                  colorTo="#a78bfa"
+                  borderWidth={1.25}
+                />
               ) : null}
-              {m.toolHints && m.toolHints.length > 0 ? (
-                <div className="mb-2 flex flex-wrap gap-1">
-                  {m.toolHints.map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-1 rounded-md border border-stone-700/80 bg-stone-900/80 px-1.5 py-0.5 text-[10px] text-stone-400"
-                    >
-                      <Wrench className="size-2.5" />
-                      {t}
-                    </span>
-                  ))}
-                </div>
+              {m.role !== 'user' ? (
+                <ChatTurnActivity
+                  streaming={Boolean(m.streaming)}
+                  {...(m.reasoning ? { reasoning: m.reasoning } : {})}
+                  effortLabel={effortLabel(coachEffort)}
+                  {...(m.toolCalls ? { toolCalls: m.toolCalls } : {})}
+                />
               ) : null}
-              {m.text}
-              {m.streaming && (
-                <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle bg-sky-400/80 animate-pulse" />
+              {m.role === 'user' ? (
+                <div className="whitespace-pre-wrap">{stripTranscriptNoise(m.text)}</div>
+              ) : m.streaming && !m.text.trim() && !m.reasoning && !m.toolCalls?.length ? (
+                <StreamingReplyPlaceholder />
+              ) : (
+                <div className="whitespace-pre-wrap">
+                  {m.text}
+                  {m.streaming && m.text ? (
+                    <span className="ml-0.5 inline-block h-3.5 w-1.5 align-middle bg-sky-400/80 animate-pulse" />
+                  ) : null}
+                </div>
               )}
               {!m.streaming && m.source ? (
                 <div className="mt-1.5 text-[10px] text-stone-600">
@@ -1209,113 +1195,114 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             }
             className="w-full resize-none bg-transparent px-3 py-2.5 text-[13px] text-stone-100 placeholder:text-stone-600 outline-none min-h-[72px]"
           />
-          {composerSettingsOpen ? (
-            <div className="grid grid-cols-3 gap-1.5 border-t border-stone-800/80 px-2 py-1.5">
-              <div className="min-w-0 space-y-0.5">
-                <span className="block px-0.5 text-[10px] text-stone-500">Mode</span>
-                <Select
-                  value={coachCollaborationMode || '__none__'}
-                  onValueChange={(v) =>
-                    setCoachCollaborationMode(v === '__none__' ? '' : String(v ?? ''))
-                  }
-                  disabled={busy}
-                >
-                  <SelectTrigger className={compactSelect}>
-                    <SelectValue>
-                      {coachCollaborationMode || '默认'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                    <SelectItem value="__none__" className={darkMenuItem}>
-                      Mode（默认）
-                    </SelectItem>
-                    <SelectItem value="default" className={darkMenuItem}>
-                      default
-                    </SelectItem>
-                    <SelectItem value="plan" className={darkMenuItem}>
-                      plan
-                    </SelectItem>
-                    {collabModes
-                      .filter((m) => m.mode && m.mode !== 'default' && m.mode !== 'plan')
-                      .map((m) => (
-                        <SelectItem
-                          key={m.name}
-                          value={m.mode || m.name}
-                          className={darkMenuItem}
-                        >
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="min-w-0 space-y-0.5">
-                <span className="block px-0.5 text-[10px] text-stone-500">审批</span>
-                <Select
-                  value={coachApprovalPolicy || 'never'}
-                  onValueChange={(v) => v && setCoachApprovalPolicy(String(v))}
-                  disabled={busy}
-                >
-                  <SelectTrigger className={compactSelect}>
-                    <SelectValue>
-                      {APPROVAL_OPTIONS.find((o) => o.value === coachApprovalPolicy)?.label ||
-                        'Approve for me'}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                    {APPROVAL_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value} className={darkMenuItem}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="min-w-0 space-y-0.5">
-                <span className="block px-0.5 text-[10px] text-stone-500">思考</span>
-                <Select
-                  value={coachEffort || 'medium'}
-                  onValueChange={(v) => v && setCoachEffort(String(v))}
-                  disabled={busy}
-                >
-                  <SelectTrigger className={compactSelect}>
-                    <SelectValue>{effortLabel(coachEffort || 'medium')}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                    {effortOptions.map((e) => (
-                      <SelectItem key={e} value={e} className={darkMenuItem}>
-                        {effortLabel(e)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          ) : null}
-
           <div className="flex items-center gap-0.5 border-t border-stone-800/80 px-1.5 py-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className={`relative size-7 shrink-0 rounded-md text-stone-400 hover:bg-stone-800/80 hover:text-stone-100 ${
-                composerSettingsOpen ? 'bg-stone-800 text-stone-100' : ''
-              }`}
-              title={composerSettingsOpen ? '收起 Mode / 审批 / 思考' : 'Mode / 审批 / 思考'}
-              aria-expanded={composerSettingsOpen}
-              aria-label="会话设置"
-              onClick={() => {
-                sound.playClick();
-                setComposerSettingsOpen((open) => !open);
-              }}
-            >
-              <Settings2 className="size-3.5" />
-              {composerSettingsNonDefault && !composerSettingsOpen ? (
-                <span className="absolute top-1 right-1 size-1.5 rounded-full bg-sky-400" />
-              ) : null}
-            </Button>
+            <Popover open={composerSettingsOpen} onOpenChange={setComposerSettingsOpen}>
+              <PopoverTrigger
+                className={`relative inline-flex size-7 shrink-0 items-center justify-center rounded-md text-stone-400 hover:bg-stone-800/80 hover:text-stone-100 ${
+                  composerSettingsOpen ? 'bg-stone-800 text-stone-100' : ''
+                }`}
+                title="Mode / 审批 / 思考"
+                aria-label="会话设置"
+                onClick={() => sound.playClick()}
+              >
+                <Settings2 className="size-3.5" />
+                {composerSettingsNonDefault && !composerSettingsOpen ? (
+                  <span className="absolute top-1 right-1 size-1.5 rounded-full bg-sky-400" />
+                ) : null}
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={8}
+                className="w-72 space-y-3 border-stone-700 bg-[#12141a] p-3 text-stone-100"
+              >
+                <div>
+                  <p className="text-xs font-medium text-stone-200">会话参数</p>
+                  <p className="mt-0.5 text-[10px] text-stone-500">设置仅影响后续发送的消息</p>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="space-y-0.5">
+                    <span className="block px-0.5 text-[10px] text-stone-500">Mode</span>
+                    <Select
+                      value={coachCollaborationMode || '__none__'}
+                      onValueChange={(v) =>
+                        setCoachCollaborationMode(v === '__none__' ? '' : String(v ?? ''))
+                      }
+                      disabled={busy}
+                    >
+                      <SelectTrigger className={compactSelect}>
+                        <SelectValue>{coachCollaborationMode || '默认'}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                        <SelectItem value="__none__" className={darkMenuItem}>
+                          Mode（默认）
+                        </SelectItem>
+                        <SelectItem value="default" className={darkMenuItem}>
+                          default
+                        </SelectItem>
+                        <SelectItem value="plan" className={darkMenuItem}>
+                          plan
+                        </SelectItem>
+                        {collabModes
+                          .filter((m) => m.mode && m.mode !== 'default' && m.mode !== 'plan')
+                          .map((m) => (
+                            <SelectItem
+                              key={m.name}
+                              value={m.mode || m.name}
+                              className={darkMenuItem}
+                            >
+                              {m.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="block px-0.5 text-[10px] text-stone-500">审批</span>
+                    <Select
+                      value={coachApprovalPolicy || 'never'}
+                      onValueChange={(v) => v && setCoachApprovalPolicy(String(v))}
+                      disabled={busy}
+                    >
+                      <SelectTrigger className={compactSelect}>
+                        <SelectValue>
+                          {APPROVAL_OPTIONS.find((o) => o.value === coachApprovalPolicy)?.label ||
+                            'Approve for me'}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                        {APPROVAL_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value} className={darkMenuItem}>
+                            {o.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-0.5">
+                    <span className="block px-0.5 text-[10px] text-stone-500">思考深度</span>
+                    <Select
+                      value={coachEffort || 'medium'}
+                      onValueChange={(v) => v && setCoachEffort(String(v))}
+                      disabled={busy}
+                    >
+                      <SelectTrigger className={compactSelect}>
+                        <SelectValue>{effortLabel(coachEffort || 'medium')}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                        {effortOptions.map((e) => (
+                          <SelectItem key={e} value={e} className={darkMenuItem}>
+                            {effortLabel(e)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
 
             <div className="min-w-0 flex-1">
               <Select

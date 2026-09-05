@@ -255,6 +255,10 @@ export class CodexAppServerConnection {
     effort?: string;
     approvalPolicy?: string;
     collaborationMode?: string;
+    additionalContext?: Record<
+      string,
+      { value: string; kind: 'untrusted' | 'application' }
+    >;
   }): AsyncGenerator<AgentEvent, void, unknown> {
     const ready = await this.connect();
     if (!isOk(ready)) {
@@ -267,6 +271,9 @@ export class CodexAppServerConnection {
       threadId: params.threadId,
       input: [{ type: 'text', text: params.message }],
     };
+    if (params.additionalContext) {
+      turnBody.additionalContext = params.additionalContext;
+    }
     if (params.model) turnBody.model = params.model;
     if (params.effort) turnBody.effort = params.effort;
     if (params.approvalPolicy) {
@@ -598,6 +605,21 @@ export class CodexAppServerConnection {
         dto.text = texts.join('\n');
       } else if (type === 'reasoning' && Array.isArray(item.summary)) {
         dto.text = item.summary.map(String).join('\n');
+      } else if (type === 'dynamicToolCall') {
+        dto.toolName = String(item.tool ?? 'tool');
+        if (item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)) {
+          dto.arguments = item.arguments as Record<string, unknown>;
+        }
+      } else if (type === 'mcpToolCall') {
+        const server = item.server ? String(item.server) : '';
+        const tool = item.tool ? String(item.tool) : 'mcp';
+        dto.toolName = server ? `${server}.${tool}` : tool;
+        if (item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)) {
+          dto.arguments = item.arguments as Record<string, unknown>;
+        }
+      } else if (type === 'commandExecution') {
+        dto.toolName = 'command';
+        if (typeof item.command === 'string') dto.text = item.command;
       }
       items.push(dto);
     }

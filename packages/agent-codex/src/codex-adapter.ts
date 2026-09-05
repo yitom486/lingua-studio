@@ -5,6 +5,7 @@ import type {
   AgentInput,
   AgentEvent,
   ApprovalDecision,
+  ContextSnapshot,
 } from '@study-studio/agent-core';
 import type { ToolDefinition } from '@study-studio/tool-core';
 import {
@@ -179,11 +180,17 @@ export class CodexSession implements AgentSession {
       effort?: string;
       approvalPolicy?: string;
       collaborationMode?: string;
+      additionalContext?: Record<
+        string,
+        { value: string; kind: 'untrusted' | 'application' }
+      >;
     } = {
       threadId: this.threadId,
-      message: buildTurnMessage(input),
+      message: resolveTurnUserText(input),
       signal: this.abort.signal,
     };
+    const learnerCtx = buildLearnerContextEntry(input.contextSnapshot);
+    if (learnerCtx) turnOpts.additionalContext = { 'study-studio': learnerCtx };
     if (input.turnOptions?.model) turnOpts.model = input.turnOptions.model;
     if (input.turnOptions?.effort) turnOpts.effort = input.turnOptions.effort;
     if (input.turnOptions?.approvalPolicy) {
@@ -714,27 +721,33 @@ export class CodexAdapter implements AgentAdapter {
   }
 }
 
-function buildTurnMessage(input: AgentInput): string {
-  const parts: string[] = [];
-  if (input.contextSnapshot) {
-    const s = input.contextSnapshot;
-    parts.push(
-      `[StudyStudio Context]\n` +
-        `- targetLanguage: ${s.targetLanguage}\n` +
-        `- learnerLevel: ${s.learnerLevel}\n` +
-        (s.focus?.surface ? `- focus: ${s.focus.surface}\n` : '') +
-        (s.focus?.skillTag ? `- skill: ${s.focus.skillTag}\n` : '') +
-        (s.learnerDigest?.topWeaknesses?.length
-          ? `- weaknesses: ${s.learnerDigest.topWeaknesses
-              .slice(0, 3)
-              .map((w) => w.skillId)
-              .join(', ')}\n`
-          : '') +
-        `- instruction: Prefer calling registered learning.* / quiz.* / ui.* tools when helpful. Reply in zh-CN coaching tone unless the learner writes in the target language.`
+function resolveTurnUserText(input: AgentInput): string {
+  return String(input.message || '').trim();
+}
+
+/** 学情走 additionalContext，避免写进 userMessage 污染聊天记录 */
+export function buildLearnerContextEntry(
+  snapshot: ContextSnapshot | undefined
+): { value: string; kind: 'application' } | undefined {
+  if (!snapshot) return undefined;
+  const lines = [
+    `targetLanguage: ${snapshot.targetLanguage}`,
+    `learnerLevel: ${snapshot.learnerLevel}`,
+  ];
+  if (snapshot.focus?.surface) lines.push(`focus: ${snapshot.focus.surface}`);
+  if (snapshot.focus?.skillTag) lines.push(`skill: ${snapshot.focus.skillTag}`);
+  if (snapshot.learnerDigest?.topWeaknesses?.length) {
+    lines.push(
+      `weaknesses: ${snapshot.learnerDigest.topWeaknesses
+        .slice(0, 3)
+        .map((w) => w.skillId)
+        .join(', ')}`
     );
   }
-  parts.push(input.message || '');
-  return parts.join('\n\n');
+  lines.push(
+    'instruction: Prefer calling registered learning.* / quiz.* / ui.* tools when helpful. Reply in zh-CN coaching tone unless the learner writes in the target language.'
+  );
+  return { value: lines.join('\n'), kind: 'application' };
 }
 
 function failTool(message: string): DynamicToolCallResponse {

@@ -95,6 +95,8 @@ export interface CodexThreadItemDto {
   type: string;
   text?: string;
   id?: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
 }
 
 export interface CodexCollaborationModeDto {
