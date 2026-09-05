@@ -475,3 +475,41 @@ describe('关键词模板已删除：触发词不再截获回合，一律经 Age
   });
 });
 
+describe('client.tool.result：客户端工具回执只确认、永不报错', () => {
+  let repo: DrizzleLearnerRepository;
+
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  function makeToolResultEnvelope(payload: unknown): WsEnvelope {
+    return {
+      version: '1.0',
+      id: 'env_tool_result',
+      sessionId: 'sess_tool_result',
+      type: WsEventTypes.CLIENT_TOOL_RESULT,
+      payload,
+      timestamp: Date.now(),
+    };
+  }
+
+  it('正常回执 → TOOL_RESULT_ACK，不再报 E_UNSUPPORTED_EVENT', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'success' }));
+    const res = await server.handleClientMessage(
+      makeToolResultEnvelope({ callId: 'call_1', toolName: 'ui.present', ok: true })
+    );
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.type).toBe(WsEventTypes.AGENT_TURN_COMPLETED);
+    const payload = res.value.payload as { status?: unknown; toolName?: unknown };
+    expect(payload.status).toBe('TOOL_RESULT_ACK');
+    expect(payload.toolName).toBe('ui.present');
+  });
+
+  it('畸形回执同样确认（永不抛错中断回合）', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'success' }));
+    const res = await server.handleClientMessage(makeToolResultEnvelope({}));
+    expect(isOk(res)).toBe(true);
+  });
+});
+

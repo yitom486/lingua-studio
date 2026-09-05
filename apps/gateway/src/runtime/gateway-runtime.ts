@@ -34,6 +34,7 @@ import {
   handleApprovalRespond,
   handleTurnInterrupt,
   handleTurnSteer,
+  handleToolResult,
 } from './handlers/turn-handlers.js';
 
 export class GatewayServer {
@@ -424,6 +425,9 @@ export class GatewayServer {
 
       case WsEventTypes.CLIENT_TURN_STEER:
         return handleTurnSteer(this, envelope);
+
+      case WsEventTypes.CLIENT_TOOL_RESULT:
+        return handleToolResult(this, envelope);
 
       default:
         return err(

@@ -526,7 +526,7 @@ export class GatewayClient {
         }
       } else if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
         const status = (envelope.payload as { status?: unknown })?.status;
-        if (status === 'APPROVAL_ACK' || status === 'STEER_ACK') return;
+        if (status === 'APPROVAL_ACK' || status === 'STEER_ACK' || status === 'TOOL_RESULT_ACK') return;
 
         if (this.activeStream) {
           const listener = this.activeStream;
@@ -640,9 +640,12 @@ export class GatewayClient {
     }
 
     const session = useStudySessionStore.getState();
+    // 仅 Client 工具（ui.*）在本地执行；Server 工具由网关内联回填，无需回执。
+    let executed = false;
     if (toolName === 'ui.navigate') {
       session.applyUiNavigate(String(args.target ?? ''), Boolean(args.openTutor));
       toast.success(`已切换到 ${String(args.target ?? '工作台')}`);
+      executed = true;
     } else if (toolName === 'ui.present') {
       const questions = Array.isArray(args.questions)
         ? (args.questions as GeneratedQuestion[])
@@ -657,14 +660,17 @@ export class GatewayClient {
           passageId: args.passageId as string | undefined,
         });
         toast.success(`已推送 ${questions.length} 道练习到工作台`);
+        executed = true;
       }
     }
 
-    this.sendEnvelope(WsEventTypes.CLIENT_TOOL_RESULT, {
-      callId: p?.callId,
-      toolName,
-      ok: true,
-    });
+    if (executed) {
+      this.sendEnvelope(WsEventTypes.CLIENT_TOOL_RESULT, {
+        callId: p?.callId,
+        toolName,
+        ok: true,
+      });
+    }
   }
 }
 
