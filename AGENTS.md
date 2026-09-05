@@ -84,6 +84,16 @@
     3. 错误分类 (`category`: `AGENT_RUNTIME`, `TOOL_EXECUTION`, `VALIDATION`, `NETWORK` 等)；
     4. 是否允许重试标记 (`retryable`)。
 
+### 2.3 类型安全与诊断 hygiene (No `any` / No stray `console`)
+- **禁止新增 `as any` / `: any`**（存量已清零，以 grep 为验收口径）：
+  - 未知输入一律 `unknown` 优先：`catch (e)` 不写 `: any`；WS / HTTP / JSON / 工具输出等信任边界必须先收窄（`typeof` / `in` / zod `safeParse` / 白名单集合）再使用。
+  - `as` 只允许断言为具体结构化类型（对象形状、联合类型），且必须能说清运行时保证；跨信任边界的断言必须配注释说明不断言不放行的理由。
+  - DB TEXT 列 → 联合类型必须经校验或白名单收敛，损坏值回退中性默认（读侧永不抛），**永不臆造业务数据**。
+  - `exactOptionalPropertyTypes` 下禁止把显式 `undefined` 赋给可选属性，缺省用条件 spread（`...(v ? { k: v } : {})`）。
+- **诊断日志统一走 `@study-studio/shared` 的 `logger`**：
+  - 业务文件中禁止散落 `console.*`；运维日志（CLI、网关启停、种子自愈、外部进程 stderr）保留并集中。
+  - `logger.debug` / `info` 默认静默（生产控制台零刷屏），`warn` / `error` 透出；面向用户的失败只走 `BusinessError.userMessage`（toast / 空状态），不得依赖控制台。
+
 ---
 
 ## 3. 学习者模型为唯一事实源 (Learner Core as SSOT)
