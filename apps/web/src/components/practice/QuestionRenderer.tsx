@@ -1,27 +1,47 @@
 import React, { useState, useEffect } from 'react';
+import { Volume2 } from 'lucide-react';
 import { Button } from '../ui/button.js';
+import { speechStudio } from '../../utils/audio.js';
 import type { GeneratedQuestion } from '@study-studio/protocol';
 
-/** 单题渲染器：按题型呈现，客观题即时判定由父组件处理，主观题只暂存草稿。 */
+/** 单题渲染器：按题型呈现；客观题即时判定由父组件处理；主观题按 gradingMode 分流。 */
+
+type GradingMode = 'AUTO_IMMEDIATE' | 'AI_IMMEDIATE' | 'AI_BATCH';
+type RunnerLanguage = 'en' | 'ja' | 'ko';
 
 interface RendererProps {
   question: GeneratedQuestion;
   userAnswer: string;
+  language?: RunnerLanguage | undefined;
+  gradingMode?: GradingMode | undefined;
   onAnswerChange: (v: string) => void;
   onSubmitObjective: (answer: string) => void;
+  /** P5-E5：AI_IMMEDIATE 主观题单题提交（提交后立即批改） */
+  onSubmitSubjective?: ((answer: string) => void) | undefined;
   onSaveDraft: (answer: string) => void;
   disabled: boolean;
   busy: boolean;
+  submittingSubjective?: boolean | undefined;
 }
+
+const TTS_LANG: Record<RunnerLanguage, 'EN' | 'JA' | 'KO'> = {
+  en: 'EN',
+  ja: 'JA',
+  ko: 'KO',
+};
 
 export function QuestionRenderer({
   question: q,
   userAnswer,
+  language = 'en',
+  gradingMode = 'AUTO_IMMEDIATE',
   onAnswerChange,
   onSubmitObjective,
+  onSubmitSubjective,
   onSaveDraft,
   disabled,
   busy,
+  submittingSubjective,
 }: RendererProps) {
   const [answer, setAnswer] = useState(userAnswer);
   useEffect(() => setAnswer(userAnswer), [userAnswer]);
@@ -109,7 +129,24 @@ export function QuestionRenderer({
     );
   }
 
-  // TRANSLATION / LISTENING_DICTATION / WRITING：主观题，草稿暂存
+  if (q.type === 'LISTENING_DICTATION') {
+    return (
+      <DictationSubjective
+        question={q}
+        language={language}
+        gradingMode={gradingMode}
+        answer={answer}
+        onChange={update}
+        onSubmitSubjective={onSubmitSubjective}
+        onSaveDraft={onSaveDraft}
+        disabled={disabled}
+        submittingSubjective={submittingSubjective}
+      />
+    );
+  }
+
+  // TRANSLATION / WRITING：主观题，按批改模式分流
+  const immediate = gradingMode === 'AI_IMMEDIATE' && Boolean(onSubmitSubjective);
   return (
     <div className="flex flex-col gap-2">
       <textarea
@@ -117,11 +154,93 @@ export function QuestionRenderer({
         onChange={(e) => update(e.target.value)}
         disabled={disabled}
         onBlur={() => answer.trim() && onSaveDraft(answer)}
-        placeholder={q.type === 'TRANSLATION' ? '输入译文' : '输入听写/写作内容'}
+        placeholder={q.type === 'TRANSLATION' ? '输入译文' : '输入写作内容'}
         rows={4}
         className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600"
       />
-      <div className="text-xs text-slate-500">主观题在“批量提交主观题”时统一评测；输入失焦自动保存草稿。</div>
+      {immediate ? (
+        <>
+          <Button
+            size="sm"
+            className="w-fit"
+            disabled={!answer.trim() || disabled || submittingSubjective}
+            onClick={() => onSubmitSubjective?.(answer)}
+          >
+            {submittingSubjective ? '批改中…' : '提交并即时批改'}
+          </Button>
+          <div className="text-xs text-slate-500">提交后立即批改并写回错题信号；输入失焦自动保存草稿。</div>
+        </>
+      ) : (
+        <div className="text-xs text-slate-500">主观题在“批量提交主观题”时统一评测；输入失焦自动保存草稿。</div>
+      )}
+    </div>
+  );
+}
+
+/** P5-E5：听写题——TTS 播放语料（不剧透正文，正文在 Runner 隐藏），按批改模式提交。 */
+function DictationSubjective({
+  question: q,
+  language,
+  gradingMode,
+  answer,
+  onChange,
+  onSubmitSubjective,
+  onSaveDraft,
+  disabled,
+  submittingSubjective,
+}: {
+  question: GeneratedQuestion;
+  language: RunnerLanguage;
+  gradingMode: GradingMode;
+  answer: string;
+  onChange: (v: string) => void;
+  onSubmitSubjective?: ((answer: string) => void) | undefined;
+  onSaveDraft: (answer: string) => void;
+  disabled: boolean;
+  submittingSubjective?: boolean | undefined;
+}) {
+  const [playing, setPlaying] = useState(false);
+
+  const play = () => {
+    setPlaying(true);
+    void speechStudio.speak(q.content, {
+      lang: TTS_LANG[language],
+      onEnd: () => setPlaying(false),
+      onError: () => setPlaying(false),
+    });
+  };
+
+  const immediate = gradingMode === 'AI_IMMEDIATE' && Boolean(onSubmitSubjective);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={play} disabled={playing}>
+          <Volume2 className="mr-1 h-3.5 w-3.5" />
+          {playing ? '播放中…' : '播放 / 重听音频'}
+        </Button>
+        <span className="text-xs text-slate-500">听音频后写出空缺内容；答案不会以文字剧透。</span>
+      </div>
+      <textarea
+        value={answer}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        onBlur={() => answer.trim() && onSaveDraft(answer)}
+        placeholder="输入你听到的句子或空缺词"
+        rows={3}
+        className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-600"
+      />
+      {immediate ? (
+        <Button
+          size="sm"
+          className="w-fit"
+          disabled={!answer.trim() || disabled || submittingSubjective}
+          onClick={() => onSubmitSubjective?.(answer)}
+        >
+          {submittingSubjective ? '批改中…' : '提交并即时批改'}
+        </Button>
+      ) : (
+        <div className="text-xs text-slate-500">听写题在“批量提交主观题”时统一评测。</div>
+      )}
     </div>
   );
 }

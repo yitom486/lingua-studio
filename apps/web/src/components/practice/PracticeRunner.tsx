@@ -10,6 +10,7 @@ import {
   useSubmitSubjectiveMutation,
   useSavePracticeDraftMutation,
   useGradeBatchMutation,
+  useGradeSingleMutation,
   useFinalizePracticeRunMutation,
 } from '../../queries/useLearnerQueries.js';
 import type { PracticeItemAttempt, GeneratedQuestion } from '@study-studio/protocol';
@@ -47,6 +48,7 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
   const submitSubjective = useSubmitSubjectiveMutation();
   const saveDraft = useSavePracticeDraftMutation();
   const gradeBatch = useGradeBatchMutation();
+  const gradeSingle = useGradeSingleMutation();
   const finalizeRun = useFinalizePracticeRunMutation();
 
   const restored = useMemo(() => {
@@ -78,6 +80,10 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
   }).length;
   const progress = items.length > 0 ? (doneCount / items.length) * 100 : 0;
   const allDone = items.length > 0 && doneCount === items.length;
+  // P5-E5：只有 AI_BATCH 主观题才需要批量提交按钮
+  const hasBatchSubjects = items.some(
+    (it) => !isObjective(it.question) && it.gradingMode === 'AI_BATCH'
+  );
 
   const handleObjective = async (it: PracticeRunnerItem, answer: string) => {
     const q = it.question;
@@ -105,11 +111,44 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
     }
   };
 
+  // P5-E5：AI_IMMEDIATE——单题提交后立即评测并入库，不等批量
+  const handleImmediate = async (it: PracticeRunnerItem, answer: string) => {
+    const q = it.question;
+    try {
+      const grading = await gradeSingle.mutateAsync({
+        prompt: q.prompt,
+        standardAnswer: q.correctAnswer,
+        userSubmission: answer,
+        testedSkillId: q.testedSkillId,
+        language,
+      });
+      setItem(it.itemId, {
+        status: 'GRADED',
+        userAnswer: answer,
+        grading: grading as unknown as Record<string, unknown>,
+        isCorrect: grading.isCorrect,
+      });
+      await submitSubjective.mutateAsync({
+        runId,
+        itemId: it.itemId,
+        userAnswer: answer,
+        gradingResult: grading as unknown as Record<string, unknown>,
+      });
+      toast[grading.isCorrect ? 'success' : 'error'](
+        grading.isCorrect ? '即时批改通过' : '即时批改完成，已记入错题信号'
+      );
+    } catch (e) {
+      toast.error('即时批改失败：' + (e as Error).message);
+    }
+  };
+
   const handleBatch = async () => {
-    const ready = items.filter((it) => !isObjective(it.question)).filter((it) => {
-      const s = states[it.itemId];
-      return s && s.status === 'DRAFT' && s.userAnswer.trim().length > 0;
-    });
+    const ready = items
+      .filter((it) => !isObjective(it.question) && it.gradingMode === 'AI_BATCH')
+      .filter((it) => {
+        const s = states[it.itemId];
+        return s && s.status === 'DRAFT' && s.userAnswer.trim().length > 0;
+      });
     if (ready.length === 0) {
       toast.info('没有可批量提交的主观题草稿');
       return;
@@ -185,25 +224,35 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
                 ) : null}
               </div>
               <div className="mb-1 font-medium">{it.question.prompt}</div>
-              <div className="mb-3 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{it.question.content}</div>
+              {it.question.type !== 'LISTENING_DICTATION' && (
+                <div className="mb-3 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
+                  {it.question.content}
+                </div>
+              )}
               <QuestionRenderer
                 question={it.question}
                 userAnswer={s.userAnswer}
+                language={language}
+                gradingMode={it.gradingMode}
                 onAnswerChange={(v) => setItem(it.itemId, { userAnswer: v })}
                 onSubmitObjective={(a) => handleObjective(it, a)}
+                onSubmitSubjective={(a) => handleImmediate(it, a)}
                 onSaveDraft={(a) => handleDraft(it, a)}
                 disabled={s.status === 'GRADED' || s.status === 'SUBMITTED'}
                 busy={submitObjective.isPending || saveDraft.isPending}
+                submittingSubjective={gradeSingle.isPending || submitSubjective.isPending}
               />
             </div>
           );
         })}
       </div>
       <div className="flex items-center justify-end gap-2 pt-2">
-        <Button variant="outline" onClick={handleBatch} disabled={gradeBatch.isPending}>
-          {gradeBatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-          批量提交主观题
-        </Button>
+        {hasBatchSubjects && (
+          <Button variant="outline" onClick={handleBatch} disabled={gradeBatch.isPending}>
+            {gradeBatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+            批量提交主观题
+          </Button>
+        )}
         <Button onClick={handleFinalize} disabled={!allDone || finalizeRun.isPending}>
           {finalizeRun.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
           完成练习

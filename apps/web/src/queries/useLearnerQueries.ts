@@ -1654,6 +1654,40 @@ export function useGradeBatchMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+/** P5-E5：单题即时评测（learning.assess action=grade，AI_IMMEDIATE 块用） */
+export interface AssessSingleResult {
+  isCorrect: boolean;
+  score: number;
+  accuracyRate?: number;
+  grammarFeedback: string;
+  nativeNuanceAdvice: string;
+  refinementSuggestion: string;
+  mistakeDetected: boolean;
+  negativeTransferTag?: string;
+}
+export function useGradeSingleMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (input: {
+      prompt: string;
+      standardAnswer: string;
+      userSubmission: string;
+      testedSkillId?: string;
+      language: 'en' | 'ja' | 'ko';
+    }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/assess/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'grade', ...input }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { userMessage?: string } } | null;
+        throw new Error(body?.error?.userMessage ?? '单题批改失败');
+      }
+      return (await res.json()) as AssessSingleResult;
+    },
+  });
+}
+
 /** 装配运行题目（按块从既有资产装配到 practice_collections） */
 export function useAssemblePracticeRunMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
