@@ -15,14 +15,18 @@ import {
   BusinessError,
   generateId,
   isOk,
-  nowIso,
 } from '@study-studio/shared';
+import { type LearnerRepository } from '@study-studio/learner-core';
 import {
-  type LearnerRepository,
-  createMistakeEntry,
-  recordSkillAttempt,
-  scheduleNextReview,
-} from '@study-studio/learner-core';
+  handleQuizSubmit,
+  handleCardReview,
+  handleProfileGet,
+  handleProfileUpdate,
+  handleTaskProgressGet,
+  handleTaskActivityRecord,
+  handleQuizGenerate,
+  handleQuizGradeSubjective,
+} from './handlers/learner-handlers.js';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import type { LearningContentOutput } from '../transport/tools/learning-content-tool.js';
 import { registerGatewayTools } from '../transport/tools/register-tools.js';
@@ -420,318 +424,29 @@ export class GatewayServer {
         });
       }
 
-      case WsEventTypes.CLIENT_QUIZ_SUBMIT: {
-        const payload = envelope.payload as {
-          userId: string;
-          questionId: string;
-          userAnswer: string;
-          isCorrect: boolean;
-          score: number;
-          timeSpentMs: number;
-          testedSkillId: string;
-          questionContent?: string;
-          correctAnswer?: string;
-          explanation?: string;
-        };
+      case WsEventTypes.CLIENT_QUIZ_SUBMIT:
+        return handleQuizSubmit(this, envelope);
 
-        // 1. 持久化单次做题记录
-        const attemptRes = await this.learnerRepo.recordQuizAttempt({
-          id: generateId('att'),
-          userId: payload.userId,
-          questionId: payload.questionId,
-          userAnswer: payload.userAnswer,
-          isCorrect: payload.isCorrect,
-          score: payload.score,
-          timeSpentMs: payload.timeSpentMs,
-          testedSkillId: payload.testedSkillId,
-          createdAt: nowIso(),
-        });
-        if (!isOk(attemptRes)) return err(attemptRes.error);
+      case WsEventTypes.CLIENT_CARD_REVIEW:
+        return handleCardReview(this, envelope);
 
-        // 2. 将本次正误立即合并进 SQLite 学习画像，而不是仅依赖前端缓存。
-        const snapshotRes = await this.learnerRepo.getProfileSnapshot(payload.userId);
-        if (isOk(snapshotRes)) {
-          const previous = snapshotRes.value.allMetrics.find(
-            (metric) => metric.id === payload.testedSkillId
-          );
-          if (previous) {
-            const metricRes = await this.learnerRepo.saveSkillMetric(
-              payload.userId,
-              recordSkillAttempt(previous, payload.isCorrect)
-            );
-            if (!isOk(metricRes)) return err(metricRes.error);
-          }
-        }
+      case WsEventTypes.CLIENT_PROFILE_GET:
+        return handleProfileGet(this, envelope);
 
-        // 3. 如果答错，自动将该题归入 SQLite 错题本
-        if (!payload.isCorrect) {
-          const mistake = createMistakeEntry(
-            payload.userId,
-            {
-              id: payload.questionId,
-              type: 'MULTIPLE_CHOICE',
-              prompt: '自适应客观题',
-              content: payload.questionContent ?? '',
-              correctAnswer: payload.correctAnswer ?? '',
-              explanation: payload.explanation ?? '',
-              testedSkillId: payload.testedSkillId,
-              difficultyTier: 3,
-            },
-            payload.userAnswer,
-            {
-              questionId: payload.questionId,
-              isCorrect: false,
-              score: 0,
-              correctAnswer: payload.correctAnswer ?? '',
-              userSubmission: payload.userAnswer,
-              explanation: payload.explanation ?? '回答有误',
-              mistakeRecorded: true,
-            }
-          );
-          const mistakeRes = await this.learnerRepo.saveMistake(mistake);
-          if (!isOk(mistakeRes)) return err(mistakeRes.error);
-        }
+      case WsEventTypes.CLIENT_PROFILE_UPDATE:
+        return handleProfileUpdate(this, envelope);
 
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: {
-            status: 'RECORDED',
-            questionId: payload.questionId,
-            isCorrect: payload.isCorrect,
-            persistedToDb: true,
-          },
-          timestamp: Date.now(),
-        });
-      }
+      case WsEventTypes.CLIENT_TASK_PROGRESS_GET:
+        return handleTaskProgressGet(this, envelope);
 
-      case WsEventTypes.CLIENT_CARD_REVIEW: {
-        const payload = envelope.payload as {
-          userId: string;
-          cardId: string;
-          rating: 'AGAIN' | 'HARD' | 'GOOD' | 'EASY';
-          currentStability?: number;
-          currentReps?: number;
-        };
+      case WsEventTypes.CLIENT_TASK_ACTIVITY_RECORD:
+        return handleTaskActivityRecord(this, envelope);
 
-        const currentFsrs = {
-          stability: payload.currentStability ?? 1.0,
-          difficulty: 5.0,
-          reps: payload.currentReps ?? 0,
-          lapses: 0,
-          dueAt: nowIso(),
-          state: 'REVIEW' as const,
-        };
+      case WsEventTypes.CLIENT_QUIZ_GENERATE:
+        return handleQuizGenerate(this, envelope);
 
-        const nextFsrs = scheduleNextReview(currentFsrs, payload.rating);
-
-        // 真正将卡片最新 FSRS 状态持久化回写至 SQLite
-        const cardsRes = await this.learnerRepo.getDueCards(payload.userId, 200);
-        if (isOk(cardsRes)) {
-          const targetCard = cardsRes.value.find((c) => c.id === payload.cardId);
-          if (targetCard) {
-            targetCard.fsrs = nextFsrs;
-            const saveRes = await this.learnerRepo.saveCard(targetCard);
-            if (!isOk(saveRes)) return err(saveRes.error);
-          }
-        }
-
-        // 自动累计每日卡片复习足迹
-        await this.learnerRepo.recordDailyActivity(payload.userId, { cards: 1 });
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: {
-            cardId: payload.cardId,
-            nextFsrs,
-            nextReviewDays: Math.round(nextFsrs.stability),
-          },
-          timestamp: Date.now(),
-        });
-      }
-
-      case WsEventTypes.CLIENT_PROFILE_GET: {
-        const payload = (envelope.payload ?? {}) as { userId?: string };
-        const userId = payload.userId ?? 'student_web_01';
-        const profileRes = await this.learnerRepo.getLearnerProfile(userId);
-        if (!isOk(profileRes)) return err(profileRes.error);
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: profileRes.value,
-          timestamp: Date.now(),
-        });
-      }
-
-      case WsEventTypes.CLIENT_PROFILE_UPDATE: {
-        const payload = (envelope.payload ?? {}) as {
-          userId?: string;
-          updates?: Record<string, any>;
-        };
-        const userId = payload.userId ?? 'student_web_01';
-        const updateRes = await this.learnerRepo.updateLearnerProfile(
-          userId,
-          payload.updates ?? envelope.payload ?? {}
-        );
-        if (!isOk(updateRes)) return err(updateRes.error);
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.LEARNER_PROFILE_UPDATED,
-          payload: updateRes.value,
-          timestamp: Date.now(),
-        });
-      }
-
-      case WsEventTypes.CLIENT_TASK_PROGRESS_GET: {
-        const payload = (envelope.payload ?? {}) as { userId?: string; date?: string };
-        const userId = payload.userId ?? 'student_web_01';
-        const progressRes = await this.learnerRepo.getDailyTaskProgress(userId, payload.date);
-        if (!isOk(progressRes)) return err(progressRes.error);
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: progressRes.value,
-          timestamp: Date.now(),
-        });
-      }
-
-      case WsEventTypes.CLIENT_TASK_ACTIVITY_RECORD: {
-        const payload = (envelope.payload ?? {}) as {
-          userId?: string;
-          quizzes?: number;
-          cards?: number;
-          listeningMinutes?: number;
-          mistakesResolved?: number;
-          date?: string;
-        };
-        const userId = payload.userId ?? 'student_web_01';
-        const recordRes = await this.learnerRepo.recordDailyActivity(userId, payload);
-        if (!isOk(recordRes)) return err(recordRes.error);
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.LEARNER_DAILY_TASK_UPDATED,
-          payload: recordRes.value,
-          timestamp: Date.now(),
-        });
-      }
-
-      case WsEventTypes.CLIENT_QUIZ_GENERATE: {
-        // C5：优先 learning.content；旧 quiz.generateAdaptive 仅作兼容回退
-        const contentTool = this.toolRegistry.get('learning.content');
-        const legacyTool = this.toolRegistry.get('quiz.generateAdaptive');
-        const rawPayload = (envelope.payload ?? {}) as Record<string, any>;
-        const userId = rawPayload.userId ?? 'student_web_01';
-        const count = typeof rawPayload.count === 'number' ? rawPayload.count : 1;
-
-        let toolRes: Result<unknown, BusinessError>;
-        if (contentTool) {
-          toolRes = await contentTool.execute(
-            {
-              action: 'generate_quiz',
-              count,
-              skillIds: rawPayload.weaknessSkillId
-                ? [String(rawPayload.weaknessSkillId)]
-                : undefined,
-              language: normalizeTrackLanguage(rawPayload.targetLanguage),
-              collect: true,
-            },
-            { userId, sessionId: envelope.sessionId }
-          );
-          if (isOk(toolRes)) {
-            const out = toolRes.value as {
-              questions?: unknown[];
-              message?: string;
-            };
-            toolRes = ok({
-              targetSkillId: rawPayload.weaknessSkillId ?? 'adaptive',
-              targetSkillName: 'learning.content 自适应组卷',
-              adaptationReason: out.message ?? '经 learning.content 生成',
-              questions: out.questions ?? [],
-            });
-          }
-        } else if (legacyTool) {
-          toolRes = await legacyTool.execute(
-            {
-              targetLanguage: rawPayload.targetLanguage ?? 'en',
-              targetLevel: rawPayload.targetLevel ?? 'CEFR B1',
-              weaknessSkillId: rawPayload.weaknessSkillId,
-              count,
-            },
-            { userId, sessionId: envelope.sessionId }
-          );
-        } else {
-          return err(new BusinessError('E_TOOL_NOT_FOUND', '出题工具未注册', 'AGENT_RUNTIME'));
-        }
-        if (!isOk(toolRes)) return err(toolRes.error);
-
-        // 动态生成的题目属于学习资产；在发送给客户端前先写入 SQLite，刷新后仍可恢复。
-        if (this.learnerRepo instanceof DrizzleLearnerRepository) {
-          const generatedOutput = toolRes.value as { questions?: unknown[]; targetSkillName?: string };
-          const partitionLang = normalizeTrackLanguage(rawPayload.targetLanguage);
-          const questions = (generatedOutput.questions ?? []).map(
-            (question) => {
-              const generated = question as Record<string, unknown>;
-              return {
-              ...generated,
-              userId,
-              language: generated.language ?? partitionLang,
-              // GeneratedQuestion 是工具协议，quiz_questions 则是可直接渲染的题库模型。
-              category: generated.category ?? generatedOutput.targetSkillName ?? 'AI 靶向练习',
-              difficulty: generated.difficulty ?? generated.difficultyTier ?? 3,
-              };
-            }
-          );
-          const saveRes = await this.learnerRepo.saveQuestions(questions);
-          if (!isOk(saveRes)) return err(saveRes.error);
-        }
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: toolRes.value,
-          timestamp: Date.now(),
-        });
-      }
-
-      case WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE: {
-        const tool = this.toolRegistry.get('quiz.gradeSubjective');
-        if (!tool) {
-          return err(new BusinessError('E_TOOL_NOT_FOUND', '主观题智能批改工具未注册', 'AGENT_RUNTIME'));
-        }
-        const toolRes = await tool.execute(envelope.payload, {
-          userId: (envelope.payload as any)?.userId ?? 'student_web_01',
-          sessionId: envelope.sessionId,
-        });
-        if (!isOk(toolRes)) return err(toolRes.error);
-
-        return ok({
-          version: '1.0',
-          id: generateId('msg'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TURN_COMPLETED,
-          payload: toolRes.value,
-          timestamp: Date.now(),
-        });
-      }
+      case WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE:
+        return handleQuizGradeSubjective(this, envelope);
 
       case WsEventTypes.CLIENT_TURN_SEND: {
         const payload = (envelope.payload ?? {}) as {
