@@ -62,48 +62,51 @@ export class GatewayServer {
     adapterOverride?: CodexAdapter
   ) {
     this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
-    registerGatewayTools(this.toolRegistry, this.learnerRepo);
 
+    // P6-3：先建 adapter 再注册工具，使 learning.assess 的 ai 模式可用；
+    // executeTool 闭包在调用时才读 toolRegistry，提前创建无初始化顺序问题。
     this.agentAdapter =
       adapterOverride ??
       new CodexAdapter({
-      executeTool: async (toolName, input, ctx) => {
-        const tool = this.toolRegistry.get(toolName);
-        if (!tool) {
-          throw new BusinessError(
-            'E_TOOL_NOT_FOUND',
-            `未注册工具：${toolName}`,
-            'TOOL_EXECUTION'
-          );
-        }
-        const res = await tool.execute(input as never, {
-          userId: ctx.userId,
-          sessionId: ctx.sessionId,
-        });
-        if (!isOk(res)) {
-          throw res.error;
-        }
-        // Client Tools：进程内校验参数后，经 WS 下发前端执行
-        if (tool.location === ToolLocations.CLIENT && this.activeTurnEmit) {
-          this.activeTurnEmit({
-            version: '1.0',
-            id: generateId('tool'),
+        executeTool: async (toolName, input, ctx) => {
+          const tool = this.toolRegistry.get(toolName);
+          if (!tool) {
+            throw new BusinessError(
+              'E_TOOL_NOT_FOUND',
+              `未注册工具：${toolName}`,
+              'TOOL_EXECUTION'
+            );
+          }
+          const res = await tool.execute(input as never, {
+            userId: ctx.userId,
             sessionId: ctx.sessionId,
-            type: WsEventTypes.AGENT_TOOL_CALL,
-            payload: {
-              callId: generateId('call'),
-              toolName: tool.name,
-              args: res.value,
-            },
-            timestamp: Date.now(),
           });
-        }
-        return res.value;
-      },
-      onNotification: (method, params) => {
-        this.handleCodexNotification(method, params);
-      },
-    });
+          if (!isOk(res)) {
+            throw res.error;
+          }
+          // Client Tools：进程内校验参数后，经 WS 下发前端执行
+          if (tool.location === ToolLocations.CLIENT && this.activeTurnEmit) {
+            this.activeTurnEmit({
+              version: '1.0',
+              id: generateId('tool'),
+              sessionId: ctx.sessionId,
+              type: WsEventTypes.AGENT_TOOL_CALL,
+              payload: {
+                callId: generateId('call'),
+                toolName: tool.name,
+                args: res.value,
+              },
+              timestamp: Date.now(),
+            });
+          }
+          return res.value;
+        },
+        onNotification: (method, params) => {
+          this.handleCodexNotification(method, params);
+        },
+      });
+
+    registerGatewayTools(this.toolRegistry, this.learnerRepo, this.agentAdapter);
   }
 
   public registerSessionEmit(

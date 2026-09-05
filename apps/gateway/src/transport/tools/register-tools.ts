@@ -1,5 +1,6 @@
 import { ToolRegistry } from '@study-studio/tool-core';
 import type { LearnerRepository } from '@study-studio/learner-core';
+import type { AgentAdapter } from '@study-studio/agent-core';
 import { DrizzleLearnerRepository } from '../../infrastructure/drizzle-learner-repository.js';
 import { GenerateAdaptiveQuizTool } from '../../modules/practice/tools/generate-adaptive-quiz.js';
 import { GradeSubjectiveQuizTool } from '../../modules/practice/tools/grade-subjective-quiz.js';
@@ -18,7 +19,12 @@ import { UiNavigateTool, UiPresentTool } from './ui-command-tools.js';
  * 由装配根注入依赖；不在 Tool 内部创建第二个 DB。
  * 注意保留原有 fallback 语义：非 Drizzle 仓储时课程/词典/文库工具使用内存库。
  */
-export function registerGatewayTools(registry: ToolRegistry, learnerRepo: LearnerRepository): void {
+export function registerGatewayTools(
+  registry: ToolRegistry,
+  learnerRepo: LearnerRepository,
+  /** P6-3：模型适配器（AgentAdapter 接口）；缺省时 learning.assess 的 ai 模式自动回退规则 */
+  adapter?: AgentAdapter | undefined
+): void {
   const drizzle =
     learnerRepo instanceof DrizzleLearnerRepository
       ? learnerRepo
@@ -27,7 +33,7 @@ export function registerGatewayTools(registry: ToolRegistry, learnerRepo: Learne
   registry.register(new GenerateAdaptiveQuizTool(learnerRepo));
   registry.register(new GradeSubjectiveQuizTool(learnerRepo));
   registry.register(new LearningContentTool(learnerRepo));
-  registry.register(new LearningAssessTool(learnerRepo));
+  registry.register(new LearningAssessTool(learnerRepo, adapter));
   registry.register(new LearningProgressTool(learnerRepo));
   registry.register(new LearningPlanTool(learnerRepo));
   registry.register(new LearningPracticeTool(learnerRepo));
