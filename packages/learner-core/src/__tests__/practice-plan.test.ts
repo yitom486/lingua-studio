@@ -6,6 +6,7 @@ import {
   validatePracticePlanTemplate,
   freezeRunFromTemplate,
   isRunComplete,
+  isTemplateDueOn,
   parsePracticeBlockSpec,
   parsePracticeBlockSpecs,
   SUBJECTIVE_BATCH_MAX_COUNT,
@@ -106,6 +107,78 @@ describe('validatePracticePlanTemplate', () => {
       baseTemplate([baseBlock({ id: 'b1' }), baseBlock({ id: 'b1', count: 3 })])
     );
     expect(isErr(res)).toBe(true);
+  });
+
+  it('accepts daily and valid weekly schedules', () => {
+    const daily: PracticePlanTemplate = {
+      ...baseTemplate([baseBlock({ id: 'b1' })]),
+      schedule: { kind: 'daily' },
+    };
+    expect(isOk(validatePracticePlanTemplate(daily))).toBe(true);
+    const weekly: PracticePlanTemplate = {
+      ...baseTemplate([baseBlock({ id: 'b1' })]),
+      schedule: { kind: 'weekly', weekdays: [1, 3, 5] },
+    };
+    expect(isOk(validatePracticePlanTemplate(weekly))).toBe(true);
+  });
+
+  it('rejects invalid weekly schedules', () => {
+    const cases: PracticePlanTemplate[] = [
+      {
+        ...baseTemplate([baseBlock({ id: 'b1' })]),
+        schedule: { kind: 'weekly', weekdays: [] },
+      },
+      {
+        ...baseTemplate([baseBlock({ id: 'b1' })]),
+        schedule: { kind: 'weekly', weekdays: [1, 7] },
+      },
+      {
+        ...baseTemplate([baseBlock({ id: 'b1' })]),
+        schedule: { kind: 'weekly', weekdays: [1, 1] },
+      },
+    ];
+    for (const tpl of cases) {
+      expect(isErr(validatePracticePlanTemplate(tpl))).toBe(true);
+    }
+  });
+});
+
+describe('isTemplateDueOn (P6-1)', () => {
+  // 2026-09-05 是周六；2026-09-07 是周一；2026-09-08 是周二
+  it('treats missing or daily schedule as always due', () => {
+    const noSchedule = baseTemplate([baseBlock({ id: 'b1' })]);
+    expect(isTemplateDueOn(noSchedule, '2026-09-05')).toBe(true);
+    expect(isTemplateDueOn(noSchedule, '2026-09-08')).toBe(true);
+    const daily: PracticePlanTemplate = { ...noSchedule, schedule: { kind: 'daily' } };
+    expect(isTemplateDueOn(daily, '2026-09-05')).toBe(true);
+  });
+
+  it('matches weekly schedule against the date weekday', () => {
+    const weekly: PracticePlanTemplate = {
+      ...baseTemplate([baseBlock({ id: 'b1' })]),
+      schedule: { kind: 'weekly', weekdays: [1, 3, 5] },
+    };
+    expect(isTemplateDueOn(weekly, '2026-09-07')).toBe(true); // 周一
+    expect(isTemplateDueOn(weekly, '2026-09-09')).toBe(true); // 周三
+    expect(isTemplateDueOn(weekly, '2026-09-08')).toBe(false); // 周二
+    expect(isTemplateDueOn(weekly, '2026-09-05')).toBe(false); // 周六
+  });
+
+  it('returns false for corrupt schedule or date instead of inventing', () => {
+    const emptyWeek: PracticePlanTemplate = {
+      ...baseTemplate([baseBlock({ id: 'b1' })]),
+      schedule: { kind: 'weekly', weekdays: [] },
+    };
+    expect(isTemplateDueOn(emptyWeek, '2026-09-07')).toBe(false);
+    const normal = baseTemplate([baseBlock({ id: 'b1' })]);
+    expect(isTemplateDueOn(normal, 'not-a-date')).toBe(false);
+    expect(isTemplateDueOn(normal, '2026-13-40')).toBe(false);
+    expect(isTemplateDueOn(normal, '2026-02-30')).toBe(false);
+    const weekly: PracticePlanTemplate = {
+      ...normal,
+      schedule: { kind: 'weekly', weekdays: [1] },
+    };
+    expect(isTemplateDueOn(weekly, '')).toBe(false);
   });
 });
 

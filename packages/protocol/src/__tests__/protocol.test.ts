@@ -8,6 +8,8 @@ import {
   TextbookASTSchema,
   toUiQuizType,
   toProtocolQuizType,
+  PracticePlanScheduleSchema,
+  PracticePlanTemplateSchema,
 } from '../index.js';
 
 
@@ -142,6 +144,51 @@ describe('Protocol Package Schemas', () => {
     if (!invalidResult.ok) {
       expect(invalidResult.error.code).toBe('E_INVALID_TEXTBOOK_AST');
     }
+  });
+
+  it('should validate practice plan schedule (P6-1)', () => {
+    expect(PracticePlanScheduleSchema.safeParse({ kind: 'daily' }).success).toBe(true);
+    expect(
+      PracticePlanScheduleSchema.safeParse({ kind: 'weekly', weekdays: [1, 3, 5] }).success
+    ).toBe(true);
+    // 非法：空 weekdays / 越界 / 缺 kind / monthly 暂缓
+    expect(
+      PracticePlanScheduleSchema.safeParse({ kind: 'weekly', weekdays: [] }).success
+    ).toBe(false);
+    expect(
+      PracticePlanScheduleSchema.safeParse({ kind: 'weekly', weekdays: [7] }).success
+    ).toBe(false);
+    expect(PracticePlanScheduleSchema.safeParse({ weekdays: [1] }).success).toBe(false);
+    expect(PracticePlanScheduleSchema.safeParse({ kind: 'monthly' }).success).toBe(false);
+  });
+
+  it('should accept template with or without schedule (backward compatible)', () => {
+    const base = {
+      id: 'tpl_1',
+      userId: 'u1',
+      language: 'en',
+      name: '晚间计划',
+      enabled: true,
+      revision: 1,
+      blocks: [
+        { id: 'b1', kind: 'QUIZ', count: 5, gradingMode: 'AUTO_IMMEDIATE' },
+      ],
+      createdAt: '2026-09-05T00:00:00.000Z',
+      updatedAt: '2026-09-05T00:00:00.000Z',
+    };
+    expect(PracticePlanTemplateSchema.safeParse(base).success).toBe(true);
+    expect(
+      PracticePlanTemplateSchema.safeParse({
+        ...base,
+        schedule: { kind: 'weekly', weekdays: [1, 3, 5] },
+      }).success
+    ).toBe(true);
+    expect(
+      PracticePlanTemplateSchema.safeParse({
+        ...base,
+        schedule: { kind: 'weekly', weekdays: [] },
+      }).success
+    ).toBe(false);
   });
 });
 

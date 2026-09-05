@@ -108,7 +108,7 @@ export function validateBlockSpec(block: PracticeBlockSpec): Result<PracticeBloc
   return ok(block);
 }
 
-/** 校验整份模板（块数 1–8、id 不重复、逐块校验）。 */
+/** 校验整份模板（块数 1–8、id 不重复、逐块校验、排程合法）。 */
 export function validatePracticePlanTemplate(
   template: PracticePlanTemplate
 ): Result<PracticePlanTemplate, BusinessError> {
@@ -117,6 +117,8 @@ export function validatePracticePlanTemplate(
       new BusinessError('E_INVALID_TEMPLATE', '模板须包含 1–8 个练习块', 'VALIDATION')
     );
   }
+  const scheduleRes = validatePracticePlanSchedule(template.schedule);
+  if (!isOk(scheduleRes)) return scheduleRes;
   const ids = new Set<string>();
   for (const block of template.blocks) {
     if (ids.has(block.id)) {
@@ -137,6 +139,77 @@ export function validatePracticePlanTemplate(
     }
   }
   return ok(template);
+}
+
+/**
+ * P6-1：校验模板排程（缺省 = 每日适用）。
+ * - daily：恒合法；
+ * - weekly：weekdays 须为 1–7 个 0–6 整数且不重复；
+ * - 其他 kind（如 monthly）暂缓，视为非法。
+ */
+export function validatePracticePlanSchedule(
+  schedule: PracticePlanTemplate['schedule']
+): Result<undefined, BusinessError> {
+  if (schedule === undefined) return ok(undefined);
+  if (typeof schedule !== 'object' || schedule === null) {
+    return err(new BusinessError('E_INVALID_TEMPLATE', '模板排程格式不正确', 'VALIDATION'));
+  }
+  if (schedule.kind === 'daily') return ok(undefined);
+  if (schedule.kind === 'weekly') {
+    const weekdays = (schedule as { weekdays?: unknown }).weekdays;
+    if (
+      !Array.isArray(weekdays) ||
+      weekdays.length < 1 ||
+      weekdays.length > 7 ||
+      !weekdays.every((d) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6)
+    ) {
+      return err(
+        new BusinessError('E_INVALID_TEMPLATE', '每周排程须指定 1–7 个有效星期（0=周日…6=周六）', 'VALIDATION')
+      );
+    }
+    if (new Set(weekdays).size !== weekdays.length) {
+      return err(new BusinessError('E_INVALID_TEMPLATE', '每周排程的星期不能重复', 'VALIDATION'));
+    }
+    return ok(undefined);
+  }
+  return err(
+    new BusinessError('E_INVALID_TEMPLATE', `暂不支持的排程类型：${String((schedule as { kind?: unknown }).kind)}`, 'VALIDATION')
+  );
+}
+
+/** 解析 YYYY-MM-DD 为星期（0=周日…6=周六）；非法日期返回 null，绝不臆造。 */
+function weekdayOfDateString(dateStr: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const dt = new Date(year, month - 1, day);
+  if (dt.getFullYear() !== year || dt.getMonth() !== month - 1 || dt.getDate() !== day) {
+    return null;
+  }
+  return dt.getDay();
+}
+
+/**
+ * P6-1：判定模板在指定日期是否到期适用。
+ * - 无 schedule / daily：恒 true（向后兼容）；
+ * - weekly：当日星期在 weekdays 内；
+ * - 非法 schedule 或非法日期：一律 false（不臆造适用）。
+ */
+export function isTemplateDueOn(template: PracticePlanTemplate, dateStr: string): boolean {
+  // 日期非法一律 false（调用方传参损坏时不臆造适用）
+  const weekday = weekdayOfDateString(dateStr);
+  if (weekday === null) return false;
+  const schedule = template.schedule;
+  if (schedule === undefined || schedule.kind === 'daily') return true;
+  if (schedule.kind === 'weekly') {
+    const weekdays = schedule.weekdays;
+    if (!Array.isArray(weekdays) || weekdays.length === 0) return false;
+    return weekdays.includes(weekday);
+  }
+  return false;
 }
 
 /**

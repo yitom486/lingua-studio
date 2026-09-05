@@ -79,6 +79,21 @@ export const PracticeBlockSpecSchema = z.object({
 });
 export type PracticeBlockSpec = z.infer<typeof PracticeBlockSpecSchema>;
 
+/**
+ * P6-1：模板排程。
+ * - daily：每日适用（缺省行为；模板无 schedule 字段时等价）；
+ * - weekly：仅所列星期适用（0=周日 … 6=周六，至少 1 天）。
+ * monthly 暂缓，不在本 schema 覆盖范围。
+ */
+export const PracticePlanScheduleSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('daily') }),
+  z.object({
+    kind: z.literal('weekly'),
+    weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+  }),
+]);
+export type PracticePlanSchedule = z.infer<typeof PracticePlanScheduleSchema>;
+
 /** 用户计划模板（长期配置，不等于今天的进度） */
 export const PracticePlanTemplateSchema = z.object({
   id: z.string().min(1),
@@ -89,6 +104,11 @@ export const PracticePlanTemplateSchema = z.object({
   /** 模板修订号；每次保存递增。run 冻结时记录此值，改模板后旧 run 不变。 */
   revision: z.number().int().nonnegative(),
   blocks: z.array(PracticeBlockSpecSchema).min(1).max(8),
+  /**
+   * P6-1：排程（可选；缺省 = 每日适用，向后兼容）。
+   * v1 仅 daily + weekly；monthly 暂缓。
+   */
+  schedule: PracticePlanScheduleSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
