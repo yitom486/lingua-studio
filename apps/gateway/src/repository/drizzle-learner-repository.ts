@@ -80,69 +80,45 @@ import {
   isRunComplete,
 } from '@study-studio/learner-core';
 
-export type TrackLanguage = 'ja' | 'en' | 'ko';
+// P0-1 拆分：语种 / 词典 / 通用工具已下沉 domains；本地 import 供剩余方法使用，
+// 底部 export 保持对外契约不变（index.ts 经 export * 转出）。
+import type { TrackLanguage } from './domains/language.js';
+import { normalizeTrackLanguage, inferLanguageFromSkillId } from './domains/language.js';
+import type {
+  LocalDictionaryEntry,
+  DictionaryEntryCollection,
+} from './domains/dictionary.js';
+import {
+  searchLocalDictionary as searchLocalDictionaryDomain,
+  collectDictionaryEntry as collectDictionaryEntryDomain,
+} from './domains/dictionary.js';
+import {
+  resolveActiveLanguage as resolveActiveLanguageDomain,
+  ensureLanguageProfile as ensureLanguageProfileDomain,
+  mirrorLanguageProfileToMain as mirrorLanguageProfileToMainDomain,
+} from './domains/profile-internals.js';
+import {
+  getTodayString,
+  getYesterdayString,
+  safeJsonParse,
+  defaultLanguageProfileSeed,
+} from './domains/repo-utils.js';
+import type { RepoDeps } from './domains/repo-context.js';
 
-export interface LocalDictionaryEntry {
-  id: string;
-  language: TrackLanguage;
-  headword: string;
-  reading?: string | undefined;
-  romanization?: string | undefined;
-  meanings: string[];
-  pronunciation?: Record<string, unknown> | undefined;
-  partOfSpeech?: string | undefined;
-  sourceLabel: string;
-  licenseNote: string;
-}
-
-/** 词典资产被收集为用户 FSRS 生词卡后的领域结果；不依赖任何具体界面。 */
-export interface DictionaryEntryCollection {
-  card: Flashcard;
-  created: boolean;
-}
-
-export function normalizeTrackLanguage(raw: string | null | undefined): TrackLanguage {
-  const v = (raw || '').toLowerCase();
-  if (v === 'en' || v === 'eng') return 'en';
-  if (v === 'ko' || v === 'kr') return 'ko';
-  if (v === 'ja' || v === 'jp') return 'ja';
-  return 'en';
-}
-
-export function inferLanguageFromSkillId(skillId: string): TrackLanguage {
-  if (skillId.startsWith('en.')) return 'en';
-  if (skillId.startsWith('ko.')) return 'ko';
-  return 'ja';
-}
-
-function defaultLanguageProfileSeed(language: TrackLanguage) {
-  if (language === 'ja') {
-    return { studyGoal: 'JLPT_N2', learnerLevel: 'BEGINNER', overallLevel: 'N3-' };
-  }
-  if (language === 'ko') {
-    return { studyGoal: 'TOPIK_I', learnerLevel: 'BEGINNER', overallLevel: 'A1' };
-  }
-  return { studyGoal: 'CET6', learnerLevel: 'BEGINNER', overallLevel: 'B1' };
-}
-
-function getTodayString(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function getYesterdayString(todayStr: string): string {
-  const d = new Date(`${todayStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-
-function safeJsonParse(raw: string | null | undefined): unknown {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
+export type {
+  TrackLanguage,
+  LocalDictionaryEntry,
+  DictionaryEntryCollection,
+  RepoDeps,
+};
+export {
+  normalizeTrackLanguage,
+  inferLanguageFromSkillId,
+  getTodayString,
+  getYesterdayString,
+  safeJsonParse,
+  defaultLanguageProfileSeed,
+};
 
 export class DrizzleLearnerRepository implements LearnerRepository {
   private readonly db: DrizzleDb;
@@ -160,163 +136,34 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   /**
    * 查询本地、可再分发的词典资产。第三方词典只可作为外链兜底，绝不在此抓取。
+   * 实现已下沉 domains/dictionary.ts，此处仅委托。
    */
   public async searchLocalDictionary(
     language: TrackLanguage,
     query: string,
     limit = 20
   ): Promise<Result<LocalDictionaryEntry[], BusinessError>> {
-    try {
-      const normalized = query.trim();
-      if (!normalized) return ok([]);
-
-      const pattern = `%${normalized}%`;
-      const rows = await this.db
-        .select()
-        .from(localDictionaryEntries)
-        .where(
-          and(
-            eq(localDictionaryEntries.language, language),
-            or(
-              like(localDictionaryEntries.headword, pattern),
-              like(localDictionaryEntries.reading, pattern),
-              like(localDictionaryEntries.romanization, pattern)
-            )
-          )
-        )
-        .limit(Math.min(Math.max(limit, 1), 50));
-
-      return ok(
-        rows.map((row): LocalDictionaryEntry => {
-          const entry: LocalDictionaryEntry = {
-            id: row.id,
-            language: row.language as TrackLanguage,
-            headword: row.headword,
-            meanings: JSON.parse(row.meaningsJson) as string[],
-            sourceLabel: row.sourceLabel,
-            licenseNote: row.licenseNote,
-          };
-          if (row.reading) entry.reading = row.reading;
-          if (row.romanization) entry.romanization = row.romanization;
-          if (row.pronunciationJson) {
-            entry.pronunciation = JSON.parse(row.pronunciationJson) as Record<string, unknown>;
-          }
-          if (row.partOfSpeech) entry.partOfSpeech = row.partOfSpeech;
-          return entry;
-        })
-      );
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'searchLocalDictionary',
-          entityId: query,
-        })
-      );
-    }
+    return searchLocalDictionaryDomain(this.deps, language, query, limit);
   }
 
   /**
    * 将一个已安装的本地词典条目收集为用户生词卡。
    * 词典内容仍保持公共只读资产；这里只创建或返回用户自己的 FSRS 状态。
+   * 实现已下沉 domains/dictionary.ts，此处仅委托。
    */
   public async collectDictionaryEntry(
     userId: string,
     entryId: string
   ): Promise<Result<DictionaryEntryCollection, BusinessError>> {
-    try {
-      const entryRows = await this.db
-        .select()
-        .from(localDictionaryEntries)
-        .where(eq(localDictionaryEntries.id, entryId))
-        .limit(1);
-      const entry = entryRows[0];
-      if (!entry) {
-        return err(
-          new BusinessError('E_NOT_FOUND', '该词典条目不存在或对应词典包尚未安装。', 'LEARNER_STATE')
-        );
-      }
+    return collectDictionaryEntryDomain(this.deps, userId, entryId);
+  }
 
-      const existingRows = await this.db
-        .select()
-        .from(flashcards)
-        .where(
-          and(
-            eq(flashcards.userId, userId),
-            eq(flashcards.sourceEntryId, entry.id)
-          )
-        )
-        .limit(1);
-      const existing = existingRows[0];
-      if (existing) {
-        return ok({
-          created: false,
-          card: {
-            id: existing.id,
-            userId: existing.userId,
-            type: existing.type as Flashcard['type'],
-            front: existing.front,
-            back: existing.back,
-            phonetic: existing.phonetic ?? undefined,
-            audioUrl: existing.audioUrl ?? undefined,
-            tags: JSON.parse(existing.tags) as string[],
-            fsrs: JSON.parse(existing.fsrs),
-          },
-        });
-      }
-
-      const meanings = JSON.parse(entry.meaningsJson) as string[];
-      const reading = entry.reading ?? entry.romanization ?? undefined;
-      const now = nowIso();
-      const card: Flashcard = {
-        id: generateId('card_dict'),
-        userId,
-        type: 'VOCABULARY',
-        front: entry.headword,
-        back: meanings.join('；'),
-        phonetic: reading,
-        tags: ['词典生词', entry.partOfSpeech ?? '词汇', entry.sourceLabel],
-        fsrs: {
-          stability: 1,
-          difficulty: 5,
-          reps: 0,
-          lapses: 0,
-          dueAt: now,
-          state: 'NEW',
-        },
-      };
-      await this.db.insert(flashcards).values({
-        id: card.id,
-        userId,
-        language: normalizeTrackLanguage(entry.language),
-        type: card.type,
-        front: card.front,
-        back: card.back,
-        phonetic: card.phonetic ?? null,
-        audioUrl: null,
-        sourceEntryId: entry.id,
-        tags: JSON.stringify(card.tags),
-        fsrs: JSON.stringify(card.fsrs),
-      });
-      return ok({ card, created: true });
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'collectDictionaryEntry',
-          entityId: entryId,
-        })
-      );
-    }
+  private get deps(): RepoDeps {
+    return { db: this.db, sqlite: this.sqlite, repo: this };
   }
 
   private async resolveActiveLanguage(userId: string): Promise<TrackLanguage> {
-    const rows = await this.db
-      .select({ targetLanguage: learnerProfiles.targetLanguage })
-      .from(learnerProfiles)
-      .where(eq(learnerProfiles.userId, userId))
-      .limit(1);
-    return normalizeTrackLanguage(rows[0]?.targetLanguage);
+    return resolveActiveLanguageDomain(this.deps, userId);
   }
 
   private async ensureLanguageProfile(
@@ -338,39 +185,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       totalQuizzesAnswered: number;
     }>
   ): Promise<typeof learnerLanguageProfiles.$inferSelect> {
-    const existing = await this.db
-      .select()
-      .from(learnerLanguageProfiles)
-      .where(
-        and(
-          eq(learnerLanguageProfiles.userId, userId),
-          eq(learnerLanguageProfiles.language, language)
-        )
-      )
-      .limit(1);
-    if (existing[0]) return existing[0];
-
-    const defaults = defaultLanguageProfileSeed(language);
-    const row = {
-      userId,
-      language,
-      studyGoal: seed?.studyGoal ?? defaults.studyGoal,
-      learnerLevel: seed?.learnerLevel ?? defaults.learnerLevel,
-      overallLevel: seed?.overallLevel ?? defaults.overallLevel,
-      overallProficiency: seed?.overallProficiency ?? 0.55,
-      streakDays: seed?.streakDays ?? 0,
-      maxStreakDays: seed?.maxStreakDays ?? 0,
-      lastActiveDate: seed?.lastActiveDate ?? null,
-      retentionRate: seed?.retentionRate ?? 0.85,
-      dailyGoalQuizzes: seed?.dailyGoalQuizzes ?? 5,
-      dailyGoalCards: seed?.dailyGoalCards ?? 10,
-      totalStudyMinutes: seed?.totalStudyMinutes ?? 0,
-      totalCardsReviewed: seed?.totalCardsReviewed ?? 0,
-      totalQuizzesAnswered: seed?.totalQuizzesAnswered ?? 0,
-      updatedAt: nowIso(),
-    };
-    await this.db.insert(learnerLanguageProfiles).values(row);
-    return row as typeof learnerLanguageProfiles.$inferSelect;
+    return ensureLanguageProfileDomain(this.deps, userId, language, seed);
   }
 
   private async mirrorLanguageProfileToMain(
@@ -379,25 +194,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     langRow: typeof learnerLanguageProfiles.$inferSelect,
     displayName?: string
   ): Promise<void> {
-    const patch: Record<string, unknown> = {
-      targetLanguage: language,
-      studyGoal: langRow.studyGoal,
-      learnerLevel: langRow.learnerLevel,
-      overallLevel: langRow.overallLevel,
-      overallProficiency: langRow.overallProficiency,
-      streakDays: langRow.streakDays,
-      maxStreakDays: langRow.maxStreakDays,
-      lastActiveDate: langRow.lastActiveDate,
-      retentionRate: langRow.retentionRate,
-      dailyGoalQuizzes: langRow.dailyGoalQuizzes,
-      dailyGoalCards: langRow.dailyGoalCards,
-      totalStudyMinutes: langRow.totalStudyMinutes,
-      totalCardsReviewed: langRow.totalCardsReviewed,
-      totalQuizzesAnswered: langRow.totalQuizzesAnswered,
-      updatedAt: nowIso(),
-    };
-    if (displayName !== undefined) patch.displayName = displayName;
-    await this.db.update(learnerProfiles).set(patch).where(eq(learnerProfiles.userId, userId));
+    return mirrorLanguageProfileToMainDomain(this.deps, userId, language, langRow, displayName);
   }
 
   /**
