@@ -143,6 +143,12 @@ import {
   recordReadingPractice as recordReadingPracticeDomain,
 } from './domains/curriculum-reading.js';
 import {
+  collectPracticeQuestions as collectPracticeQuestionsDomain,
+  listPracticeCollections as listPracticeCollectionsDomain,
+  listPracticeItems as listPracticeItemsDomain,
+  convertPracticeItemsToCards as convertPracticeItemsToCardsDomain,
+} from './domains/practice.js';
+import {
   getTodayString,
   getYesterdayString,
   safeJsonParse,
@@ -622,7 +628,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   }
 
   /**
-   * 创建练习集合并批量写入练习队列条目（collect:true）
+   * 实现已下沉 domains/practice.ts，此处仅委托。
    */
   public async collectPracticeQuestions(input: {
     userId: string;
@@ -636,159 +642,31 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     blockId?: string | undefined;
     gradingMode?: string | undefined;
   }): Promise<Result<{ collection: PracticeCollection; items: PracticeItem[] }, BusinessError>> {
-    try {
-      const parsed = input.questions.map((q) => {
-        // 运行时再校验，避免坏 JSON 入库
-        return q;
-      });
-      if (parsed.length === 0) {
-        return err(
-          new BusinessError('E_INVALID_INPUT', '练习队列至少需要 1 道题', 'VALIDATION')
-        );
-      }
-
-      const collectionId = generateId('pcol');
-      const createdAt = nowIso();
-      const intent = input.intent ?? 'GENERATE_QUIZ';
-      const language = await this.resolveActiveLanguage(input.userId);
-
-      await this.db.insert(practiceCollections).values({
-        id: collectionId,
-        userId: input.userId,
-        language,
-        title: input.title,
-        intent,
-        layoutHint: input.layoutHint ?? null,
-        sourceRef: input.sourceRef ?? null,
-        createdAt,
-        planRunId: input.planRunId ?? null,
-        blockId: input.blockId ?? null,
-        gradingMode: input.gradingMode ?? null,
-      });
-
-      const items: PracticeItem[] = [];
-      for (let i = 0; i < parsed.length; i++) {
-        const q = parsed[i]!;
-        const itemId = generateId('pitem');
-        const skillIds = q.testedSkillId ? [q.testedSkillId] : [];
-        await this.db.insert(practiceItems).values({
-          id: itemId,
-          userId: input.userId,
-          language,
-          collectionId,
-          questionJson: JSON.stringify(q),
-          skillIds: JSON.stringify(skillIds),
-          sourceRef: input.sourceRef ?? null,
-          passageDocumentId: null,
-          sortOrder: i,
-          collectedAt: createdAt,
-        });
-        items.push({
-          id: itemId,
-          userId: input.userId,
-          collectionId,
-          question: q,
-          skillIds,
-          sourceRef: input.sourceRef,
-          sortOrder: i,
-          collectedAt: createdAt,
-        });
-      }
-
-      const collection: PracticeCollection = {
-        id: collectionId,
-        userId: input.userId,
-        title: input.title,
-        intent,
-        layoutHint: input.layoutHint as PracticeCollection['layoutHint'],
-        sourceRef: input.sourceRef,
-        createdAt,
-      };
-
-      return ok({ collection, items });
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'collectPracticeQuestions',
-          entityId: input.userId,
-        })
-      );
-    }
+    return collectPracticeQuestionsDomain(this.deps, input);
   }
 
+  /**
+   * 实现已下沉 domains/practice.ts，此处仅委托。
+   */
   public async listPracticeCollections(
     userId: string,
     limit = 20
   ): Promise<Result<PracticeCollection[], BusinessError>> {
-    try {
-      const language = await this.resolveActiveLanguage(userId);
-      const rows = await this.db
-        .select()
-        .from(practiceCollections)
-        .where(
-          and(
-            eq(practiceCollections.userId, userId),
-            eq(practiceCollections.language, language)
-          )
-        )
-        .orderBy(desc(practiceCollections.createdAt))
-        .limit(limit);
-
-      return ok(
-        rows.map((r) => {
-          const col: PracticeCollection = {
-            id: r.id,
-            userId: r.userId,
-            title: r.title,
-            intent: r.intent,
-            createdAt: r.createdAt,
-          };
-          if (r.layoutHint) {
-            col.layoutHint = r.layoutHint as PracticeCollection['layoutHint'];
-          }
-          if (r.sourceRef) col.sourceRef = r.sourceRef;
-          return col;
-        })
-      );
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'listPracticeCollections',
-          entityId: userId,
-        })
-      );
-    }
+    return listPracticeCollectionsDomain(this.deps, userId, limit);
   }
 
+  /**
+   * 实现已下沉 domains/practice.ts，此处仅委托。
+   */
   public async listPracticeItems(
     userId: string,
     collectionId: string
   ): Promise<Result<PracticeItem[], BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(practiceItems)
-        .where(
-          and(eq(practiceItems.userId, userId), eq(practiceItems.collectionId, collectionId))
-        )
-        .orderBy(asc(practiceItems.sortOrder));
-
-      return ok(rows.map((r) => this.mapPracticeItemRow(r)));
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'listPracticeItems',
-          entityId: collectionId,
-        })
-      );
-    }
+    return listPracticeItemsDomain(this.deps, userId, collectionId);
   }
 
   /**
-   * 用户勾选练习队列条目 → 显式写入 FSRS 闪卡（collect 本身不建卡）
+   * 实现已下沉 domains/practice.ts，此处仅委托。
    */
   public async convertPracticeItemsToCards(
     userId: string,
@@ -796,98 +674,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   ): Promise<
     Result<{ createdCount: number; cardIds: string[]; skippedItemIds: string[] }, BusinessError>
   > {
-    try {
-      const uniqueIds = [...new Set(itemIds.map((id) => id.trim()).filter(Boolean))];
-      if (uniqueIds.length === 0) {
-        return err(
-          new BusinessError('E_INVALID_INPUT', '请至少勾选一条练习队列条目再转入复习。', 'VALIDATION')
-        );
-      }
-      if (uniqueIds.length > 50) {
-        return err(
-          new BusinessError('E_INVALID_INPUT', '单次最多转入 50 张闪卡。', 'VALIDATION')
-        );
-      }
-
-      const rows = await this.db
-        .select()
-        .from(practiceItems)
-        .where(and(eq(practiceItems.userId, userId), inArray(practiceItems.id, uniqueIds)));
-
-      const found = new Set(rows.map((r) => r.id));
-      const skippedItemIds = uniqueIds.filter((id) => !found.has(id));
-      const cardIds: string[] = [];
-
-      for (const row of rows) {
-        const item = this.mapPracticeItemRow(row);
-        const card = this.practiceItemToFlashcard(item);
-        const saveRes = await this.saveCard(card);
-        if (!isOk(saveRes)) {
-          return saveRes;
-        }
-        cardIds.push(card.id);
-      }
-
-      return ok({
-        createdCount: cardIds.length,
-        cardIds,
-        skippedItemIds,
-      });
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'convertPracticeItemsToCards',
-          entityId: userId,
-        })
-      );
-    }
-  }
-
-  private mapPracticeItemRow(r: typeof practiceItems.$inferSelect): PracticeItem {
-    const item: PracticeItem = {
-      id: r.id,
-      userId: r.userId,
-      collectionId: r.collectionId,
-      question: JSON.parse(r.questionJson) as GeneratedQuestion,
-      skillIds: r.skillIds ? (JSON.parse(r.skillIds) as string[]) : [],
-      sortOrder: r.sortOrder,
-      collectedAt: r.collectedAt,
-    };
-    if (r.sourceRef) item.sourceRef = r.sourceRef;
-    if (r.passageDocumentId) item.passageDocumentId = r.passageDocumentId;
-    return item;
-  }
-
-  private practiceItemToFlashcard(item: PracticeItem): Flashcard {
-    const q = item.question;
-    const front = (q.content?.trim() || q.prompt).trim().slice(0, 240);
-    const backParts = [
-      q.correctAnswer ? `答案：${q.correctAnswer}` : '',
-      q.explanation?.trim() || '',
-    ].filter(Boolean);
-    const back = (backParts.join('\n') || q.prompt).slice(0, 800);
-    const tags = [
-      '练习队列',
-      ...(item.skillIds.length > 0 ? item.skillIds.slice(0, 3) : [q.testedSkillId || 'review']),
-    ].filter(Boolean);
-
-    return {
-      id: generateId('card_pq'),
-      userId: item.userId,
-      type: 'VOCABULARY',
-      front,
-      back,
-      tags,
-      fsrs: {
-        stability: 1.0,
-        difficulty: 5.0,
-        reps: 0,
-        lapses: 0,
-        dueAt: nowIso(),
-        state: 'NEW',
-      },
-    };
+    return convertPracticeItemsToCardsDomain(this.deps, userId, itemIds);
   }
 
   // ===================== P5：可配置练习计划 =====================
