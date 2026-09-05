@@ -7,6 +7,7 @@ import {
   translateToBusinessError,
   nowIso,
   isOk,
+  generateId,
 } from '@study-studio/shared';
 import type { QuizAttemptRecord } from '@study-studio/learner-core';
 import { quizAttempts, quizQuestions } from '../../../infrastructure/db/index.js';
@@ -20,11 +21,39 @@ import { resolveActiveLanguage } from '../../learning-progress/persistence/profi
 /**
  * 练习域持久化：题库读写与作答记录（G4：由 repository/domains/cards-questions.ts 拆分而来，行为不变）。
  */
+
+/**
+ * quiz_questions 可持久化形态：协议 GeneratedQuestion 与历史兼容字段的宽松并集。
+ * 写入侧对缺失/漂移字段做中性回填（读侧永不抛）；id 缺失时自动生成（此前直接落库报错）。
+ */
+export type PersistableQuestion = {
+  id?: string;
+  userId?: unknown;
+  type?: unknown;
+  category?: unknown;
+  prompt?: unknown;
+  content?: unknown;
+  options?: unknown;
+  chunks?: unknown;
+  correctAnswer?: unknown;
+  explanation?: unknown;
+  testedSkill?: unknown;
+  testedSkillId?: unknown;
+  difficulty?: unknown;
+  language?: unknown;
+  createdAt?: unknown;
+  dictation?: unknown;
+};
+
+/** 未知输入收敛为写入字符串（非字符串一律回退，保证列类型稳定）。 */
+function asStoreString(value: unknown, fallback = ''): string {
+  return typeof value === 'string' ? value : fallback;
+}
 /**
  * P6-2：题型语料提取（仅 dictation 子结构；reading 正文不入库）。
  * 结构损坏一律返回 undefined（不臆造语料）。
  */
-function extractDictationExtras(question: any): Record<string, unknown> | undefined {
+function extractDictationExtras(question: PersistableQuestion): Record<string, unknown> | undefined {
   const d = question?.dictation;
   if (!d || typeof d !== 'object') return undefined;
   if (typeof (d as { fullJapanese?: unknown }).fullJapanese !== 'string') return undefined;
@@ -64,7 +93,7 @@ export async function getQuestions(
     difficulty?: number | undefined;
     skillIds?: string[] | undefined;
   }
-): Promise<Result<any[], BusinessError>> {
+): Promise<Result<PersistableQuestion[], BusinessError>> {
   try {
     const language = langOverride
       ? normalizeTrackLanguage(langOverride)
@@ -136,18 +165,20 @@ export async function getQuestions(
  */
 export async function saveQuestion(
   deps: RepoDeps,
-  question: any
+  question: PersistableQuestion
 ): Promise<Result<void, BusinessError>> {
+  const id = typeof question.id === 'string' ? question.id : generateId('q');
   try {
-    const skillId = question.testedSkill || question.testedSkillId || '';
-    const ownerId = question.userId || 'default_user';
+    const skillId = asStoreString(question.testedSkill) || asStoreString(question.testedSkillId);
+    const ownerId = asStoreString(question.userId) || 'default_user';
     const language = normalizeTrackLanguage(
-      question.language ?? (await resolveActiveLanguage(deps, ownerId))
+      (typeof question.language === 'string' ? question.language : undefined) ??
+        (await resolveActiveLanguage(deps, ownerId))
     );
     const existing = await deps.db
       .select()
       .from(quizQuestions)
-      .where(eq(quizQuestions.id, question.id))
+      .where(eq(quizQuestions.id, id))
       .limit(1);
 
     const optionsStr = question.options
@@ -164,41 +195,32 @@ export async function saveQuestion(
     const dictationExtras = extractDictationExtras(question);
     const extrasStr = dictationExtras ? JSON.stringify({ dictation: dictationExtras }) : null;
 
+    const row = {
+      language,
+      type: asStoreString(question.type),
+      category: asStoreString(question.category),
+      prompt: asStoreString(question.prompt),
+      content: asStoreString(question.content),
+      options: optionsStr,
+      chunks: chunksStr,
+      correctAnswer: asStoreString(question.correctAnswer),
+      explanation: asStoreString(question.explanation),
+      testedSkillId: skillId,
+      difficulty: typeof question.difficulty === 'number' ? question.difficulty : 3,
+      extrasJson: extrasStr,
+    };
+
     if (existing.length > 0) {
       await deps.db
         .update(quizQuestions)
-        .set({
-          language,
-          type: question.type,
-          category: question.category,
-          prompt: question.prompt,
-          content: question.content,
-          options: optionsStr,
-          chunks: chunksStr,
-          correctAnswer: question.correctAnswer,
-          explanation: question.explanation,
-          testedSkillId: skillId,
-          difficulty: question.difficulty ?? 3,
-          extrasJson: extrasStr,
-        })
-        .where(eq(quizQuestions.id, question.id));
+        .set(row)
+        .where(eq(quizQuestions.id, id));
     } else {
       await deps.db.insert(quizQuestions).values({
-        id: question.id,
-        userId: question.userId || 'default_user',
-        language,
-        type: question.type,
-        category: question.category,
-        prompt: question.prompt,
-        content: question.content,
-        options: optionsStr,
-        chunks: chunksStr,
-        correctAnswer: question.correctAnswer,
-        explanation: question.explanation,
-        testedSkillId: skillId,
-        difficulty: question.difficulty ?? 3,
-        extrasJson: extrasStr,
-        createdAt: question.createdAt || nowIso(),
+        id,
+        userId: ownerId,
+        ...row,
+        createdAt: asStoreString(question.createdAt) || nowIso(),
       });
     }
 
@@ -208,7 +230,7 @@ export async function saveQuestion(
       translateToBusinessError(error, {
         category: 'DATABASE',
         action: 'saveQuestion',
-        entityId: question.id,
+        entityId: id,
       })
     );
   }
@@ -219,7 +241,7 @@ export async function saveQuestion(
  */
 export async function saveQuestions(
   deps: RepoDeps,
-  questions: any[]
+  questions: PersistableQuestion[]
 ): Promise<Result<void, BusinessError>> {
   for (const q of questions) {
     const res = await saveQuestion(deps, q);

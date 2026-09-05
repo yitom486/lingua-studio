@@ -70,6 +70,7 @@ import {
   saveQuestion as saveQuestionDomain,
   saveQuestions as saveQuestionsDomain,
   recordQuizAttempt as recordQuizAttemptDomain,
+  type PersistableQuestion,
 } from '../modules/practice/persistence/questions.js';
 import {
   saveMistake as saveMistakeDomain,
@@ -366,21 +367,21 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       difficulty?: number | undefined;
       skillIds?: string[] | undefined;
     }
-  ): Promise<Result<any[], BusinessError>> {
+  ): Promise<Result<PersistableQuestion[], BusinessError>> {
     return getQuestionsDomain(this.deps, userId, limit, langOverride, filter);
   }
 
   /**
    * 实现已下沉 domains/cards-questions.ts，此处仅委托。
    */
-  public async saveQuestion(question: any): Promise<Result<void, BusinessError>> {
+  public async saveQuestion(question: PersistableQuestion): Promise<Result<void, BusinessError>> {
     return saveQuestionDomain(this.deps, question);
   }
 
   /**
    * 实现已下沉 domains/cards-questions.ts，此处仅委托。
    */
-  public async saveQuestions(questions: any[]): Promise<Result<void, BusinessError>> {
+  public async saveQuestions(questions: PersistableQuestion[]): Promise<Result<void, BusinessError>> {
     return saveQuestionsDomain(this.deps, questions);
   }
 

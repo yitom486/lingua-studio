@@ -1,6 +1,7 @@
 import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
 import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun } from '@study-studio/protocol';
 import type { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
+import type { PersistableQuestion } from '../persistence/questions.js';
 import type { LearningContentInput, LearningContentOutput } from '../../../transport/tools/learning-content-tool.js';
 
 /**
@@ -266,15 +267,26 @@ export async function assemblePracticeRun(
 }
 
 /** 把 quiz_questions 池行映射为协议 GeneratedQuestion（含 P6-2 语料透传）。 */
-function mapPoolQuestion(q: any): GeneratedQuestion {
+function mapPoolQuestion(q: PersistableQuestion): GeneratedQuestion {
   // 语料：仅接受结构完整的 dictation（fullJapanese 必填），否则丢弃
-  const rawDictation = q?.dictation;
+  const rawDictation =
+    q.dictation && typeof q.dictation === 'object'
+      ? (q.dictation as Record<string, unknown>)
+      : undefined;
+  const fullJapanese = rawDictation?.fullJapanese;
   const dictation =
-    rawDictation && typeof rawDictation === 'object' && typeof rawDictation.fullJapanese === 'string'
-      ? rawDictation
+    typeof fullJapanese === 'string'
+      ? {
+          fullJapanese,
+          ...(typeof rawDictation?.speaker === 'string' ? { speaker: rawDictation.speaker } : {}),
+          ...(typeof rawDictation?.chinese === 'string' ? { chinese: rawDictation.chinese } : {}),
+          ...(typeof rawDictation?.furiganaHint === 'string'
+            ? { furiganaHint: rawDictation.furiganaHint }
+            : {}),
+        }
       : undefined;
   return {
-    id: String(q.id),
+    id: String(q.id ?? ''),
     type: mapQuestionType(q.type),
     prompt: String(q.prompt ?? ''),
     content: String(q.content ?? ''),
@@ -288,8 +300,8 @@ function mapPoolQuestion(q: any): GeneratedQuestion {
 }
 
 /** 把 quiz_questions 的 UI 类型映射回协议 QuizQuestionType。 */
-function mapQuestionType(raw: string): GeneratedQuestion['type'] {
-  const t = String(raw).toUpperCase();
+function mapQuestionType(raw: unknown): GeneratedQuestion['type'] {
+  const t = String(typeof raw === 'string' ? raw : '').toUpperCase();
   if (t === 'CHOICE' || t === 'MULTIPLE_CHOICE') return 'MULTIPLE_CHOICE';
   if (t === 'FILL_BLANK' || t === 'FILL_IN_BLANK') return 'FILL_IN_BLANK';
   if (t === 'REORDER' || t === 'SENTENCE_REORDER') return 'SENTENCE_REORDER';

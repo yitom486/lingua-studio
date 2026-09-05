@@ -498,9 +498,9 @@ describe('quiz_questions extras round-trip (P6-2)', () => {
     const listRes = await repo.getQuestions(userId, 50, 'en', { types: ['DICTATION'] });
     expect(isOk(listRes)).toBe(true);
     if (!isOk(listRes)) return;
-    const found = listRes.value.find((q: any) => q.id === 'q_dict_1');
+    const found = listRes.value.find((q) => q.id === 'q_dict_1');
     expect(found).toBeDefined();
-    expect((found as any).dictation).toEqual({
+    expect(found?.dictation).toEqual({
       fullJapanese: '公園を歩く',
       speaker: 'teacher',
       furiganaHint: 'を',
@@ -512,17 +512,17 @@ describe('quiz_questions extras round-trip (P6-2)', () => {
     const listRes = await repo.getQuestions(userId, 50, 'en', { types: ['DICTATION'] });
     expect(isOk(listRes)).toBe(true);
     if (!isOk(listRes)) return;
-    const found = listRes.value.find((q: any) => q.id === 'q_plain_1');
+    const found = listRes.value.find((q) => q.id === 'q_plain_1');
     expect(found).toBeDefined();
     expect('dictation' in (found as object)).toBe(false);
   });
 
   it('drops corrupt extras instead of inventing', async () => {
-    await repo.saveQuestion(dictationQuestion('q_bad_1', { speaker: 'x' } as any));
+    await repo.saveQuestion(dictationQuestion('q_bad_1', { speaker: 'x' }));
     const listRes = await repo.getQuestions(userId, 50, 'en', { types: ['DICTATION'] });
     expect(isOk(listRes)).toBe(true);
     if (!isOk(listRes)) return;
-    const found = listRes.value.find((q: any) => q.id === 'q_bad_1');
+    const found = listRes.value.find((q) => q.id === 'q_bad_1');
     expect(found).toBeDefined();
     expect('dictation' in (found as object)).toBe(false);
   });
