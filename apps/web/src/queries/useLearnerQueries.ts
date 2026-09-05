@@ -4,7 +4,6 @@ import type { FsrsState, SkillMetric, DailyTaskProgress, DailyStudyPlan } from '
 import type { KanaItem, ReadingPassageSet, NewsTopic, LearningAnalysisReport, PracticePlanTemplate, PracticePlanRun, PracticeItemAttempt, PracticeBlockSpec, CardReviewRating } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
-import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
 import {
   type MistakeNotebookItem,
   type QuizQuestionItem,
@@ -14,45 +13,6 @@ import {
 import { DEFAULT_USER_ID, QUERY_KEYS, invalidateAllLearningQueries } from './query-keys.js';
 
 export { DEFAULT_USER_ID, QUERY_KEYS, invalidateAllLearningQueries };
-
-/**
- * 教材知识树查询 (支持 Hono RPC 动态获取持久化教材并与内置教材合流)
- */
-export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
-  return useQuery<TextbookBook[]>({
-    queryKey: [...QUERY_KEYS.TEXTBOOKS, userId],
-    queryFn: async () => {
-      try {
-        const res = await apiClient.api.documents[':userId'].$get({ param: { userId } });
-        if (res.ok) {
-          const docs = await res.json();
-          if (Array.isArray(docs) && docs.length > 0) {
-            const dynamicBooks: TextbookBook[] = [];
-            for (const doc of docs) {
-              if (doc.astJson) {
-                try {
-                  const parsed = JSON.parse(doc.astJson);
-                  if (parsed && parsed.id && Array.isArray(parsed.lessons)) {
-                    dynamicBooks.push(parsed as TextbookBook);
-                  }
-                } catch {
-                  // ignore corrupt ast
-                }
-              }
-            }
-            if (dynamicBooks.length > 0) {
-              return dynamicBooks;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[useTextbooksQuery] Hono RPC fallback to local textbook assets', e);
-      }
-      return TEXTBOOK_BOOKS;
-    },
-    staleTime: 1000 * 60 * 5,
-  });
-}
 
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { normalizeTrackLanguage } from '../learning/learning-shell.js';
@@ -65,131 +25,8 @@ export { useCardsQuery, useAddCardsMutation, useUpdateCardMutation, vocabToStudy
 
 // P1-2 拆分注：usePrependQuestionMutation / useAddCardsMutation / useUpdateCardMutation / useUpdateMistakeMutation / useAddMistakeMutation 已下沉 cards-mistakes-questions.ts，见文件顶部 barrel 重导出。
 
-/** 追加导入教材并持久化至 Gateway SQLite */
-export function useImportTextbookMutation(userId = DEFAULT_USER_ID) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (book: TextbookBook) => {
-      try {
-        await apiClient.api.documents[':userId'].$post({
-          param: { userId },
-          json: {
-            id: book.id,
-            title: book.title,
-            sourceKind: 'user_import',
-            language: 'ja',
-            content: (book as any).description || book.title,
-            astJson: JSON.stringify(book),
-            sourcePublisher: book.publisher || '用户自主导入',
-          },
-        });
-      } catch (e) {
-        console.warn('[useImportTextbookMutation] Hono RPC failed to save textbook to gateway', e);
-      }
-      return book;
-    },
-    onSuccess: (book) => {
-      queryClient.setQueryData<TextbookBook[]>([...QUERY_KEYS.TEXTBOOKS, userId], (prev = []) => [
-        book,
-        ...prev.filter((b) => b.id !== book.id),
-      ]);
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TEXTBOOKS });
-    },
-  });
-}
-
-/** 课文划线批注查询 (依托 Hono RPC 端到端强类型系统) */
-export function useAnnotationsQuery(documentId: string, userId = DEFAULT_USER_ID) {
-  return useQuery({
-    queryKey: [...QUERY_KEYS.ANNOTATIONS, userId, documentId],
-    queryFn: async () => {
-      if (!documentId) return [];
-      try {
-        const res = await apiClient.api.annotations[':userId'][':documentId'].$get({
-          param: { userId, documentId },
-        });
-        if (res.ok) {
-          const list = await res.json();
-          if (Array.isArray(list)) return list;
-        }
-      } catch (e) {
-        console.warn('[useAnnotationsQuery] Hono RPC failed to load annotations', e);
-      }
-      return [];
-    },
-    enabled: Boolean(documentId),
-    staleTime: 1000 * 60 * 2,
-  });
-}
-
-/** 新增课文划线批注 */
-export function useAddAnnotationMutation(userId = DEFAULT_USER_ID) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (input: {
-      documentId: string;
-      kind: 'KEY_POINT' | 'VOCAB' | 'GRAMMAR' | 'EXAM_TRAP' | 'PARAPHRASE';
-      quote: string;
-      note?: string;
-      startOffset?: number;
-      endOffset?: number;
-    }) => {
-      const res = await apiClient.api.annotations[':userId'].$post({
-        param: { userId },
-        json: input,
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-      throw new Error('保存批注失败');
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: [...QUERY_KEYS.ANNOTATIONS, userId, variables.documentId],
-      });
-    },
-  });
-}
-
-/** 批注一键转化为 FSRS 闪卡 */
-export function useAnnotationToCardMutation(userId = DEFAULT_USER_ID) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (payload: {
-      annotationId: string;
-      documentId: string;
-      front: string;
-      back: string;
-      tag?: string;
-      pos?: string;
-      phonetic?: string;
-    }) => {
-      const res = await apiClient.api.annotations[':userId'][':annotationId']['to-card'].$post({
-        param: { userId, annotationId: payload.annotationId },
-        json: {
-          front: payload.front,
-          back: payload.back,
-          tag: payload.tag || '课文批注',
-          pos: payload.pos || '重点词句',
-          phonetic: payload.phonetic,
-        },
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-      throw new Error('转为生词卡失败');
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
-      queryClient.invalidateQueries({
-        queryKey: [...QUERY_KEYS.ANNOTATIONS, userId, variables.documentId],
-      });
-    },
-  });
-}
+// P1-2 拆分：教材/批注组已下沉 textbooks-annotations.ts，此处重导出保持对外不变。
+export { useTextbooksQuery, useImportTextbookMutation, useAnnotationsQuery, useAddAnnotationMutation, useAnnotationToCardMutation } from './textbooks-annotations.js';
 
 /** 练习队列集合列表（≠ FSRS 卡） */
 export function usePracticeCollectionsQuery(userId = DEFAULT_USER_ID) {
