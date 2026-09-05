@@ -1,0 +1,176 @@
+import { describe, it, expect } from 'bun:test';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { join, relative, dirname, resolve, sep } from 'node:path';
+
+/**
+ * G5：模块边界回归测试。
+ *
+ * 允许的方向：
+ * - transport/bootstrap/index 组装 runtime、modules、infrastructure（显式装配）。
+ * - modules 经 `deps` 消费能力；跨模块深路径引用仅允许下表登记的过渡例外
+ *  （后续以各模块 public.ts 替代，见迁移计划 §5）。
+ * - 测试文件不受装配规则约束，但跨模块引用同样登记。
+ */
+const SRC = resolve(import.meta.dir, '..');
+
+const ASSEMBLERS = new Set([
+  'index.ts',
+  'bootstrap/config.ts',
+  'bootstrap/create-gateway.ts',
+  'bootstrap/start-gateway.ts',
+  'transport/http/create-app.ts',
+  'transport/http/gateway-deps.ts',
+  'transport/tools/register-tools.ts',
+  'transport/websocket/websocket-handler.ts',
+]);
+
+const LP_APP = 'modules/learning-progress/application/learning-analysis.js';
+const LP_PROFILE_INTERNALS = 'modules/learning-progress/persistence/profile-internals.js';
+
+/** 过渡例外：from -> to（src 相对路径，.js 后缀归一后比较） */
+const CROSS_MODULE_ALLOWLIST = new Set([
+  `modules/review/persistence/cards.ts -> ${LP_PROFILE_INTERNALS}`,
+  `modules/practice/persistence/practice.ts -> ${LP_PROFILE_INTERNALS}`,
+  `modules/practice/persistence/questions.ts -> ${LP_PROFILE_INTERNALS}`,
+  `modules/practice/application/practice-proposal.ts -> ${LP_APP}`,
+  `modules/practice/http/practice-routes.ts -> ${LP_APP}`,
+  `modules/practice/__tests__/practice-phase-d.test.ts -> ${LP_APP}`,
+  'modules/practice/application/practice-assembly.ts -> transport/tools/learning-content-tool.js',
+  'modules/practice/__tests__/practice-assembly.test.ts -> transport/tools/learning-content-tool.js',
+]);
+
+function collectTs(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'dist' || entry.name === 'node_modules') continue;
+      collectTs(full, out);
+    } else if (
+      (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) ||
+      (entry.name.endsWith('.js') && !entry.name.endsWith('.js.map'))
+    ) {
+      // dist 编译副本同样可扫（.js）；.d.ts/.map 跳过。
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+interface ImportRef {
+  from: string;
+  target: string;
+  typeOnly: boolean;
+}
+
+function extractImports(file: string): ImportRef[] {
+  const src = readFileSync(file, 'utf8');
+  const refs: ImportRef[] = [];
+  const staticRe = /import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+  const dynamicRe = /import\(\s*['"]([^'"]+)['"]\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = staticRe.exec(src))) {
+    refs.push({ from: file, target: m[2]!, typeOnly: Boolean(m[1]) });
+  }
+  while ((m = dynamicRe.exec(src))) {
+    refs.push({ from: file, target: m[1]!, typeOnly: false });
+  }
+  return refs;
+}
+
+function toSrcRelative(fromFile: string, target: string): string | null {
+  if (!target.startsWith('.')) return null;
+  const abs = resolve(dirname(fromFile), target);
+  const rel = relative(SRC, abs).split(sep).join('/');
+  if (rel.startsWith('..')) return null;
+  return existsSync(abs) || existsSync(abs + '.ts') ? rel : rel;
+}
+
+function topDir(rel: string): string {
+  return rel.split('/')[0]!;
+}
+
+describe('gateway module boundaries (G5)', () => {
+  const files = collectTs(SRC);
+  const violations: string[] = [];
+
+  for (const file of files) {
+    const rel = relative(SRC, file).split(sep).join('/');
+    // 跨 dist/src 统一为 .ts 口径（allowlist 用 .ts from、.js to）。
+    const relTs = rel.replace(/\.js$/, '.ts');
+    const isTest = rel.includes('/__tests__/') || rel.endsWith('.test.ts') || rel.endsWith('.test.js');
+    for (const ref of extractImports(file)) {
+      const target = toSrcRelative(file, ref.target);
+      if (!target) continue;
+      const normTarget = target.replace(/\.ts$/, '.js');
+
+      // R1：装配器之外不得引用启动装配（bootstrap / 应用组装 / 旧 server stub）。
+      if (!ASSEMBLERS.has(rel) && !ASSEMBLERS.has(relTs) && !isTest) {
+        if (
+          normTarget.startsWith('bootstrap/') ||
+          normTarget === 'transport/http/create-app.js' ||
+          normTarget === 'server.js' ||
+          normTarget.endsWith('/server.js')
+        ) {
+          violations.push(`R1 ${rel} -> ${normTarget}（禁止引用启动装配/旧入口）`);
+        }
+        // R2：模块与传输层不得（值）引用运行时协调器单例实现。
+        if (normTarget === 'runtime/gateway-runtime.js' && !ref.typeOnly) {
+          violations.push(`R2 ${rel} -> ${normTarget}（禁止值引用运行时协调器）`);
+        }
+      }
+
+      // R3：共享基础设施（persistence/db）不得反向依赖领域模块。
+      // 注：infrastructure/ 根门面是过渡期兼容委托方，豁免。
+      if (
+        (rel.startsWith('infrastructure/persistence/') || rel.startsWith('infrastructure/db/')) &&
+        normTarget.startsWith('modules/')
+      ) {
+        violations.push(`R3 ${rel} -> ${normTarget}（基础设施不得依赖领域模块）`);
+      }
+
+      // R4：persistence 不得引用同域或异域的上层（application/http/tools）。
+      if (relTs.includes('/persistence/') && !isTest) {
+        if (
+          normTarget.includes('/application/') ||
+          normTarget.includes('/http/') ||
+          normTarget.includes('/tools/')
+        ) {
+          violations.push(`R4 ${rel} -> ${normTarget}（持久层不得依赖上层）`);
+        }
+      }
+
+      // R5：跨模块深路径引用必须登记为例外。
+      const fromModule = relTs.startsWith('modules/') ? relTs.split('/')[1] : null;
+      const toModule = normTarget.startsWith('modules/') ? normTarget.split('/')[1] : null;
+      if (fromModule && toModule && fromModule !== toModule) {
+        const key = `${relTs} -> ${normTarget}`;
+        if (!CROSS_MODULE_ALLOWLIST.has(key)) {
+          violations.push(`R5 ${key}（新增跨模块引用需登记或走 public.ts）`);
+        }
+      }
+
+      // R6：模块引用 transport/tools 仅允许 import type（测试除外）。
+      if (fromModule && !isTest && normTarget.startsWith('transport/tools/') && !ref.typeOnly) {
+        violations.push(`R6 ${rel} -> ${normTarget}（模块仅允许 type-only 引用 Tool）`);
+      }
+    }
+  }
+
+  it('has no boundary violations', () => {
+    expect(violations).toEqual([]);
+  });
+
+  it('documents every cross-module exception', () => {
+    // 例外表条目必须真实存在，防止过期条目掩盖新增违规。
+    // 按去后缀基名比对，src 与 dist 编译副本都能跑。
+    const baseOf = (rel: string) => rel.replace(/\.(d\.ts|ts|js)$/, '');
+    const existing = new Set(
+      files.map((f) => baseOf(relative(SRC, f).split(sep).join('/'))),
+    );
+    for (const key of CROSS_MODULE_ALLOWLIST) {
+      const [from, to] = key.split(' -> ');
+      expect(existing.has(baseOf(from!)), `allowlist from missing: ${from}`).toBe(true);
+      expect(existing.has(baseOf(to!)), `allowlist to missing: ${to}`).toBe(true);
+    }
+  });
+});

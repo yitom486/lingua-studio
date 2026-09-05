@@ -3,7 +3,7 @@ import { createApp } from './transport/http/create-app.js';
 import { startGateway } from './bootstrap/start-gateway.js';
 import { PORT } from './bootstrap/config.js';
 
-export * from './server.js';
+export * from './runtime/gateway-runtime.js';
 export * from './session/session-manager.js';
 export * from './context/context-builder.js';
 export * from './router/tool-router.js';
