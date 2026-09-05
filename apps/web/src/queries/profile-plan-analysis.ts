@@ -1,0 +1,187 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { DailyStudyPlan, DailyTaskProgress, SkillMetric } from '@study-studio/learner-core';
+import type { LearningAnalysisReport } from '@study-studio/protocol';
+import { GATEWAY_BASE_URL } from '../lib/api-client.js';
+import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { normalizeTrackLanguage } from '../learning/learning-shell.js';
+
+/** P1-2 拆分：画像 / 计划 / 分析组（自 useLearnerQueries.ts 逐行平移，仅改 import）。 */
+
+/**
+ * 学习者技能画像雷达指标查询 (依托 Hono RPC / Gateway，带语种作用域隔离)
+ */
+export function useLearnerProfileQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<SkillMetric[]>({
+    queryKey: [...QUERY_KEYS.PROFILE, userId, targetLanguage],
+    queryFn: async () => {
+      try {
+        const url = `${GATEWAY_BASE_URL}/api/profile/${userId}?lang=${targetLanguage}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if ('allMetrics' in data && Array.isArray(data.allMetrics)) {
+            return data.allMetrics as SkillMetric[];
+          }
+        }
+      } catch (e) {
+        console.warn('[useLearnerProfileQuery] failed to load profile', e);
+      }
+      return [];
+    },
+    staleTime: 1000 * 60 * 2,
+  });
+}
+
+/**
+ * 学习者每日打卡与足迹进度查询 (实时 SQLite 同步，带语种作用域)
+ */
+export function useDailyTaskQuery(userId = DEFAULT_USER_ID, date?: string, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<DailyTaskProgress | null>({
+    queryKey: [...QUERY_KEYS.DAILY_TASK, userId, date ?? 'today', targetLanguage],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/task/progress/${userId}`);
+        if (date) url.searchParams.set('date', date);
+        url.searchParams.set('lang', targetLanguage);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          return (await res.json()) as DailyTaskProgress;
+        }
+      } catch (e) {
+        console.warn('[useDailyTaskQuery] Failed to load daily task progress', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 30,
+  });
+}
+
+export function useDailyPlanQuery(userId = DEFAULT_USER_ID, date?: string, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<DailyStudyPlan | null>({
+    queryKey: [...QUERY_KEYS.DAILY_PLAN, userId, date ?? 'today', targetLanguage],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/learning/plan/${userId}`);
+        if (date) url.searchParams.set('date', date);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          return (await res.json()) as DailyStudyPlan;
+        }
+      } catch (e) {
+        console.warn('[useDailyPlanQuery] Failed to load daily study plan', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 20,
+  });
+}
+
+export function useCompletePlanStepMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: { stepId: string; date?: string }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/plan/${userId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '暂时无法标记该步骤，请稍后重试。');
+      }
+      return (await res.json()) as DailyStudyPlan;
+    },
+    onSuccess: (plan) => {
+      queryClient.setQueryData(
+        [...QUERY_KEYS.DAILY_PLAN, userId, 'today', plan.language],
+        plan
+      );
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+    },
+  });
+}
+
+/**
+ * P4-C：AI 学习分析查询。
+ * 模型不可用时 Gateway 回退上次可信分析或本地规则建议，前端始终拿到一份报告。
+ * 做题/闪卡评分/错题攻克后失效该查询，触发重算。
+ */
+export function useLearningAnalysisQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<LearningAnalysisReport | null>({
+    queryKey: [...QUERY_KEYS.LEARNING_ANALYSIS, userId, targetLanguage],
+    queryFn: async () => {
+      try {
+        const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/analysis/${userId}`);
+        if (res.ok) {
+          return (await res.json()) as LearningAnalysisReport;
+        }
+      } catch (e) {
+        console.warn('[useLearningAnalysisQuery] Failed to load learning analysis', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+}
+
+/** 强制刷新分析（带 refresh=1 重新请求模型）。 */
+export function useRefreshLearningAnalysisMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/analysis/${userId}?refresh=1`);
+      if (!res.ok) throw new Error('刷新分析失败，请稍后重试。');
+      return (await res.json()) as LearningAnalysisReport;
+    },
+    onSuccess: (report) => {
+      queryClient.setQueryData([...QUERY_KEYS.LEARNING_ANALYSIS, userId, report.language], report);
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.LEARNING_ANALYSIS });
+    },
+  });
+}
+
+/**
+ * 学习者历史足迹打卡热力图查询 (真实 SQLite 数据源)
+ */
+export function useActivityHistoryQuery(
+  days = 28,
+  userId = DEFAULT_USER_ID,
+  targetLanguage?: string
+) {
+  return useQuery<DailyTaskProgress[]>({
+    queryKey: [...QUERY_KEYS.ACTIVITY_HISTORY, userId, days, targetLanguage ?? 'all'],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/task/history/${userId}`);
+        url.searchParams.set('days', String(days));
+        if (targetLanguage) url.searchParams.set('lang', targetLanguage);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          const list = (await res.json()) as DailyTaskProgress[];
+          if (Array.isArray(list)) return list;
+        }
+      } catch (e) {
+        console.warn('[useActivityHistoryQuery] Failed to load activity history', e);
+      }
+      return [];
+    },
+    staleTime: 1000 * 30,
+  });
+}
