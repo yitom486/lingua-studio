@@ -187,6 +187,83 @@ describe('DrizzleLearnerRepository P5 practice plan', () => {
     });
   });
 
+  describe('today plan integration (P5-E3)', () => {
+    it('surfaces active run as a today-plan step and completes it after finalize', async () => {
+      // 无 run 时今日计划不含练习计划步骤
+      const before = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+      expect(isOk(before)).toBe(true);
+      if (!isOk(before)) return;
+      expect(before.value.steps.some((s) => s.kind === 'PRACTICE_PLAN')).toBe(false);
+
+      // 开 run（晚于计划冻结创建）→ 幂等追加步骤，目标为冻结块总题量
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        blocks: [quizBlock('b1', 2), quizBlock('b2', 1)],
+      });
+      expect(isOk(runRes)).toBe(true);
+      if (!isOk(runRes)) return;
+      const runId = runRes.value.id;
+
+      const plan1 = await repo.getOrCreateDailyStudyPlan(userId);
+      expect(isOk(plan1)).toBe(true);
+      if (!isOk(plan1)) return;
+      const step1 = plan1.value.steps.find((s) => s.kind === 'PRACTICE_PLAN');
+      expect(step1).toBeDefined();
+      expect(step1!.targetCount).toBe(3);
+      expect(step1!.done).toBe(false);
+      expect(step1!.currentCount).toBe(0);
+
+      // 逐题提交推进进度（2/3）
+      await repo.submitPracticeItem(userId, runId, 'q1', 'a1', {
+        isCorrect: true, score: 1, testedSkillId: 'en.vocab',
+      });
+      await repo.submitPracticeItem(userId, runId, 'q2', 'a2', {
+        isCorrect: false, score: 0, testedSkillId: 'en.vocab',
+      });
+      const plan2 = await repo.getOrCreateDailyStudyPlan(userId);
+      expect(isOk(plan2)).toBe(true);
+      if (!isOk(plan2)) return;
+      const step2 = plan2.value.steps.find((s) => s.kind === 'PRACTICE_PLAN')!;
+      expect(step2.currentCount).toBe(2);
+      expect(step2.done).toBe(false);
+
+      // 全部提交 → 步骤自动完成
+      await repo.submitPracticeItem(userId, runId, 'q3', 'a3', {
+        isCorrect: true, score: 1, testedSkillId: 'en.vocab',
+      });
+      const plan3 = await repo.getOrCreateDailyStudyPlan(userId);
+      if (!isOk(plan3)) return;
+      const step3 = plan3.value.steps.find((s) => s.kind === 'PRACTICE_PLAN')!;
+      expect(step3.done).toBe(true);
+
+      // finalize（COMPLETED 当日）→ 步骤保持完成态
+      await repo.finalizePracticePlanRun(userId, runId);
+      const plan4 = await repo.getOrCreateDailyStudyPlan(userId);
+      if (!isOk(plan4)) return;
+      expect(plan4.value.steps.find((s) => s.kind === 'PRACTICE_PLAN')!.done).toBe(true);
+    });
+
+    it('does not leak practice step across languages', async () => {
+      // en run 不应出现在 ja 计划里
+      const runRes = await repo.startPracticePlanRun(userId, {
+        language: 'en',
+        blocks: [quizBlock('b1', 2)],
+      });
+      expect(isOk(runRes)).toBe(true);
+
+      // 将档案切到 ja 再取计划：run 语言隔离使信号不存在
+      const profRes = await repo.getLearnerProfile(userId);
+      if (!isOk(profRes)) return;
+      await repo.updateLearnerProfile(userId, { targetLanguage: 'ja' });
+
+      const planRes = await repo.getOrCreateDailyStudyPlan(userId);
+      expect(isOk(planRes)).toBe(true);
+      if (!isOk(planRes)) return;
+      expect(planRes.value.steps.some((s) => s.kind === 'PRACTICE_PLAN')).toBe(false);
+      expect(planRes.value.language).toBe('ja');
+    });
+  });
+
   describe('run freeze isolation', () => {
     it('freezes revision and blocks; modifying template does not affect existing run', async () => {
       await repo.savePracticePlanTemplate(template({ blocks: [quizBlock('b1', 5)] }));

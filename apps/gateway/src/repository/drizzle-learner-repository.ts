@@ -26,6 +26,8 @@ import {
   parseCompletedStepIds,
   parseDailyPlanStepTemplates,
   summarizeDailyStudyPlan,
+  appendPracticePlanStep,
+  PRACTICE_PLAN_STEP_ID,
 } from '@study-studio/learner-core';
 import type {
   Flashcard,
@@ -1041,6 +1043,66 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     }
   }
 
+  /**
+   * P5-E3：聚合练习计划 run 进度信号。
+   * - 存在活跃 run（IN_PROGRESS/GRADING）：返回冻结块总题量与已提交题数，今日计划显示可点击步骤；
+   * - 无活跃 run 但当日有已完成 run：返回 1/1 使步骤呈现完成态；
+   * - 其余情况返回 undefined（不出步骤）。信号失败静默降级，不影响计划主路径。
+   */
+  private async getPracticePlanRunSignal(
+    userId: string,
+    language: TrackLanguage,
+    targetDate: string
+  ): Promise<{ submittedItems: number; totalItems: number } | undefined> {
+    try {
+      const activeRows = await this.db
+        .select()
+        .from(practicePlanRuns)
+        .where(
+          and(
+            eq(practicePlanRuns.userId, userId),
+            eq(practicePlanRuns.language, language),
+            inArray(practicePlanRuns.status, ['IN_PROGRESS', 'GRADING'])
+          )
+        )
+        .orderBy(desc(practicePlanRuns.startedAt))
+        .limit(1);
+      const active = activeRows[0];
+      if (active) {
+        const blocks = parsePracticeBlockSpecs(safeJsonParse(active.blocksJson));
+        const totalItems = (blocks ?? []).reduce((sum, b) => sum + b.count, 0);
+        const submittedRows = await this.db
+          .select({ itemId: practiceItemAttempts.itemId })
+          .from(practiceItemAttempts)
+          .where(
+            and(
+              eq(practiceItemAttempts.runId, active.id),
+              inArray(practiceItemAttempts.status, ['SUBMITTED', 'GRADED'])
+            )
+          );
+        const submittedItems = new Set(submittedRows.map((r) => r.itemId)).size;
+        return { totalItems: Math.max(1, totalItems), submittedItems };
+      }
+      const completedRows = await this.db
+        .select({ id: practicePlanRuns.id })
+        .from(practicePlanRuns)
+        .where(
+          and(
+            eq(practicePlanRuns.userId, userId),
+            eq(practicePlanRuns.language, language),
+            eq(practicePlanRuns.status, 'COMPLETED'),
+            like(practicePlanRuns.completedAt, `${targetDate}%`)
+          )
+        )
+        .limit(1);
+      if (completedRows.length > 0) return { submittedItems: 1, totalItems: 1 };
+      return undefined;
+    } catch {
+      // 信号为辅助路径：聚合失败时退回「不显示练习计划步骤」，不打断今日计划
+      return undefined;
+    }
+  }
+
   private async hydrateDailyStudyPlan(
     userId: string,
     date?: string
@@ -1072,6 +1134,9 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       ...(topWeakness ? { topWeakness: { skillId: topWeakness.id, name: topWeakness.name } } : {}),
     };
 
+    // P5-E3：练习计划 run 进度信号（活跃 run 或当日完成 run 才存在）
+    const practiceSignal = await this.getPracticePlanRunSignal(userId, language, targetDate);
+
     const existingRows = await this.db
       .select()
       .from(dailyStudyPlans)
@@ -1099,8 +1164,17 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       createdAt = existing.createdAt;
       templates = parsedTemplates;
       completedStepIds = parseCompletedStepIds(safeJsonParse(existing.completedStepIdsJson));
+      // P5-E3：run 晚于冻结模板创建时，幂等追加练习计划步骤并持久化（只追加、不改序）
+      if (practiceSignal && !templates.some((s) => s.id === PRACTICE_PLAN_STEP_ID)) {
+        templates = appendPracticePlanStep(templates, practiceSignal.totalItems);
+        await this.db
+          .update(dailyStudyPlans)
+          .set({ stepsJson: JSON.stringify(templates) })
+          .where(eq(dailyStudyPlans.id, existing.id));
+      }
     } else {
       templates = buildDailyPlanStepTemplates(signals);
+      if (practiceSignal) templates = appendPracticePlanStep(templates, practiceSignal.totalItems);
       planId = existing?.id ?? generateId('plan');
       createdAt = existing?.createdAt ?? nowIso();
       completedStepIds = existing
@@ -1136,6 +1210,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         mistakesResolvedCount: progressRes.value.mistakesResolvedCount,
         unresolvedMistakesCount: mistakesRes.value.length,
         completedStepIds,
+        practicePlan: practiceSignal,
       })
     );
   }

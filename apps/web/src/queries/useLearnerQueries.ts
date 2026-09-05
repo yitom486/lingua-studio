@@ -1490,6 +1490,8 @@ export function useStartPracticeRunMutation(userId = DEFAULT_USER_ID) {
     },
     onSuccess: (run) => {
       queryClient.setQueryData([...QUERY_KEYS.PRACTICE_RUN, userId, run.id], { run, attempts: [] });
+      // P5-E3：新开 run 立即出现在今日计划（幂等追加练习计划步骤）
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DAILY_PLAN, userId] });
     },
   });
 }

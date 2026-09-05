@@ -7,11 +7,15 @@ export const DAILY_PLAN_STEP_KINDS = [
   'READING',
   'QUIZ',
   'MISTAKES',
+  'PRACTICE_PLAN',
 ] as const;
 
 export type DailyPlanStepKind = (typeof DAILY_PLAN_STEP_KINDS)[number];
 
-export type DailyPlanNavigateTarget = 'CARDS' | 'QUIZ' | 'READING' | 'MISTAKES';
+export type DailyPlanNavigateTarget = 'CARDS' | 'QUIZ' | 'READING' | 'MISTAKES' | 'PRACTICE_PLAN';
+
+/** P5-E3：练习计划 run 步骤的确定性 id（同一天多次读取/完成状态稳定） */
+export const PRACTICE_PLAN_STEP_ID = 'step_practice_plan';
 
 /** 持久化模板：不含 live `done`，当日顺序稳定 */
 export interface DailyPlanStepTemplate {
@@ -57,6 +61,11 @@ export interface DailyPlanProgressSignals {
   mistakesResolvedCount: number;
   unresolvedMistakesCount: number;
   completedStepIds: string[];
+  /**
+   * P5-E3：练习计划 run 进度（活跃 run 或当日已完成 run 时存在）。
+   * 由仓储从 practice_plan_runs / practice_item_attempts 聚合，不在 UI 侧累计。
+   */
+  practicePlan?: { submittedItems: number; totalItems: number } | undefined;
 }
 
 const KIND_SET = new Set<string>(DAILY_PLAN_STEP_KINDS);
@@ -154,6 +163,30 @@ export function overlayDailyPlanProgress(
   });
 }
 
+/**
+ * P5-E3：把用户练习计划 run 追加为今日计划的真实步骤。
+ * - 不占用核心 5 步容量（核心教学顺序 slices 后再追加）；
+ * - 确定性 id 保证幂等：已存在则原样返回；
+ * - 仓储层在「run 晚于计划冻结创建」时调用，使当日新开的 run 也能出现在计划里。
+ */
+export function appendPracticePlanStep(
+  templates: DailyPlanStepTemplate[],
+  totalItems: number
+): DailyPlanStepTemplate[] {
+  if (templates.some((s) => s.id === PRACTICE_PLAN_STEP_ID)) return templates;
+  return [
+    ...templates,
+    {
+      id: PRACTICE_PLAN_STEP_ID,
+      kind: 'PRACTICE_PLAN',
+      title: '完成练习计划',
+      summary: '按自定义块组合完成今日练习运行；全部提交后本步自动完成。',
+      navigateTo: 'PRACTICE_PLAN',
+      targetCount: Math.max(1, totalItems),
+    },
+  ];
+}
+
 export function summarizeDailyStudyPlan(
   id: string,
   userId: string,
@@ -188,7 +221,8 @@ export function parseDailyPlanStepTemplates(raw: unknown): DailyPlanStepTemplate
       rec.navigateTo !== 'CARDS' &&
       rec.navigateTo !== 'QUIZ' &&
       rec.navigateTo !== 'READING' &&
-      rec.navigateTo !== 'MISTAKES'
+      rec.navigateTo !== 'MISTAKES' &&
+      rec.navigateTo !== 'PRACTICE_PLAN'
     ) {
       return null;
     }
@@ -229,6 +263,8 @@ function currentCountForStep(
       return progress.quizzesCount;
     case 'MISTAKES':
       return progress.mistakesResolvedCount;
+    case 'PRACTICE_PLAN':
+      return progress.practicePlan?.submittedItems ?? 0;
     default:
       return 0;
   }
@@ -251,6 +287,10 @@ function isStepDone(
       return progress.quizzesCount >= 1;
     case 'MISTAKES':
       return progress.mistakesResolvedCount >= 1 || progress.unresolvedMistakesCount === 0;
+    case 'PRACTICE_PLAN': {
+      const pp = progress.practicePlan;
+      return pp !== undefined && pp.totalItems > 0 && pp.submittedItems >= pp.totalItems;
+    }
     default:
       return false;
   }

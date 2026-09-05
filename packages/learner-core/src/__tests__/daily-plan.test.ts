@@ -3,6 +3,8 @@ import {
   buildDailyPlanStepTemplates,
   overlayDailyPlanProgress,
   parseDailyPlanStepTemplates,
+  appendPracticePlanStep,
+  PRACTICE_PLAN_STEP_ID,
 } from '../daily-plan.js';
 
 describe('daily plan sequencing', () => {
@@ -77,5 +79,93 @@ describe('daily plan sequencing', () => {
       },
     ]);
     expect(ok?.[0]?.kind).toBe('QUIZ');
+  });
+});
+
+describe('practice plan run step (P5-E3)', () => {
+  const baseSignals = {
+    track: 'en' as const,
+    dailyGoalQuizzes: 5,
+    dailyGoalCards: 10,
+    dueCardsCount: 8,
+    unresolvedMistakesCount: 2,
+    topWeakness: { skillId: 'en.grammar.tense', name: '时态一致' },
+  };
+
+  it('appends practice step after the 5-step cap without being dropped', () => {
+    const capped = buildDailyPlanStepTemplates(baseSignals);
+    expect(capped.length).toBe(5);
+    const withPractice = appendPracticePlanStep(capped, 8);
+    expect(withPractice.length).toBe(6);
+    const practice = withPractice[withPractice.length - 1]!;
+    expect(practice.id).toBe(PRACTICE_PLAN_STEP_ID);
+    expect(practice.kind).toBe('PRACTICE_PLAN');
+    expect(practice.navigateTo).toBe('PRACTICE_PLAN');
+    expect(practice.targetCount).toBe(8);
+  });
+
+  it('is idempotent: appending twice does not duplicate the step', () => {
+    const once = appendPracticePlanStep(buildDailyPlanStepTemplates(baseSignals), 5);
+    const twice = appendPracticePlanStep(once, 5);
+    expect(twice.filter((s) => s.id === PRACTICE_PLAN_STEP_ID).length).toBe(1);
+  });
+
+  it('completes only when submitted items reach frozen total', () => {
+    const templates = appendPracticePlanStep(buildDailyPlanStepTemplates(baseSignals), 3);
+    const partial = overlayDailyPlanProgress(templates, {
+      quizzesCount: 0,
+      cardsReviewedCount: 0,
+      readingCount: 0,
+      mistakesResolvedCount: 0,
+      unresolvedMistakesCount: 2,
+      completedStepIds: [],
+      practicePlan: { submittedItems: 2, totalItems: 3 },
+    });
+    const partialStep = partial.find((s) => s.id === PRACTICE_PLAN_STEP_ID)!;
+    expect(partialStep.done).toBe(false);
+    expect(partialStep.currentCount).toBe(2);
+
+    const complete = overlayDailyPlanProgress(templates, {
+      quizzesCount: 0,
+      cardsReviewedCount: 0,
+      readingCount: 0,
+      mistakesResolvedCount: 0,
+      unresolvedMistakesCount: 2,
+      completedStepIds: [],
+      practicePlan: { submittedItems: 3, totalItems: 3 },
+    });
+    expect(complete.find((s) => s.id === PRACTICE_PLAN_STEP_ID)?.done).toBe(true);
+  });
+
+  it('stays incomplete without signal but honours manual completion id', () => {
+    const templates = appendPracticePlanStep(buildDailyPlanStepTemplates(baseSignals), 4);
+    const noSignal = overlayDailyPlanProgress(templates, {
+      quizzesCount: 0,
+      cardsReviewedCount: 0,
+      readingCount: 0,
+      mistakesResolvedCount: 0,
+      unresolvedMistakesCount: 2,
+      completedStepIds: [],
+    });
+    const step = noSignal.find((s) => s.id === PRACTICE_PLAN_STEP_ID)!;
+    expect(step.done).toBe(false);
+    expect(step.currentCount).toBe(0);
+
+    const manuallyDone = overlayDailyPlanProgress(templates, {
+      quizzesCount: 0,
+      cardsReviewedCount: 0,
+      readingCount: 0,
+      mistakesResolvedCount: 0,
+      unresolvedMistakesCount: 2,
+      completedStepIds: [PRACTICE_PLAN_STEP_ID],
+    });
+    expect(manuallyDone.find((s) => s.id === PRACTICE_PLAN_STEP_ID)?.done).toBe(true);
+  });
+
+  it('parses persisted PRACTICE_PLAN templates round-trip', () => {
+    const templates = appendPracticePlanStep(buildDailyPlanStepTemplates(baseSignals), 6);
+    const parsed = parseDailyPlanStepTemplates(JSON.parse(JSON.stringify(templates)));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.find((s) => s.id === PRACTICE_PLAN_STEP_ID)?.kind).toBe('PRACTICE_PLAN');
   });
 });

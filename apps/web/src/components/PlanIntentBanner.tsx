@@ -10,6 +10,7 @@ const KIND_HINT: Record<string, string> = {
   READING: '完成一篇精读；划词可直接转入生词本。',
   QUIZ: '做完今日目标题量后，这一步会自动勾选。',
   MISTAKES: '两连对即可出库，错题步骤会自动完成。',
+  PRACTICE_PLAN: '按计划块作答并提交；全部提交后该步自动勾选。',
 };
 
 export function PlanIntentBanner() {

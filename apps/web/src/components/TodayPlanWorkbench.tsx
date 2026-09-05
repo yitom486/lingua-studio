@@ -11,6 +11,7 @@ import {
   Newspaper,
   Zap,
   AlertTriangle,
+  ClipboardList,
 } from 'lucide-react';
 import type { DailyPlanStep, DailyPlanStepKind } from '@study-studio/learner-core';
 import { NumberTicker } from './magicui/index.js';
@@ -29,6 +30,7 @@ const STEP_ICONS: Record<DailyPlanStepKind, typeof Layers> = {
   READING: Newspaper,
   QUIZ: Zap,
   MISTAKES: AlertTriangle,
+  PRACTICE_PLAN: ClipboardList,
 };
 
 export function TodayPlanWorkbench() {
