@@ -171,6 +171,8 @@ export type DictionaryPackageInfo = {
   description: string;
   installMode: 'on_demand';
   installed: boolean;
+  /** 安装器是否就绪（未就绪显示“即将推出”，不发起安装）。 */
+  installerReady?: boolean;
   entryCount?: number;
   installedAt?: string;
 };
