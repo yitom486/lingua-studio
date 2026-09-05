@@ -3,8 +3,8 @@
  * 运行：bun apps/gateway/scripts/shell-acceptance.mjs
  */
 import { getLearningShellConfig, resolveGuardTab } from '../../web/src/learning/learning-shell.ts';
-import { findStudyGoalOption } from '../../web/src/data/learner-profile-options.ts';
-import { SIDEBAR_NAV_GROUPS } from '../../web/src/data/sidebar-nav-data.ts';
+import { findStudyGoalOption } from '../../web/src/config/learner-profile-options.ts';
+import { SIDEBAR_NAV_GROUPS } from '../../web/src/config/sidebar-nav.ts';
 
 const GATEWAY = process.env.GATEWAY_BASE_URL || 'http://localhost:8080';
 const USER = process.env.ACCEPT_USER_ID || 'student_web_01';
