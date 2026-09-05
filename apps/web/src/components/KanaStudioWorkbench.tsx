@@ -148,14 +148,14 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setActiveKana(kana);
   };
 
-  // 生成自测题（按题量截断，0 = 全部）
+  // 生成自测题（跟随矩阵选项卡范围：清音/浊半浊/拗音；0 = 范围内全部）
   const drillItems = useMemo(() => {
-    const source = allKana.length > 0 ? allKana : filteredKanaList;
+    const source = filteredKanaList.length > 0 ? filteredKanaList : allKana;
     if (source.length === 0) return [];
     // 随机打乱
     const shuffled = [...source].sort(() => 0.5 - Math.random());
     return drillCount > 0 ? shuffled.slice(0, drillCount) : shuffled;
-  }, [allKana, filteredKanaList, drillCount]);
+  }, [filteredKanaList, allKana, drillCount]);
 
   const currentDrillKana: KanaItem | undefined = drillItems[drillIndex];
 
@@ -184,7 +184,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
       correctAnswer = currentDrillKana.katakana;
     }
 
-    const pool = allKana.length > 0 ? allKana : drillItems;
+    const pool = filteredKanaList.length >= 4 ? filteredKanaList : allKana.length > 0 ? allKana : drillItems;
     const distractors = confusionDistractors(
       currentDrillKana,
       pool,
@@ -193,7 +193,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     );
 
     return [correctAnswer, ...distractors].sort(() => 0.5 - Math.random());
-  }, [currentDrillKana, drillItems, allKana, activeMode, scriptMode]);
+  }, [currentDrillKana, drillItems, allKana, filteredKanaList, activeMode, scriptMode]);
 
   // 提交自测作答
   const handleSelectDrillOption = (option: string) => {
@@ -525,6 +525,18 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     <>第 {drillIndex + 1} / {drillItems.length} 题</>
                   )}
                 </span>
+                {!isWordMode && drillItems.length > 0 && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-200/70 dark:bg-stone-800 text-stone-500 dark:text-stone-400"
+                    title="题池跟随矩阵选项卡范围"
+                  >
+                    {matrixTab === 'SEION'
+                      ? '清音矩阵'
+                      : matrixTab === 'DAKUON_HANDAKUON'
+                        ? '浊音·半浊音'
+                        : '常用拗音'}
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-3">
