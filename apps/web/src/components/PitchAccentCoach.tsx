@@ -11,6 +11,8 @@ import {
   TrendingUp,
   Activity,
   Award,
+  Search,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound } from '../utils/audio.js';
@@ -20,12 +22,15 @@ import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { BENCHMARK_PITCH_WORDS, type PitchWord } from '../data/pitch-accent-demo-data.js';
-import { usePitchLexiconQuery } from '../queries/useLearnerQueries.js';
+import { useDictionaryLookupQuery, usePitchLexiconQuery } from '../queries/useLearnerQueries.js';
 
 export function PitchAccentCoach() {
   const { data: lexicon = BENCHMARK_PITCH_WORDS } = usePitchLexiconQuery();
   const words = (lexicon.length > 0 ? lexicon : BENCHMARK_PITCH_WORDS) as PitchWord[];
   const [selectedWordIndex, setSelectedWordIndex] = useState(0);
+  const [dictionaryInput, setDictionaryInput] = useState('');
+  const [dictionaryQuery, setDictionaryQuery] = useState('');
+  const dictionaryLookup = useDictionaryLookupQuery('ja', dictionaryQuery);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingProgress, setRecordingProgress] = useState(0);
   const [evalResult, setEvalResult] = useState<{
@@ -229,6 +234,85 @@ export function PitchAccentCoach() {
           </Tabs>
         </div>
       </div>
+
+      {/* 本地词典优先；OJAD 只在未命中时作为用户主动打开的外部检索。 */}
+      <form
+        className="rounded-2xl border border-amber-900/10 dark:border-amber-500/15 bg-white/60 dark:bg-[#1a1816] p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setDictionaryQuery(dictionaryInput.trim());
+        }}
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="ja-dictionary-query" className="text-sm font-semibold text-stone-800 dark:text-stone-200">
+              日语词典查询
+            </label>
+            <p className="mt-0.5 text-xs text-stone-500 dark:text-stone-400">
+              优先检索应用本地词表；未收录时可前往 OJAD 自行确认。
+            </p>
+          </div>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <input
+              id="ja-dictionary-query"
+              value={dictionaryInput}
+              onChange={(event) => setDictionaryInput(event.target.value)}
+              placeholder="例如：雨、あめ、ame"
+              className="h-9 min-w-0 flex-1 rounded-xl border border-stone-200 bg-white px-3 text-sm text-stone-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-100 sm:w-56"
+            />
+            <Button type="submit" size="sm" disabled={!dictionaryInput.trim() || dictionaryLookup.isFetching}>
+              <Search className="h-3.5 w-3.5" />
+              查询
+            </Button>
+          </div>
+        </div>
+
+        {dictionaryQuery && (
+          <div className="mt-3 border-t border-stone-200 pt-3 dark:border-stone-800">
+            {dictionaryLookup.isFetching ? (
+              <p className="text-xs text-stone-500">正在查询本地词典…</p>
+            ) : dictionaryLookup.data?.entries.length ? (
+              <div className="space-y-2">
+                {dictionaryLookup.data.entries.map((entry) => {
+                  const pronunciation = entry.pronunciation as {
+                    pitchType?: string;
+                    pitchPattern?: string[];
+                  } | undefined;
+                  return (
+                    <div key={entry.id} className="rounded-xl bg-amber-50/70 p-3 text-sm dark:bg-amber-500/10">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="font-serif text-lg font-bold text-stone-900 dark:text-stone-100">{entry.headword}</span>
+                        {entry.reading && <span className="font-mono text-amber-700 dark:text-amber-300">{entry.reading}</span>}
+                        {entry.romanization && <span className="text-xs text-stone-500">{entry.romanization}</span>}
+                        {pronunciation?.pitchType && <Badge variant="amber">{pronunciation.pitchType}</Badge>}
+                      </div>
+                      <p className="mt-1 text-xs text-stone-600 dark:text-stone-300">{entry.meanings.join('；')}</p>
+                      {pronunciation?.pitchPattern && (
+                        <p className="mt-1 text-xs text-stone-500">音调走向：{pronunciation.pitchPattern.join(' → ')}</p>
+                      )}
+                      <p className="mt-2 text-[11px] text-stone-400">来源：{entry.sourceLabel}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : dictionaryLookup.data?.externalLookup ? (
+              <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600 dark:text-stone-300">
+                <span>本地词典暂未收录「{dictionaryQuery}」。</span>
+                <a
+                  href={dictionaryLookup.data.externalLookup.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline dark:text-amber-300"
+                >
+                  前往 OJAD 查询 <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
+            ) : (
+              <p className="text-xs text-stone-500">暂时无法取得词典结果，请稍后重试。</p>
+            )}
+          </div>
+        )}
+      </form>
 
       {/* 主展示区：声调高低走势曲线与对比 */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

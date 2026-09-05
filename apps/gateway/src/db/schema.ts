@@ -301,6 +301,7 @@ export const localDictionaryEntries = sqliteTable(
     meaningsJson: text('meanings_json').notNull(),
     pronunciationJson: text('pronunciation_json'),
     partOfSpeech: text('part_of_speech'),
+    sourceId: text('source_id'),
     sourceLabel: text('source_label').notNull(),
     licenseNote: text('license_note').notNull(),
     createdAt: text('created_at').notNull(),
@@ -312,6 +313,20 @@ export const localDictionaryEntries = sqliteTable(
     ),
   })
 );
+
+/** 每个已安装词典包的版本、来源与署名信息。 */
+export const dictionarySources = sqliteTable('dictionary_sources', {
+  id: text('id').primaryKey(),
+  language: text('language').notNull(),
+  provider: text('provider').notNull(),
+  version: text('version').notNull(),
+  sourceUrl: text('source_url').notNull(),
+  licenseName: text('license_name').notNull(),
+  licenseUrl: text('license_url').notNull(),
+  attribution: text('attribution').notNull(),
+  entryCount: integer('entry_count').notNull().default(0),
+  importedAt: text('imported_at').notNull(),
+});
 
 /**
  * learning.content 离线/冷启动内容模板库（工具运行时只读，不在 TS 内硬编码题干）

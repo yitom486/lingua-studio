@@ -67,4 +67,18 @@ describe('pitch lexicon coach', () => {
     const englishBody = await englishMiss.json();
     expect(englishBody.externalLookup).toBeUndefined();
   });
+
+  it('lists the English dictionary as an explicit on-demand package', async () => {
+    const response = await app.request('/api/dictionary/packages');
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.packages).toContainEqual(
+      expect.objectContaining({
+        id: 'oewn-2025',
+        language: 'en',
+        installMode: 'on_demand',
+        licenseName: 'CC BY 4.0',
+      })
+    );
+  });
 });

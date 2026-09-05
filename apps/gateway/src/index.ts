@@ -21,6 +21,10 @@ import {
   DEFAULT_CONTENT_LANGUAGE,
 } from './services/learning-language-policy.js';
 import { buildOjadSearchUrl } from './services/dictionary-external-links.js';
+import {
+  installDictionaryPackage,
+  listDictionaryPackages,
+} from './services/dictionary-packages.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -42,6 +46,7 @@ export const sqliteRepo = drizzleRepo; // 保持向前兼容别名
 export const gatewayServer = new GatewayServer(drizzleRepo);
 
 const PORT = Number(process.env.GATEWAY_PORT || 8080);
+const dictionaryInstallTasks = new Map<string, ReturnType<typeof installDictionaryPackage>>();
 
 /**
  * Hono API 路由定义 (提供全栈 RPC 类型安全契约 GatewayAppType 与统一错误拦截闭环)
@@ -84,7 +89,6 @@ export const app = new Hono()
       timestamp: Date.now(),
     })
   )
-
   .get('/api/agent/codex/status', async (c) => {
     const res = await gatewayServer.getCodexAccountStatus();
     if (!isOk(res)) {
@@ -100,7 +104,23 @@ export const app = new Hono()
     }
     return c.json({ models: res.value });
   })
+  // 词典包默认不预装；客户端可先查询状态，再由用户显式触发一次下载与 SQLite 导入。
+  .get('/api/dictionary/packages', (c) =>
+    c.json({ packages: listDictionaryPackages(drizzleRepo.getRawDb()) })
+  )
+  .post('/api/dictionary/packages/:packageId/install', async (c) => {
+    const packageId = c.req.param('packageId');
+    let task = dictionaryInstallTasks.get(packageId);
+    if (!task) {
+      task = installDictionaryPackage(drizzleRepo.getRawDb(), packageId);
+      dictionaryInstallTasks.set(packageId, task);
+      void task.finally(() => dictionaryInstallTasks.delete(packageId));
+    }
 
+    const result = await task;
+    if (isOk(result)) return c.json(result.value);
+    return formatBusinessErrorResponse(c, result.error, 'dictionaryPackageInstall');
+  })
   // 本地词典优先；仅在日语本地未命中时提供 OJAD 外链，不代理或抓取 OJAD。
   .get('/api/dictionary/:language', async (c) => {
     const language = c.req.param('language');

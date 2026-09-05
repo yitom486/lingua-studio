@@ -10,6 +10,9 @@ import {
   ChevronRight,
   Flame,
   CheckCircle2,
+  BookOpen,
+  Download,
+  LoaderCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
@@ -33,6 +36,10 @@ import {
   getTtsVoicePack,
   trackToSpeechLang,
 } from '../data/tts-voice-personas.js';
+import {
+  useDictionaryPackagesQuery,
+  useInstallDictionaryPackageMutation,
+} from '../queries/useLearnerQueries.js';
 
 interface SystemSettingsPopoverProps {
   gateway: {
@@ -63,6 +70,9 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
   const voicePack = getTtsVoicePack(speechLang);
   const prefKey = voicePrefKey(speechLang, gender);
   const preferredURI = preferredVoices[prefKey] ?? null;
+  const dictionaryPackages = useDictionaryPackagesQuery(open);
+  const installDictionaryPackage = useInstallDictionaryPackageMutation();
+  const englishDictionary = dictionaryPackages.data?.packages.find((item) => item.id === 'oewn-2025');
 
   // 系统音色异步加载（Chrome onvoiceschanged）
   useEffect(() => {
@@ -108,6 +118,19 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
   const handlePreview = () => {
     sound.playClick();
     speak(getPreviewText(speechLang, gender), { lang: speechLang, gender, rate });
+  };
+
+  const handleInstallEnglishDictionary = () => {
+    if (!englishDictionary || installDictionaryPackage.isPending) return;
+    sound.playClick();
+    installDictionaryPackage.mutate(englishDictionary.id, {
+      onSuccess: (installed) => {
+        toast.success(`英语离线词典已安装：${installed.entryCount?.toLocaleString() ?? ''} 条词条`);
+      },
+      onError: (error) => {
+        toast.error(error instanceof Error ? error.message : '词典包安装失败，请稍后重试。');
+      },
+    });
   };
 
   return (
@@ -278,7 +301,58 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
 
           <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
 
-          {/* 2. 学情画像与打卡目标入口 */}
+          {/* 2. 词典包：内容按需进入 SQLite，避免初装体积与无授权数据混入。 */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
+              <BookOpen className="w-3.5 h-3.5 text-amber-500" />
+              <span>离线词典包</span>
+            </div>
+            {englishDictionary ? (
+              <div className="rounded-xl border border-stone-200/80 bg-stone-50/70 p-2.5 dark:border-stone-800 dark:bg-stone-900/50">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-stone-800 dark:text-stone-200">
+                      英语释义 · {englishDictionary.provider}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-relaxed text-stone-500 dark:text-stone-400">
+                      {englishDictionary.installed
+                        ? `已写入本机 SQLite${englishDictionary.entryCount ? ` · ${englishDictionary.entryCount.toLocaleString()} 条` : ''}`
+                        : '未预装；仅在你点击安装后下载并写入本机 SQLite。'}
+                    </p>
+                  </div>
+                  {englishDictionary.installed ? (
+                    <Badge variant="outline" className="shrink-0 border-emerald-500/30 text-[10px] text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="mr-1 h-3 w-3" />已安装
+                    </Badge>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                      disabled={!gateway.isConnected || installDictionaryPackage.isPending}
+                      onClick={handleInstallEnglishDictionary}
+                    >
+                      {installDictionaryPackage.isPending ? (
+                        <LoaderCircle className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Download className="h-3 w-3" />
+                      )}
+                      安装
+                    </Button>
+                  )}
+                </div>
+                <p className="mt-2 text-[10px] text-stone-400">
+                  {englishDictionary.licenseName} · 已保留来源与署名
+                </p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-stone-500">正在读取词典包状态…</p>
+            )}
+          </div>
+
+          <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
+
+          {/* 3. 学情画像与打卡目标入口 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between font-medium text-stone-700 dark:text-stone-300">
               <div className="flex items-center gap-1.5">

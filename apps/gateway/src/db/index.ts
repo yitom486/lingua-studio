@@ -283,6 +283,7 @@ export function initSchema(sqlite: Database): void {
       meanings_json TEXT NOT NULL,
       pronunciation_json TEXT,
       part_of_speech TEXT,
+      source_id TEXT,
       source_label TEXT NOT NULL,
       license_note TEXT NOT NULL,
       created_at TEXT NOT NULL
@@ -290,6 +291,19 @@ export function initSchema(sqlite: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_local_dictionary_language_headword
       ON local_dictionary_entries(language, headword);
+
+    CREATE TABLE IF NOT EXISTS dictionary_sources (
+      id TEXT PRIMARY KEY,
+      language TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      version TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      license_name TEXT NOT NULL,
+      license_url TEXT NOT NULL,
+      attribution TEXT NOT NULL,
+      entry_count INTEGER NOT NULL DEFAULT 0,
+      imported_at TEXT NOT NULL
+    );
 
     CREATE TABLE IF NOT EXISTS learning_content_templates (
       id TEXT PRIMARY KEY,
@@ -321,6 +335,7 @@ export function initSchema(sqlite: Database): void {
     "ALTER TABLE quiz_questions ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE practice_collections ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE practice_items ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    'ALTER TABLE local_dictionary_entries ADD COLUMN source_id TEXT',
   ];
   for (const sql of alterStatements) {
     try {
@@ -742,9 +757,25 @@ export function initSchema(sqlite: Database): void {
         const insertEntry = sqlite.prepare(`
           INSERT INTO local_dictionary_entries (
             id, language, headword, reading, romanization, meanings_json,
-            pronunciation_json, part_of_speech, source_label, license_note, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            pronunciation_json, part_of_speech, source_id, source_label, license_note, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
+        sqlite.prepare(`
+          INSERT OR IGNORE INTO dictionary_sources (
+            id, language, provider, version, source_url, license_name, license_url, attribution, entry_count, imported_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          'study-studio-curriculum-v1',
+          'ja',
+          'Study Studio',
+          'v1',
+          'https://study-studio.local/curriculum/pitch',
+          'Project-authored curriculum data',
+          'https://study-studio.local/licenses',
+          'Study Studio curriculum demonstration data.',
+          PITCH_LEXICON.length,
+          now
+        );
         for (const entry of PITCH_LEXICON) {
           insertEntry.run(
             `ja_pitch_${entry.id}`,
@@ -762,6 +793,7 @@ export function initSchema(sqlite: Database): void {
               contrastPair: entry.contrastPair ?? null,
             }),
             null,
+            'study-studio-curriculum-v1',
             'Study Studio curriculum seed',
             'Project-authored curriculum demonstration data; not sourced from OJAD.',
             now

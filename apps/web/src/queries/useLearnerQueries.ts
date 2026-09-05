@@ -21,8 +21,8 @@ export const QUERY_KEYS = {
   READING: ['learner', 'reading'] as const,
   NEWS_TOPICS: ['learner', 'newsTopics'] as const,
   PITCH: ['curriculum', 'pitch'] as const,
-  PROFILE: ['learner', 'profile'] as const,
   DICTIONARY: ['learner', 'dictionary'] as const,
+  PROFILE: ['learner', 'profile'] as const,
   MISTAKES: ['learner', 'mistakes'] as const,
   QUESTIONS: ['learner', 'questions'] as const,
   CARDS: ['learner', 'cards'] as const,
@@ -1198,3 +1198,4 @@ export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
     },
   });
 }
+
