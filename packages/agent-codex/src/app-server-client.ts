@@ -16,6 +16,7 @@ import {
   type ThreadStartParams,
   type ThreadStartResponse,
   type TurnInterruptParams,
+  type TurnSteerParams,
   type TurnStartParams,
   type TurnStartResponse,
   loadCodexConfigFromEnv,
@@ -49,6 +50,8 @@ export class CodexAppServerConnection {
   private approvalHandler: CodexApprovalHandler | null = null;
   /** 当前 turn 的审批策略覆盖（never 则自动 accept） */
   private activeApprovalPolicy: string;
+  /** 正在流式中的 turn id（供 steer / interrupt） */
+  private activeTurnId: string | null = null;
 
   constructor(config?: CodexAppServerConfig) {
     this.config = { ...loadCodexConfigFromEnv(), ...config };
@@ -251,6 +254,7 @@ export class CodexAppServerConnection {
         }
         if (note.method === 'turn/started') {
           turnId = (note.params as any)?.turn?.id ?? turnId;
+          this.activeTurnId = turnId;
         }
         push(ev);
       }
@@ -294,6 +298,7 @@ export class CodexAppServerConnection {
         return;
       }
       turnId = startRes.value?.turn?.id ?? turnId;
+      this.activeTurnId = turnId;
 
       while (!done || queue.length > 0) {
         if (params.signal?.aborted) break;
@@ -323,10 +328,30 @@ export class CodexAppServerConnection {
         error: translateToBusinessError(e, 'CODEX_TURN'),
       };
     } finally {
+      this.activeTurnId = null;
       unsub();
       params.signal?.removeEventListener('abort', onAbort);
     }
   }
+
+  public getActiveTurnId(): string | null {
+    return this.activeTurnId;
+  }
+
+  public async steer(
+    threadId: string,
+    turnId: string,
+    message: string
+  ): Promise<Result<void, BusinessError>> {
+    const res = await this.rpc.request('turn/steer', {
+      threadId,
+      expectedTurnId: turnId,
+      input: [{ type: 'text', text: message }],
+    } satisfies TurnSteerParams);
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
   public async interrupt(threadId: string, turnId: string): Promise<Result<void, BusinessError>> {
     const res = await this.rpc.request('turn/interrupt', {
       threadId,

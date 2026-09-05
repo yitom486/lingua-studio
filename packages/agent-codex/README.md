@@ -28,6 +28,11 @@
 - 120s 未决断：自动 `decline`，并推送 `agent.approval.resolved`（`reason: timeout`）
 - `thread/start` 与 `turn/start` 均可带 `approvalPolicy`
 
+## 生成中引导（steer）
+
+- 前端在 Turn 进行中发送 `client.turn.steer` → App Server `turn/steer`
+- 需带当前 `expectedTurnId`；无活动 Turn 时返回业务错误
+
 ## Gateway HTTP
 
 - `GET /api/agent/codex/status` — 联动登录态探测（`account/read`）

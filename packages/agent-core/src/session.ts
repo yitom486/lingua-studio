@@ -35,6 +35,11 @@ export interface AgentSession {
   ): Promise<Result<void, BusinessError>>;
 
   /**
+   * 向当前进行中的 Turn 注入引导消息（Codex turn/steer）
+   */
+  steer(message: string): Promise<Result<void, BusinessError>>;
+
+  /**
    * 中断当前轮次
    */
   interrupt(): Promise<Result<void, BusinessError>>;

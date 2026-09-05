@@ -12,6 +12,7 @@ export const WsEventTypes = {
   CLIENT_TOOL_RESULT: 'client.tool.result',
   CLIENT_APPROVAL_RESPOND: 'client.approval.respond',
   CLIENT_TURN_INTERRUPT: 'client.turn.interrupt',
+  CLIENT_TURN_STEER: 'client.turn.steer',
   CLIENT_PING: 'client.ping',
   CLIENT_PROFILE_GET: 'client.profile.get',
   CLIENT_PROFILE_UPDATE: 'client.profile.update',

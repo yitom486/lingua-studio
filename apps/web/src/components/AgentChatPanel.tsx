@@ -178,7 +178,21 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
   const send = useCallback(
     async (raw: string) => {
       const text = raw.trim();
-      if (!text || busy) return;
+      if (!text) return;
+
+      // 生成中：注入 turn/steer，不新开一轮
+      if (busy) {
+        if (!gateway?.isConnected) return;
+        sound.playClick();
+        setInput('');
+        setMessages((prev) => [
+          ...prev,
+          { id: `steer_${Date.now()}`, role: 'user', text: `↗ ${text}` },
+        ]);
+        gateway.steerTurn?.(text);
+        return;
+      }
+
       sound.playClick();
       setInput('');
       const userId = `u_${Date.now()}`;
@@ -590,9 +604,12 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
               }
             }}
             rows={3}
-            placeholder="输入消息，Enter 发送 · Shift+Enter 换行"
+            placeholder={
+              busy
+                ? '生成中可输入引导（steer）后 Enter 注入 · Shift+Enter 换行'
+                : '输入消息，Enter 发送 · Shift+Enter 换行'
+            }
             className="w-full resize-none bg-transparent px-3 py-2.5 text-[13px] text-stone-100 placeholder:text-stone-600 outline-none min-h-[72px]"
-            disabled={busy}
           />
           <div className="flex items-center gap-0.5 border-t border-stone-800/80 px-1.5 py-1">
             <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
@@ -659,16 +676,28 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
             </div>
 
             {busy ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="size-7 shrink-0 rounded-full border-stone-600"
-                title="停止"
-                onClick={interrupt}
-              >
-                <Square className="size-3" />
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-full bg-sky-600 hover:bg-sky-500"
+                  title="注入引导 (steer)"
+                  disabled={!input.trim()}
+                  onClick={() => void send(input)}
+                >
+                  <ArrowUp className="size-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-full border-stone-600"
+                  title="停止"
+                  onClick={interrupt}
+                >
+                  <Square className="size-3" />
+                </Button>
+              </>
             ) : (
               <Button
                 type="button"
@@ -684,7 +713,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
           </div>
         </div>
         <p className="mt-1.5 px-1 text-[10px] text-stone-600">
-          复用本机 ~/.codex · sandbox=read-only · effort → turn/start
+          复用本机 ~/.codex · sandbox=read-only · steer → turn/steer
           {codexStatus?.message ? ` · ${codexStatus.message}` : ''}
         </p>
       </footer>

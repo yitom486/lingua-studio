@@ -1070,6 +1070,36 @@ export class GatewayServer {
         });
       }
 
+      case WsEventTypes.CLIENT_TURN_STEER: {
+        const payload = (envelope.payload ?? {}) as { input?: string; message?: string };
+        const message = String(payload.input || payload.message || '').trim();
+        if (!message) {
+          return err(
+            new BusinessError('E_INVALID_INPUT', '引导消息不能为空', 'VALIDATION')
+          );
+        }
+        const sess = this.sessionManager.getSession(envelope.sessionId);
+        if (!isOk(sess) || !sess.value.agentSession) {
+          return err(
+            new BusinessError(
+              'E_SESSION_NOT_FOUND',
+              '当前没有可引导的 Agent 会话。',
+              'VALIDATION'
+            )
+          );
+        }
+        const res = await sess.value.agentSession.steer(message);
+        if (!isOk(res)) return err(res.error);
+        return ok({
+          version: '1.0',
+          id: generateId('steer_ack'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: { status: 'STEER_ACK', message },
+          timestamp: Date.now(),
+        });
+      }
+
       default:
         return err(
           new BusinessError(

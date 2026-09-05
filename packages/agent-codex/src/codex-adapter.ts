@@ -239,6 +239,26 @@ export class CodexSession implements AgentSession {
     return ok(undefined);
   }
 
+  public async steer(message: string): Promise<Result<void, BusinessError>> {
+    const text = message.trim();
+    if (!text) {
+      return err(
+        new BusinessError('E_INVALID_INPUT', '引导消息不能为空。', 'VALIDATION')
+      );
+    }
+    const turnId = this.activeTurnId ?? this.connection.getActiveTurnId();
+    if (!turnId) {
+      return err(
+        new BusinessError(
+          'E_NO_ACTIVE_TURN',
+          '当前没有进行中的回复，无法注入引导。',
+          'VALIDATION'
+        )
+      );
+    }
+    return this.connection.steer(this.threadId, turnId, text);
+  }
+
   public async interrupt(): Promise<Result<void, BusinessError>> {
     this.abort?.abort();
     for (const [id, settle] of this.pendingApprovals) {

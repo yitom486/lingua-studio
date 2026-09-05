@@ -179,6 +179,10 @@ export function useGateway({
               // 审批回执不结束当前 Turn 流
               return;
             }
+            if ((envelope.payload as any)?.status === 'STEER_ACK') {
+              // steer 回执不结束当前 Turn 流
+              return;
+            }
             if (activeStreamRef.current) {
               const listener = activeStreamRef.current;
               activeStreamRef.current = null;
@@ -580,6 +584,22 @@ export function useGateway({
     []
   );
 
+  const steerTurn = useCallback((message: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return false;
+    const text = message.trim();
+    if (!text) return false;
+    const envelope: WsEnvelope = {
+      version: '1.0',
+      id: generateId('steer_req'),
+      sessionId: sessionIdRef.current ?? 'active_session',
+      type: WsEventTypes.CLIENT_TURN_STEER,
+      payload: { input: text },
+      timestamp: Date.now(),
+    };
+    wsRef.current.send(JSON.stringify(envelope));
+    return true;
+  }, []);
+
   return {
     isConnected,
     isConnecting,
@@ -594,5 +614,6 @@ export function useGateway({
     sendTurnStream,
     interruptTurn,
     respondApproval,
+    steerTurn,
   };
 }

@@ -56,6 +56,13 @@ export interface TurnInterruptParams {
   turnId: string;
 }
 
+export interface TurnSteerParams {
+  threadId: string;
+  expectedTurnId: string;
+  input: Array<{ type: 'text'; text: string } | Record<string, unknown>>;
+  clientUserMessageId?: string | null;
+}
+
 export interface DynamicToolCallParams {
   threadId: string;
   turnId: string;

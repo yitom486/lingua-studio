@@ -51,6 +51,10 @@ export class ResponsesSession implements AgentSession {
     return ok(undefined);
   }
 
+  public async steer(_message: string): Promise<Result<void, BusinessError>> {
+    return ok(undefined);
+  }
+
   public async interrupt(): Promise<Result<void, BusinessError>> {
     return ok(undefined);
   }
