@@ -2,9 +2,58 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { GatewayServer } from '../runtime/gateway-runtime.js';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { WsEventTypes, type WsEnvelope } from '@study-studio/protocol';
-import { isOk } from '@study-studio/shared';
+import { isOk, ok } from '@study-studio/shared';
+import type { AgentEvent, AgentSession } from '@study-studio/agent-core';
+import type { CodexAdapter } from '@study-studio/agent-codex';
 import { LearningContentTool } from '../transport/tools/learning-content-tool.js';
 import { LearningAssessTool } from '../modules/practice/tools/learning-assess-tool.js';
+
+/**
+ * 确定性 mock adapter：模板短路删除后，流式回合必须走真实 adapter 通路；
+ * 此处用 mock 保证不断网可测（此前两用例误用模板短路秒回）。
+ */
+function makeStreamingMockAdapter(): CodexAdapter {
+  const session: AgentSession = {
+    sessionId: 'mock-stream-sess',
+    threadId: 'mock-thread-stream',
+    async *send(): AsyncIterable<AgentEvent> {
+      yield { type: 'TEXT_DELTA', delta: '助词「に」表示存在场所，' };
+      yield { type: 'TEXT_DELTA', delta: '「で」表示动作场所。' };
+      yield {
+        type: 'COMPLETED',
+        finalOutput: '助词「に」表示存在场所，「で」表示动作场所。',
+      };
+    },
+    async submitToolResult() {
+      return ok(undefined);
+    },
+    async submitApproval() {
+      return ok(undefined);
+    },
+    async steer() {
+      return ok(undefined);
+    },
+    async interrupt() {
+      return ok(undefined);
+    },
+    async close() {
+      return ok(undefined);
+    },
+  };
+  return {
+    id: 'mock-stream',
+    name: 'MockStream',
+    async createSession() {
+      return ok(session);
+    },
+    async resumeSession() {
+      return ok(session);
+    },
+    async queueList() {
+      return ok({ items: [] });
+    },
+  } as unknown as CodexAdapter;
+}
 
 describe('AI Native Agent Streaming & Parameterized Tools', () => {
   let server: GatewayServer;
@@ -16,6 +65,7 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
   });
 
   it('should stream agent turn with AGENT_TURN_START, AGENT_TEXT_DELTA, and AGENT_TURN_COMPLETED', async () => {
+    const server = new GatewayServer(repo, makeStreamingMockAdapter());
     const emittedEvents: WsEnvelope[] = [];
     const envelope: WsEnvelope = {
       version: '1.0',
@@ -59,22 +109,25 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
         return typeof delta === 'string' ? delta : '';
       })
       .join('');
-    expect(accumulatedText).toContain('例句');
+    expect(accumulatedText).toContain('助词');
 
-    // 验证最终完成事件
+    // 验证最终完成事件：模板短路删除后必须为 Codex streamed，不再是 not_requested
     const completeEvt = emittedEvents.find((e) => e.type === WsEventTypes.AGENT_TURN_COMPLETED);
     expect(completeEvt).toBeDefined();
     const completedPayload = (completeEvt?.payload ?? {}) as {
       status?: unknown;
       finalOutput?: unknown;
-      codexOutcome?: unknown;
+      outcome?: unknown;
+      source?: unknown;
     };
     expect(completedPayload.status).toBe('COMPLETED');
     expect(completedPayload.finalOutput).toBe(accumulatedText);
-    expect(completedPayload.codexOutcome).toBe('not_requested');
+    expect(completedPayload.outcome).toBe('streamed');
+    expect(completedPayload.source).toBe('codex');
   });
 
   it('should allow CLIENT_TURN_INTERRUPT to halt streaming generation', async () => {
+    const server = new GatewayServer(repo, makeStreamingMockAdapter());
     const emittedEvents: WsEnvelope[] = [];
     const sessionId = 'sess_interrupt_test';
 
