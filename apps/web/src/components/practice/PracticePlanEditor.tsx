@@ -61,7 +61,10 @@ function defaultBlock(kind: PracticeBlockKind, language: string): PracticeBlockS
   const isObjective = kind === 'VOCAB_REVIEW' || kind === 'VOCAB_NEW' || kind === 'QUIZ';
   const grading: GradingMode = isObjective ? 'AUTO_IMMEDIATE' : 'AI_BATCH';
   const block: PracticeBlockSpec = { id: generateId('blk'), kind, count: 5, gradingMode: grading };
-  if (kind === 'TRANSLATION') block.translationDirection = { sourceLanguage: 'zh', targetLanguage: language };
+  if (kind === 'TRANSLATION') {
+    // #31：新建翻译块默认方向跟随当前轨道（ja→zh / ko→zh / en→zh）；编辑器内仍可手改。
+    block.translationDirection = { sourceLanguage: language, targetLanguage: 'zh' };
+  }
   if (VOCAB_KINDS.has(kind)) block.vocabularySource = 'DUE_CARDS';
   return block;
 }

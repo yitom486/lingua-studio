@@ -9,6 +9,10 @@ import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
 /**
  * 教材知识树查询（Gateway documents 为 SSOT；空库 / 失败时返回空数组，
  * 由 UI 显式提示导入或等待内置课程种子，不再回退到前端内置教材内容）。
+ *
+ * QueryKey 豁免说明（G2）：本键不带 track——documents 按 userId 隔离，
+ * 教材 Tab 仅在 ja 轨道开放（见 learning-shell allowedTabs），无跨语种串扰；
+ * kana 为 JA 唯一底座、news-topics 为语言中立，均同理豁免。
  */
 export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
   return useQuery<TextbookBook[]>({
