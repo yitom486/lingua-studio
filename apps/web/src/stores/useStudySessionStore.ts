@@ -16,6 +16,8 @@ export type NavigationTab =
   | 'RADAR'
   | 'STATS';
 
+export type TutorSurface = 'free' | 'question';
+
 export interface PresentedQuizPackage {
   surface: 'quiz' | 'cards' | 'kana_drill' | 'reading_quiz' | 'writing';
   layout?: 'SPLIT_PASSAGE_QUESTIONS' | 'SINGLE_COLUMN' | undefined;
@@ -32,6 +34,8 @@ export interface StudySessionState {
   cardFilter: 'ALL' | 'VOCAB' | 'GRAMMAR' | 'CONFUSION';
   questionIndex: number;
   isTutorOpen: boolean;
+  /** free=自由教练；question=题目追问抽屉 */
+  tutorSurface: TutorSurface;
   tutorContext: AiTutorContext | null;
   /** Agent ui.present 灌入的临时题包（优先于静态/RPC 队列展示） */
   presentedQuiz: PresentedQuizPackage | null;
@@ -62,12 +66,23 @@ const TAB_SET = new Set<string>([
   'STATS',
 ]);
 
+function snapshotTutorContext(ctx: AiTutorContext) {
+  return {
+    questionText: ctx.questionText,
+    ...(ctx.userAnswer !== undefined ? { userAnswer: ctx.userAnswer } : {}),
+    correctAnswer: ctx.correctAnswer,
+    skillTag: ctx.skillTag,
+    explanation: ctx.explanation,
+  };
+}
+
 export const useStudySessionStore = create<StudySessionState>((set, get) => ({
   activeTab: 'SHADOWING',
   isCommandOpen: false,
   cardFilter: 'ALL',
   questionIndex: 0,
   isTutorOpen: false,
+  tutorSurface: 'free',
   tutorContext: null,
   presentedQuiz: null,
 
@@ -77,18 +92,32 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
   setCardFilter: (cardFilter) => set({ cardFilter }),
   setQuestionIndex: (questionIndex) => set({ questionIndex }),
   openTutor: (tutorContext = null) => {
+    const prefs = usePreferencesStore.getState();
     const ctx = tutorContext ?? null;
-    set({ isTutorOpen: true, tutorContext: ctx });
-    // 自由教练：持久化「面板打开」，便于刷新后恢复；关闭时不清 thread
-    if (!ctx) {
-      usePreferencesStore.getState().setCoachPanelOpen(true);
+    if (ctx) {
+      set({ isTutorOpen: true, tutorSurface: 'question', tutorContext: ctx });
+      prefs.setTutorContextSnapshot(snapshotTutorContext(ctx));
+      prefs.setTutorDrawerOpen(true);
+      prefs.setCoachPanelOpen(false);
+      return;
     }
+    // 自由教练：不清掉已有题目上下文（仅切换 surface），便于再开题目抽屉
+    set({ isTutorOpen: true, tutorSurface: 'free' });
+    prefs.setCoachPanelOpen(true);
+    prefs.setTutorDrawerOpen(false);
   },
   closeTutor: () => {
-    const wasFreeCoach = !get().tutorContext;
-    set({ isTutorOpen: false, tutorContext: null });
-    if (wasFreeCoach) {
-      usePreferencesStore.getState().setCoachPanelOpen(false);
+    const { tutorSurface, tutorContext } = get();
+    const prefs = usePreferencesStore.getState();
+    // 只关显隐，保留 tutorContext，避免卸载丢气泡
+    set({ isTutorOpen: false });
+    if (tutorSurface === 'question') {
+      if (tutorContext) {
+        prefs.setTutorContextSnapshot(snapshotTutorContext(tutorContext));
+      }
+      prefs.setTutorDrawerOpen(false);
+    } else {
+      prefs.setCoachPanelOpen(false);
     }
   },
   presentQuiz: (pkg) =>
@@ -109,10 +138,9 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
               : 'QUIZ',
     }),
   clearPresentedQuiz: () => set({ presentedQuiz: null }),
-  applyUiNavigate: (target, openTutor) => {
-    if (target === 'TUTOR' || openTutor) {
-      set({ isTutorOpen: true, tutorContext: null });
-      usePreferencesStore.getState().setCoachPanelOpen(true);
+  applyUiNavigate: (target, openTutorFlag) => {
+    if (target === 'TUTOR' || openTutorFlag) {
+      get().openTutor(null);
       return;
     }
     if (TAB_SET.has(target)) {

@@ -12,6 +12,18 @@ export interface PreferencesState {
   coachPanelWidthPx: number;
   /** 自由教练面板是否打开（刷新后恢复显隐；关闭不清会话） */
   coachPanelOpen: boolean;
+  /** 题目导师抽屉是否打开（关闭保留上下文快照） */
+  tutorDrawerOpen: boolean;
+  /** 题目导师上下文快照（刷新 / 关抽屉后可 resume） */
+  tutorContextSnapshot: {
+    questionText: string;
+    userAnswer?: string;
+    correctAnswer: string;
+    skillTag: string;
+    explanation: string;
+  } | null;
+  /** 题目导师抽屉宽度（px） */
+  tutorPanelWidthPx: number;
   /** Study Coach 选用的 Codex 模型 id；空=本机默认 */
   coachModelId: string;
   /** 思考等级（turn/start.effort） */
@@ -35,6 +47,11 @@ export interface PreferencesState {
   setReadingSplitRatio: (ratio: number) => void;
   setCoachPanelWidthPx: (widthPx: number) => void;
   setCoachPanelOpen: (open: boolean) => void;
+  setTutorDrawerOpen: (open: boolean) => void;
+  setTutorContextSnapshot: (
+    ctx: PreferencesState['tutorContextSnapshot']
+  ) => void;
+  setTutorPanelWidthPx: (widthPx: number) => void;
   setCoachModelId: (modelId: string) => void;
   setCoachEffort: (effort: string) => void;
   setCoachApprovalPolicy: (policy: string) => void;
@@ -64,6 +81,9 @@ export const usePreferencesStore = create<PreferencesState>()(
       readingSplitRatio: 0.58,
       coachPanelWidthPx: 420,
       coachPanelOpen: false,
+      tutorDrawerOpen: false,
+      tutorContextSnapshot: null,
+      tutorPanelWidthPx: 448,
       coachModelId: '',
       coachEffort: 'medium',
       coachApprovalPolicy: 'never',
@@ -98,6 +118,12 @@ export const usePreferencesStore = create<PreferencesState>()(
           coachPanelWidthPx: Math.min(960, Math.max(320, Math.round(widthPx))),
         }),
       setCoachPanelOpen: (coachPanelOpen: boolean) => set({ coachPanelOpen }),
+      setTutorDrawerOpen: (tutorDrawerOpen: boolean) => set({ tutorDrawerOpen }),
+      setTutorContextSnapshot: (tutorContextSnapshot) => set({ tutorContextSnapshot }),
+      setTutorPanelWidthPx: (widthPx: number) =>
+        set({
+          tutorPanelWidthPx: Math.min(960, Math.max(320, Math.round(widthPx))),
+        }),
 
       setCoachModelId: (coachModelId: string) => set({ coachModelId }),
       setCoachEffort: (coachEffort: string) => set({ coachEffort }),

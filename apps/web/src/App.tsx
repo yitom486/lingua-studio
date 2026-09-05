@@ -45,22 +45,32 @@ export function App() {
   const setCoachPanelWidthPx = usePreferencesStore((s) => s.setCoachPanelWidthPx);
   const coachPanelOpen = usePreferencesStore((s) => s.coachPanelOpen);
   const coachThreadId = usePreferencesStore((s) => s.coachThreadId);
+  const tutorDrawerOpen = usePreferencesStore((s) => s.tutorDrawerOpen);
+  const tutorContextSnapshot = usePreferencesStore((s) => s.tutorContextSnapshot);
+  const tutorPanelWidthPx = usePreferencesStore((s) => s.tutorPanelWidthPx);
+  const setTutorPanelWidthPx = usePreferencesStore((s) => s.setTutorPanelWidthPx);
   const shell = useLearningShell();
   const activeTab = useStudySessionStore((s) => s.activeTab);
   const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
   const isCommandOpen = useStudySessionStore((s) => s.isCommandOpen);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
   const isTutorOpen = useStudySessionStore((s) => s.isTutorOpen);
+  const tutorSurface = useStudySessionStore((s) => s.tutorSurface);
   const tutorContext = useStudySessionStore((s) => s.tutorContext);
   const openTutor = useStudySessionStore((s) => s.openTutor);
   const closeTutor = useStudySessionStore((s) => s.closeTutor);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const coachResizeRef = useRef(false);
+  const tutorResizeRef = useRef(false);
 
-  // 偏好水合后：恢复自由教练面板显隐（thread 由 coachThreadId persist）
+  // 偏好水合后：恢复自由教练 / 题目导师显隐
   useEffect(() => {
     const restore = () => {
       const prefs = usePreferencesStore.getState();
+      if (prefs.tutorDrawerOpen && prefs.tutorContextSnapshot) {
+        useStudySessionStore.getState().openTutor(prefs.tutorContextSnapshot);
+        return;
+      }
       if (prefs.coachPanelOpen) {
         useStudySessionStore.getState().openTutor(null);
       }
@@ -127,6 +137,35 @@ export function App() {
     }
   }, []);
 
+  const onTutorResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      tutorResizeRef.current = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    []
+  );
+
+  const onTutorResizePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!tutorResizeRef.current) return;
+      const next = window.innerWidth - e.clientX;
+      const max = Math.min(COACH_WIDTH_MAX, window.innerWidth - 24);
+      setTutorPanelWidthPx(Math.min(max, Math.max(COACH_WIDTH_MIN, next)));
+    },
+    [setTutorPanelWidthPx]
+  );
+
+  const onTutorResizePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    tutorResizeRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const { data: cards = [] } = useCardsQuery();
   const { data: mistakes = [] } = useMistakesQuery();
   const { data: metrics = [] } = useLearnerProfileQuery();
@@ -137,10 +176,19 @@ export function App() {
   const unresolvedMistakesCount = mistakes.filter((m) => !m.isResolved).length;
   const commandActions = useCommandActions(unresolvedMistakesCount);
 
-  const freeCoachVisible = isTutorOpen && !tutorContext;
+  const freeCoachVisible = isTutorOpen && tutorSurface === 'free';
   // 关闭仅隐藏；有 thread / 曾打开偏好时 keep-alive，避免丢本地气泡与断会话感知
   const freeCoachMounted =
     freeCoachVisible || coachPanelOpen || Boolean(coachThreadId);
+
+  const questionTutorVisible =
+    isTutorOpen && tutorSurface === 'question' && Boolean(tutorContext);
+  const questionTutorContext = tutorContext ?? tutorContextSnapshot;
+  const questionTutorMounted =
+    questionTutorVisible ||
+    tutorDrawerOpen ||
+    Boolean(tutorContext) ||
+    Boolean(tutorContextSnapshot);
 
   return (
     <div
@@ -164,9 +212,14 @@ export function App() {
         actions={commandActions}
       />
       <AiTutorDrawer
-        isOpen={isTutorOpen && Boolean(tutorContext)}
+        isOpen={questionTutorVisible}
+        mounted={questionTutorMounted}
         onClose={closeTutor}
-        context={tutorContext}
+        context={questionTutorContext}
+        widthPx={tutorPanelWidthPx}
+        onResizePointerDown={onTutorResizePointerDown}
+        onResizePointerMove={onTutorResizePointerMove}
+        onResizePointerUp={onTutorResizePointerUp}
       />
 
       {/* 自由教练：关闭=隐藏不卸载；宽度可拖；Gateway 不断连 */}

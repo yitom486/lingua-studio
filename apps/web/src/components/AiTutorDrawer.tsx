@@ -42,8 +42,14 @@ interface MessageItem {
 
 interface AiTutorDrawerProps {
   isOpen: boolean;
+  /** false 时不渲染；true 时即使关闭也 keep-alive */
+  mounted?: boolean;
   onClose: () => void;
   context: AiTutorContext | null;
+  widthPx?: number;
+  onResizePointerDown?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onResizePointerMove?: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onResizePointerUp?: (e: React.PointerEvent<HTMLDivElement>) => void;
 }
 
 function normalizeTutorLanguage(lang: string): TrackLanguage {
@@ -75,7 +81,16 @@ function buildTutorClientSnapshot(
   };
 }
 
-export function AiTutorDrawer({ isOpen, onClose, context }: AiTutorDrawerProps) {
+export function AiTutorDrawer({
+  isOpen,
+  mounted = true,
+  onClose,
+  context,
+  widthPx = 448,
+  onResizePointerDown,
+  onResizePointerMove,
+  onResizePointerUp,
+}: AiTutorDrawerProps) {
   const gateway = useAgentGateway();
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState('');
@@ -154,10 +169,8 @@ export function AiTutorDrawer({ isOpen, onClose, context }: AiTutorDrawerProps) 
   );
 
   useEffect(() => {
-    if (!isOpen || !context) {
-      bootstrappedRef.current = null;
-      return;
-    }
+    // 关闭时不清 bootstrappedRef，避免再次打开同一题时重跑 bootstrap 冲掉本地气泡
+    if (!isOpen || !context) return;
 
     const track = normalizeTutorLanguage(profile.targetLanguage);
     const sessionKey = `${track}|${context.skillTag}|${context.questionText}`;
@@ -294,11 +307,30 @@ export function AiTutorDrawer({ isOpen, onClose, context }: AiTutorDrawerProps) 
 
   const isGatewayConnected = gateway.isConnected;
 
+  if (!mounted || !context) {
+    return null;
+  }
+
   return (
-    <Sheet open={isOpen && !!context} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="p-0 flex flex-col h-full w-full sm:max-w-md md:max-w-lg" showClose>
-        {context && (
-          <>
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent
+        side="right"
+        showClose
+        className="relative p-0 flex flex-col h-full w-full max-w-none sm:max-w-none"
+        style={{ width: `min(100vw, ${widthPx}px)` }}
+      >
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整题目导师宽度"
+          tabIndex={isOpen ? 0 : -1}
+          className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-ew-resize bg-transparent hover:bg-amber-500/35 active:bg-amber-500/50"
+          onPointerDown={onResizePointerDown}
+          onPointerMove={onResizePointerMove}
+          onPointerUp={onResizePointerUp}
+          onPointerCancel={onResizePointerUp}
+        />
+        <>
             <SheetHeader className="bg-amber-500/10 dark:bg-amber-500/15 p-4 border-b border-amber-900/10 dark:border-amber-500/10 shrink-0">
               <div className="flex items-center justify-between pr-8">
                 <div className="flex items-center gap-2.5">
@@ -312,6 +344,7 @@ export function AiTutorDrawer({ isOpen, onClose, context }: AiTutorDrawerProps) 
                     </SheetTitle>
                     <SheetDescription className="text-xs">
                       {tutorCopy.headerHint} · 聚焦：{context.skillTag}
+                      <span className="ml-1 text-stone-500">· 关闭保留会话</span>
                     </SheetDescription>
                   </div>
                 </div>
@@ -475,7 +508,6 @@ export function AiTutorDrawer({ isOpen, onClose, context }: AiTutorDrawerProps) 
               </form>
             </div>
           </>
-        )}
       </SheetContent>
     </Sheet>
   );
