@@ -83,6 +83,11 @@ export async function handleTurnSend(
       threadId?: string;
       ephemeral?: boolean;
       collaborationMode?: string;
+      /**
+       * 跳过关键词模板短路（导师抽屉等拼装式 prompt 专用：触发词多为脚手架文字）。
+       * 置 true 后本轮必经 AgentRouter（含 Codex 主通路），不再被模板截获。
+       */
+      bypassKeywordTemplates?: boolean;
       /** coach=聊天；learning=出题/批改/题目导师 */
       lane?: string;
     };
@@ -158,7 +163,8 @@ export async function handleTurnSend(
   try {
     const track = normalizeTrackLanguage(snapshot.targetLanguage);
     // FREE_COACH：跳过关键词模板，直接交给 Codex 主通路
-    const skipKeywordTemplates = intent === 'FREE_COACH';
+    const skipKeywordTemplates =
+      intent === 'FREE_COACH' || payload.agentOptions?.bypassKeywordTemplates === true;
 
     // 根据意图或用户自然语言分发到参数化工具或专家教学大纲
     if (!skipKeywordTemplates && (userPrompt.includes('例句') || userPrompt.includes('造句'))) {

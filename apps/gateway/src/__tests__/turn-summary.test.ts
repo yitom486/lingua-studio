@@ -427,3 +427,65 @@ describe('P3-C Gateway 回合执行摘要（4 场景端到端）', () => {
   });
 });
 
+describe('bypassKeywordTemplates：拼装式导师 prompt 直达 Codex', () => {
+  let repo: DrizzleLearnerRepository;
+
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  // 导师抽屉首轮 prompt 样例：含“例句”脚手架文字，但用户本意是讲解假名
+  const tutorPrompt =
+    '你是面向母语为中文的学习者的日语导师。请用中文讲解，例句与术语使用日语。' +
+    '根据当前题目做简短导入讲解（3–6 句），点明考点「五十音权威底座」。题干：请深度剖析假名。';
+
+  function makeTutorEnvelope(
+    sessionId: string,
+    bypass: boolean
+  ): WsEnvelope {
+    return {
+      version: '1.0',
+      id: `env_tutor_${sessionId}`,
+      sessionId,
+      type: WsEventTypes.CLIENT_TURN_SEND,
+      payload: {
+        userId: 'student_web_01',
+        input: tutorPrompt,
+        intent: 'EXPLAIN',
+        contextSnapshot: { targetLanguage: 'ja' },
+        agentOptions: {
+          preferCodex: true,
+          lane: 'learning',
+          ...(bypass ? { bypassKeywordTemplates: true } : {}),
+        },
+      },
+      timestamp: Date.now(),
+    };
+  }
+
+  it('带 bypass 时绕过模板短路 → Codex streamed', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'success' }));
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+    const res = await server.handleClientMessage(makeTutorEnvelope(sessionId, true), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(res)).toBe(true);
+    const summary = getSummary(envelopes);
+    expect(summary?.outcome).toBe('streamed');
+    expect(summary?.source).toBe('codex');
+  });
+
+  it('无 bypass 时同样 prompt 被模板截获 → not_requested（未问模型）', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'success' }));
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+    const res = await server.handleClientMessage(makeTutorEnvelope(sessionId, false), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(res)).toBe(true);
+    const summary = getSummary(envelopes);
+    expect(summary?.outcome).toBe('not_requested');
+  });
+});
+

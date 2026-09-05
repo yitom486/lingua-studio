@@ -35,6 +35,8 @@ export interface StreamTurnOptions {
     collaborationMode?: string;
     /** coach=聊天界面；learning=出题/批改/题目导师（与聊天隔离） */
     lane?: 'coach' | 'learning';
+    /** 跳过网关关键词模板短路（拼装式 prompt 专用，见服务端同名字段）。 */
+    bypassKeywordTemplates?: boolean;
   };
   onStart?: () => void;
   onDelta: (delta: string, accumulated: string) => void;
