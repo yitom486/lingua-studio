@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff } from 'lucide-react';
+import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
 import type { ContextSnapshot } from '@study-studio/agent-core';
 import { sound } from '../utils/audio.js';
 import { useAgentGateway } from '../hooks/useAgentGateway.js';
@@ -37,6 +38,9 @@ interface MessageItem {
   reasoning?: string;
   /** 本轮 AI 输出来源（网关结构化执行摘要）：直出 / 本地回退 / 未请求模型 */
   source?: 'streamed' | 'fallback' | 'not_requested';
+  /** 离线兜底内容：网关恢复后可一键重发转真 AI */
+  offline?: boolean;
+  retryInput?: string;
 }
 
 interface AiTutorDrawerProps {
@@ -221,6 +225,8 @@ export function AiTutorDrawer({
             sender: 'ai',
             text: buildTutorOpeningGreeting(track, context, true),
             timestamp: '刚刚',
+            offline: true,
+            retryInput: prompt,
           },
         ]);
         setIsTyping(false);
@@ -309,6 +315,8 @@ export function AiTutorDrawer({
                 ...m,
                 text: replyText,
                 isStreaming: false,
+                offline: true,
+                retryInput: content,
               }
             : m
         )
@@ -316,6 +324,35 @@ export function AiTutorDrawer({
       setIsTyping(false);
       activeStreamMsgIdRef.current = null;
     }, 650);
+  };
+
+  /** 离线兜底气泡一键重发：网关恢复后转真 AI，仍未连通则 toast 提示。 */
+  const handleRetryOffline = (msg: MessageItem) => {
+    if (!msg.retryInput) return;
+    if (!gateway.isConnected) {
+      gateway.connect();
+      toast.info('正在重连网关…连通后可再点一次重发。');
+      return;
+    }
+    sound.playClick();
+    setIsTyping(true);
+    activeStreamMsgIdRef.current = msg.id;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msg.id ? { ...m, text: '', isStreaming: true, offline: false } : m
+      )
+    );
+    const sent = attachStreamToMessage(msg.id, msg.retryInput, 'EXPLAIN');
+    if (!sent) {
+      setIsTyping(false);
+      activeStreamMsgIdRef.current = null;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msg.id ? { ...m, text: msg.text, isStreaming: false, offline: true } : m
+        )
+      );
+      toast.error('网关仍未连通，请确认网关已启动后重试。');
+    }
   };
 
   const track = normalizeTutorLanguage(profile.targetLanguage);
@@ -444,6 +481,19 @@ export function AiTutorDrawer({
                       {msg.text}
                       {msg.isStreaming && (
                         <span className="inline-block w-1.5 h-4 ml-1 bg-amber-500 animate-pulse align-middle" />
+                      )}
+                      {isAi && !msg.isStreaming && msg.offline && (
+                        <div className="mt-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRetryOffline(msg)}
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
+                            title="网关恢复后重新发送，转真 AI 作答"
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            离线回答 · 点击重发
+                          </button>
+                        </div>
                       )}
                       {isAi && !msg.isStreaming && msg.source && (
                         <div className="mt-2">
