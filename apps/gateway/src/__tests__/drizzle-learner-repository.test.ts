@@ -388,4 +388,76 @@ describe('DrizzleLearnerRepository', () => {
     if (!isOk(marked)) return;
     expect(marked.value.steps.find((s) => s.kind === 'QUIZ')?.done).toBe(true);
   });
+
+  it('recomputes quiz and mistake steps from live activity after scoring/resolving', async () => {
+    // P4-A 验收：做完题、攻克错题后，日计划重新查询得到正确变化，刷新一致。
+    const userId = 'plan_user_02';
+    await repo.updateLearnerProfile(userId, {
+      targetLanguage: 'en',
+      dailyGoalQuizzes: 1,
+      dailyGoalCards: 1,
+    });
+    // 入库一道未消错题，使计划出现 MISTAKES 步骤
+    const saveMistakeRes = await repo.saveMistake({
+      id: 'mst_plan_02',
+      userId,
+      questionId: 'q_plan_02',
+      question: {
+        id: 'q_plan_02',
+        type: 'MULTIPLE_CHOICE',
+        prompt: 'Choose the correct tense.',
+        content: 'She ___ to school every day.',
+        correctAnswer: 'goes',
+        explanation: '一般现在时第三人称单数',
+        testedSkillId: 'en.grammar.tense',
+        difficultyTier: 2,
+      },
+      lastUserSubmission: 'go',
+      lastGrading: {
+        isCorrect: false,
+        score: 0,
+        explanation: '时态错误',
+        correctAnswer: 'goes',
+        questionId: 'q_plan_02',
+        userSubmission: 'go',
+        mistakeRecorded: true,
+      },
+      isResolved: false,
+      recordedAt: new Date().toISOString(),
+      retryCount: 0,
+      consecutiveCorrect: 0,
+    });
+    expect(isOk(saveMistakeRes)).toBe(true);
+
+    const before = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(before)).toBe(true);
+    if (!isOk(before)) return;
+    expect(before.value.steps.some((s) => s.kind === 'MISTAKES')).toBe(true);
+    expect(before.value.steps.find((s) => s.kind === 'QUIZ')?.done).toBe(false);
+    expect(before.value.steps.find((s) => s.kind === 'MISTAKES')?.done).toBe(false);
+
+    // 闪卡评分路径内部会 recordDailyActivity({ quizzes: 1 })，这里直接模拟该信号
+    const quizAct = await repo.recordDailyActivity(userId, { quizzes: 1, date: '2026-09-05' });
+    expect(isOk(quizAct)).toBe(true);
+    const afterQuiz = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(afterQuiz)).toBe(true);
+    if (!isOk(afterQuiz)) return;
+    expect(afterQuiz.value.steps.find((s) => s.kind === 'QUIZ')?.done).toBe(true);
+    // 步骤顺序在活动后保持冻结不变
+    expect(afterQuiz.value.steps.map((s) => s.kind)).toEqual(
+      before.value.steps.map((s) => s.kind)
+    );
+
+    // 错题攻克路径内部会 recordDailyActivity({ mistakesResolved: 1 })
+    const mistakeAct = await repo.recordDailyActivity(userId, {
+      mistakesResolved: 1,
+      date: '2026-09-05',
+    });
+    expect(isOk(mistakeAct)).toBe(true);
+    const afterMistake = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(afterMistake)).toBe(true);
+    if (!isOk(afterMistake)) return;
+    expect(afterMistake.value.steps.find((s) => s.kind === 'MISTAKES')?.done).toBe(true);
+    expect(afterMistake.value.completedCount).toBeGreaterThan(before.value.completedCount);
+  });
 });
