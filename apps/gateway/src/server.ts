@@ -177,6 +177,14 @@ export class GatewayServer {
     return this.agentAdapter.listSkills(params);
   }
 
+  public async getCodexRateLimits() {
+    return this.agentAdapter.getRateLimits();
+  }
+
+  public async listCodexMcpServers(params?: { cursor?: string; limit?: number }) {
+    return this.agentAdapter.listMcpServerStatus(params);
+  }
+
   public async listCodexCollaborationModes() {
     return this.agentAdapter.listCollaborationModes();
   }
@@ -1061,6 +1069,11 @@ export class GatewayServer {
         }
 
         const isInterrupted = abortController.signal.aborted;
+        let queueRemaining = 0;
+        if (codexThreadId && !isInterrupted) {
+          const queued = await this.listCodexQueue({ threadId: codexThreadId, limit: 20 });
+          if (isOk(queued)) queueRemaining = queued.value.items.length;
+        }
         const completedEnvelope: WsEnvelope = {
           version: '1.0',
           id: generateId('done'),
@@ -1072,12 +1085,187 @@ export class GatewayServer {
             toolResults,
             source: replySource,
             model: preferredModel,
+            queueRemaining,
             ...(codexThreadId ? { threadId: codexThreadId } : {}),
           },
           timestamp: Date.now(),
         };
         if (emit) emit(completedEnvelope);
 
+        return ok(completedEnvelope);
+      }
+
+      case WsEventTypes.CLIENT_QUEUE_START: {
+        const payload = (envelope.payload ?? {}) as {
+          queuedSubmissionId?: string;
+          approvalPolicy?: string;
+        };
+        const sess = this.sessionManager.getSession(envelope.sessionId);
+        if (!isOk(sess) || !sess.value.agentSession) {
+          return err(
+            new BusinessError(
+              'E_SESSION_NOT_FOUND',
+              '当前没有可启动队列的 Agent 会话。',
+              'VALIDATION'
+            )
+          );
+        }
+        const agentSession = sess.value.agentSession as typeof sess.value.agentSession & {
+          sendQueued?: (opts?: {
+            queuedSubmissionId?: string;
+            approvalPolicy?: string;
+          }) => AsyncIterable<import('@study-studio/agent-core').AgentEvent>;
+        };
+        if (typeof agentSession.sendQueued !== 'function') {
+          return err(
+            new BusinessError(
+              'E_UNSUPPORTED',
+              '当前 Agent 引擎不支持队列消费。',
+              'AGENT_RUNTIME'
+            )
+          );
+        }
+
+        const abortController = new AbortController();
+        this.activeStreamControllers.set(envelope.sessionId, abortController);
+        this.activeTurnEmit = emit;
+
+        if (emit) {
+          emit({
+            version: '1.0',
+            id: generateId('turn'),
+            sessionId: envelope.sessionId,
+            type: WsEventTypes.AGENT_TURN_START,
+            payload: { source: 'codex', fromQueue: true },
+            timestamp: Date.now(),
+          });
+        }
+
+        let reply = '';
+        let replySource: 'codex' | 'local' = 'codex';
+        let streamed = false;
+        const threadId = agentSession.threadId;
+
+        try {
+          for await (const ev of agentSession.sendQueued({
+            ...(payload.queuedSubmissionId
+              ? { queuedSubmissionId: payload.queuedSubmissionId }
+              : {}),
+            ...(payload.approvalPolicy ? { approvalPolicy: payload.approvalPolicy } : {}),
+          })) {
+            if (abortController.signal.aborted) {
+              await agentSession.interrupt();
+              break;
+            }
+            if (ev.type === 'TEXT_DELTA' && ev.delta) {
+              reply += ev.delta;
+              streamed = true;
+              if (emit) {
+                emit({
+                  version: '1.0',
+                  id: generateId('delta'),
+                  sessionId: envelope.sessionId,
+                  type: WsEventTypes.AGENT_TEXT_DELTA,
+                  payload: { delta: ev.delta, textDelta: ev.delta, source: 'codex' },
+                  timestamp: Date.now(),
+                });
+              }
+            } else if (ev.type === 'REASONING_DELTA' && ev.delta) {
+              if (emit) {
+                emit({
+                  version: '1.0',
+                  id: generateId('reason'),
+                  sessionId: envelope.sessionId,
+                  type: WsEventTypes.AGENT_REASONING_DELTA,
+                  payload: { delta: ev.delta },
+                  timestamp: Date.now(),
+                });
+              }
+            } else if (ev.type === 'TOOL_CALL_REQUESTED') {
+              if (emit) {
+                emit({
+                  version: '1.0',
+                  id: generateId('tool'),
+                  sessionId: envelope.sessionId,
+                  type: WsEventTypes.AGENT_TOOL_CALL,
+                  payload: {
+                    callId: ev.callId,
+                    toolName: ev.toolName,
+                    arguments: ev.input,
+                    args: ev.input,
+                  },
+                  timestamp: Date.now(),
+                });
+              }
+            } else if (ev.type === 'APPROVAL_REQUESTED') {
+              if (emit) {
+                emit({
+                  version: '1.0',
+                  id: generateId('appr'),
+                  sessionId: envelope.sessionId,
+                  type: WsEventTypes.AGENT_APPROVAL_REQUEST,
+                  payload: {
+                    approvalId: ev.approvalId,
+                    action: ev.action,
+                    description: ev.description,
+                    riskLevel: ev.riskLevel,
+                    expiresAt: ev.expiresAt,
+                  },
+                  timestamp: Date.now(),
+                });
+              }
+            } else if (ev.type === 'APPROVAL_RESOLVED') {
+              if (emit) {
+                emit({
+                  version: '1.0',
+                  id: generateId('appr_res'),
+                  sessionId: envelope.sessionId,
+                  type: WsEventTypes.AGENT_APPROVAL_RESOLVED,
+                  payload: {
+                    approvalId: ev.approvalId,
+                    decision: ev.decision,
+                    reason: ev.reason,
+                  },
+                  timestamp: Date.now(),
+                });
+              }
+            } else if (ev.type === 'COMPLETED' && ev.finalOutput) {
+              if (!reply) reply = String(ev.finalOutput);
+            } else if (ev.type === 'ERROR') {
+              streamed = false;
+              reply = ev.error?.userMessage || ev.error?.message || '队列启动失败';
+              replySource = 'local';
+              break;
+            }
+          }
+        } finally {
+          this.activeStreamControllers.delete(envelope.sessionId);
+          this.activeTurnEmit = undefined;
+        }
+
+        const isInterrupted = abortController.signal.aborted;
+        let queueRemaining = 0;
+        if (threadId && !isInterrupted) {
+          const queued = await this.listCodexQueue({ threadId, limit: 20 });
+          if (isOk(queued)) queueRemaining = queued.value.items.length;
+        }
+
+        const completedEnvelope: WsEnvelope = {
+          version: '1.0',
+          id: generateId('done'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: {
+            status: isInterrupted ? 'INTERRUPTED' : streamed ? 'COMPLETED' : 'FAILED',
+            finalOutput: reply,
+            source: replySource,
+            fromQueue: true,
+            queueRemaining,
+            ...(threadId ? { threadId } : {}),
+          },
+          timestamp: Date.now(),
+        };
+        if (emit) emit(completedEnvelope);
         return ok(completedEnvelope);
       }
 

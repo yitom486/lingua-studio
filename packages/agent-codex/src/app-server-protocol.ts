@@ -111,6 +111,25 @@ export interface CodexSkillDto {
   path?: string;
 }
 
+/** account/rateLimits/read 精简视图 */
+export interface CodexRateLimitsDto {
+  limitId: string | null;
+  limitName: string | null;
+  planType: string | null;
+  primaryUsedPercent: number | null;
+  primaryResetsAt: number | null;
+  secondaryUsedPercent: number | null;
+  secondaryResetsAt: number | null;
+}
+
+/** mcpServerStatus/list 精简行 */
+export interface CodexMcpServerStatusDto {
+  name: string;
+  authStatus: string;
+  toolCount: number;
+  pluginId: string | null;
+}
+
 export interface DynamicToolCallParams {
   threadId: string;
   turnId: string;

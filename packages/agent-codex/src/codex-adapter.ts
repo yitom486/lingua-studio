@@ -30,6 +30,8 @@ import type {
   CodexCollaborationModeDto,
   CodexQueuedSubmissionDto,
   CodexSkillDto,
+  CodexRateLimitsDto,
+  CodexMcpServerStatusDto,
   DynamicToolCallResponse,
 } from './app-server-protocol.js';
 
@@ -194,6 +196,71 @@ export class CodexSession implements AgentSession {
         queue.push({
           type: 'ERROR',
           error: translateToBusinessError(rawError, 'CODEX_SESSION:send'),
+        });
+        ping();
+      } finally {
+        turnDone = true;
+        ping();
+      }
+    })();
+
+    try {
+      while (!turnDone || queue.length > 0) {
+        if (this.abort.signal.aborted) break;
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => {
+            waiter.fn = () => resolve();
+            setTimeout(() => resolve(), 40);
+          });
+          waiter.fn = null;
+          continue;
+        }
+        yield queue.shift()!;
+      }
+      await turnTask;
+    } finally {
+      this.eventSink = null;
+      this.abort = null;
+    }
+  }
+
+  /** 消费 thread 队列下一项并流式返回（Codex thread/queue/start） */
+  public async *sendQueued(options?: {
+    queuedSubmissionId?: string;
+    approvalPolicy?: string;
+  }): AsyncIterable<AgentEvent> {
+    this.abort = new AbortController();
+    const queue: AgentEvent[] = [];
+    const waiter: { fn: (() => void) | null } = { fn: null };
+    let turnDone = false;
+
+    const ping = () => {
+      const fn = waiter.fn;
+      if (fn) fn();
+    };
+
+    this.eventSink = (ev) => {
+      queue.push(ev);
+      ping();
+    };
+
+    const turnTask = (async () => {
+      try {
+        for await (const ev of this.connection.streamQueueStart({
+          threadId: this.threadId,
+          signal: this.abort!.signal,
+          ...(options?.queuedSubmissionId
+            ? { queuedSubmissionId: options.queuedSubmissionId }
+            : {}),
+          ...(options?.approvalPolicy ? { approvalPolicy: options.approvalPolicy } : {}),
+        })) {
+          queue.push(ev);
+          ping();
+        }
+      } catch (rawError) {
+        queue.push({
+          type: 'ERROR',
+          error: translateToBusinessError(rawError, 'CODEX_SESSION:sendQueued'),
         });
         ping();
       } finally {
@@ -481,7 +548,7 @@ export class CodexAdapter implements AgentAdapter {
   public async queueStart(params: {
     threadId: string;
     queuedSubmissionId?: string;
-  }): Promise<Result<void, BusinessError>> {
+  }): Promise<Result<{ turnId: string }, BusinessError>> {
     const conn = await this.ensureConnection();
     if (!isOk(conn)) return conn;
     return conn.value.queueStart(params);
@@ -493,6 +560,23 @@ export class CodexAdapter implements AgentAdapter {
     const conn = await this.ensureConnection();
     if (!isOk(conn)) return conn;
     return conn.value.listSkills(params);
+  }
+
+  public async getRateLimits(): Promise<Result<CodexRateLimitsDto, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.readRateLimits();
+  }
+
+  public async listMcpServerStatus(params?: {
+    cursor?: string;
+    limit?: number;
+  }): Promise<
+    Result<{ servers: CodexMcpServerStatusDto[]; nextCursor: string | null }, BusinessError>
+  > {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listMcpServerStatus(params);
   }
 
   public async listCollaborationModes(): Promise<

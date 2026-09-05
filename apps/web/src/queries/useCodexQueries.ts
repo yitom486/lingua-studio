@@ -9,6 +9,8 @@ export const CODEX_QUERY_KEYS = {
   COLLAB_MODES: ['agent', 'codexCollabModes'] as const,
   QUEUE: ['agent', 'codexQueue'] as const,
   SKILLS: ['agent', 'codexSkills'] as const,
+  RATE_LIMITS: ['agent', 'codexRateLimits'] as const,
+  MCP_SERVERS: ['agent', 'codexMcpServers'] as const,
 };
 
 export interface CodexAccountStatusDto {
@@ -69,6 +71,23 @@ export interface CodexSkillDto {
   enabled: boolean;
   scope?: string;
   path?: string;
+}
+
+export interface CodexRateLimitsDto {
+  limitId: string | null;
+  limitName: string | null;
+  planType: string | null;
+  primaryUsedPercent: number | null;
+  primaryResetsAt: number | null;
+  secondaryUsedPercent: number | null;
+  secondaryResetsAt: number | null;
+}
+
+export interface CodexMcpServerStatusDto {
+  name: string;
+  authStatus: string;
+  toolCount: number;
+  pluginId: string | null;
 }
 
 /** 本机 Codex 登录联动状态（复用 ~/.codex，不另建凭证） */
@@ -286,6 +305,35 @@ export function useCodexSkillsQuery(enabled = true) {
       if (!res.ok) return [];
       const data = (await res.json()) as { skills?: CodexSkillDto[] };
       return Array.isArray(data.skills) ? data.skills : [];
+    },
+    staleTime: 1000 * 60 * 5,
+    retry: 1,
+  });
+}
+
+export function useCodexRateLimitsQuery(enabled = true) {
+  return useQuery<CodexRateLimitsDto | null>({
+    queryKey: CODEX_QUERY_KEYS.RATE_LIMITS,
+    enabled,
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/agent/codex/rate-limits`);
+      if (!res.ok) return null;
+      return (await res.json()) as CodexRateLimitsDto;
+    },
+    staleTime: 1000 * 60,
+    retry: 1,
+  });
+}
+
+export function useCodexMcpServersQuery(enabled = true) {
+  return useQuery<CodexMcpServerStatusDto[]>({
+    queryKey: CODEX_QUERY_KEYS.MCP_SERVERS,
+    enabled,
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/agent/codex/mcp-servers`);
+      if (!res.ok) return [];
+      const data = (await res.json()) as { servers?: CodexMcpServerStatusDto[] };
+      return Array.isArray(data.servers) ? data.servers : [];
     },
     staleTime: 1000 * 60 * 5,
     retry: 1,

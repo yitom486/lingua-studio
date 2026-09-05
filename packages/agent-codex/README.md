@@ -50,9 +50,13 @@
 - `POST /api/agent/codex/threads/:id/fork` — 分叉会话（`thread/fork`）
 - `GET|POST /api/agent/codex/threads/:id/queue` — 队列列表 / 入队
 - `DELETE /api/agent/codex/threads/:id/queue/:queuedId` — 移出队列项
-- `POST /api/agent/codex/threads/:id/queue/start` — 启动队列项
+- `POST /api/agent/codex/threads/:id/queue/start` — 启动队列项（HTTP；流式请用 WS `client.queue.start`）
 - `GET /api/agent/codex/skills` — Skills 只读列表（`skills/list`）
+- `GET /api/agent/codex/rate-limits` — 额度快照（`account/rateLimits/read`）
+- `GET /api/agent/codex/mcp-servers` — MCP 状态只读（`mcpServerStatus/list`，非学习域工具总线）
 - `GET /api/agent/codex/collaboration-modes` — 协作模式预设
+
+WebSocket：`client.queue.start` → 流式消费队列下一项；turn 完成 payload 含 `queueRemaining`。
 
 ## 再生协议类型（可选）
 

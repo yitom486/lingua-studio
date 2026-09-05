@@ -243,6 +243,25 @@ export const app = new Hono()
     }
     return c.json({ skills: res.value });
   })
+  .get('/api/agent/codex/rate-limits', async (c) => {
+    const res = await gatewayServer.getCodexRateLimits();
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_RATE_LIMITS');
+    }
+    return c.json(res.value);
+  })
+  .get('/api/agent/codex/mcp-servers', async (c) => {
+    const limit = Number(c.req.query('limit') || 40);
+    const cursor = c.req.query('cursor') || undefined;
+    const res = await gatewayServer.listCodexMcpServers({
+      limit: Number.isFinite(limit) ? limit : 40,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_MCP_STATUS');
+    }
+    return c.json(res.value);
+  })
   // 词典包默认不预装；客户端可先查询状态，再由用户显式触发一次下载与 SQLite 导入。
   .get('/api/dictionary/packages', (c) =>
     c.json({ packages: listDictionaryPackages(drizzleRepo.getRawDb()) })
@@ -981,12 +1000,14 @@ export function startGatewayServer(port = PORT) {
           const raw = typeof message === 'string' ? message : message.toString();
           const envelope = JSON.parse(raw) as WsEnvelope;
 
-          const isTurnSend = envelope.type === WsEventTypes.CLIENT_TURN_SEND;
+          const isStreamingTurn =
+            envelope.type === WsEventTypes.CLIENT_TURN_SEND ||
+            envelope.type === WsEventTypes.CLIENT_QUEUE_START;
           const res = await gatewayServer.handleClientMessage(envelope, (outEnv) => {
             ws.send(JSON.stringify(outEnv));
           });
           if (isOk(res)) {
-            if (!isTurnSend) {
+            if (!isStreamingTurn) {
               ws.send(JSON.stringify(res.value));
             }
           } else {

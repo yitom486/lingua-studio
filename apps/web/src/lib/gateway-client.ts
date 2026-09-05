@@ -55,13 +55,28 @@ export interface StreamTurnOptions {
     reason?: string;
   }) => void;
   onComplete: (data: {
-    status: 'COMPLETED' | 'INTERRUPTED';
+    status: 'COMPLETED' | 'INTERRUPTED' | 'FAILED';
     finalOutput: string;
     toolResults?: unknown;
     source?: string;
     model?: string;
     threadId?: string;
+    queueRemaining?: number;
+    fromQueue?: boolean;
   }) => void;
+  onError?: (err: unknown) => void;
+}
+
+export interface StreamQueueStartOptions {
+  queuedSubmissionId?: string;
+  approvalPolicy?: string;
+  onStart?: () => void;
+  onDelta: (delta: string, accumulated: string) => void;
+  onReasoningDelta?: (delta: string, accumulated: string) => void;
+  onToolCall?: StreamTurnOptions['onToolCall'];
+  onApprovalRequest?: StreamTurnOptions['onApprovalRequest'];
+  onApprovalResolved?: StreamTurnOptions['onApprovalResolved'];
+  onComplete: StreamTurnOptions['onComplete'];
   onError?: (err: unknown) => void;
 }
 
@@ -364,6 +379,42 @@ export class GatewayClient {
         intent: options.intent ?? 'EXPLAIN',
         contextSnapshot: options.contextSnapshot,
         agentOptions: options.agentOptions,
+      },
+      timestamp: Date.now(),
+    });
+    return true;
+  }
+
+  /** 启动队列下一项并流式推送（client.queue.start） */
+  public startQueueStream(options: StreamQueueStartOptions): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      options.onError?.(new Error('Gateway is not connected'));
+      return false;
+    }
+
+    this.activeStream = {
+      onStart: options.onStart,
+      onDelta: options.onDelta,
+      onReasoningDelta: options.onReasoningDelta,
+      onToolCall: options.onToolCall,
+      onApprovalRequest: options.onApprovalRequest,
+      onApprovalResolved: options.onApprovalResolved,
+      onComplete: options.onComplete,
+      onError: options.onError,
+      accumulatedText: '',
+      accumulatedReasoning: '',
+    };
+
+    this.sendRaw({
+      version: '1.0',
+      id: generateId('queue_req'),
+      sessionId: this.sessionId ?? 'active_session',
+      type: WsEventTypes.CLIENT_QUEUE_START,
+      payload: {
+        ...(options.queuedSubmissionId
+          ? { queuedSubmissionId: options.queuedSubmissionId }
+          : {}),
+        ...(options.approvalPolicy ? { approvalPolicy: options.approvalPolicy } : {}),
       },
       timestamp: Date.now(),
     });

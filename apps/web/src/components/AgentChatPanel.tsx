@@ -6,6 +6,7 @@ import {
   ChevronRight,
   History,
   ListOrdered,
+  Play,
   Plus,
   ShieldAlert,
   Sparkles,
@@ -17,6 +18,7 @@ import {
   Wifi,
   WifiOff,
   KeyRound,
+  Gauge,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAgentGateway } from '../hooks/useAgentGateway.js';
@@ -45,6 +47,8 @@ import {
   useCodexModelsQuery,
   useCodexQueueQuery,
   useCodexSkillsQuery,
+  useCodexRateLimitsQuery,
+  useCodexMcpServersQuery,
   useCodexStatusQuery,
   useCodexThreadItemsQuery,
   useCodexThreadsQuery,
@@ -155,8 +159,11 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     Boolean(coachThreadId) && Boolean(gateway.isConnected)
   );
   const { data: skills = [] } = useCodexSkillsQuery(Boolean(gateway.isConnected));
+  const { data: rateLimits } = useCodexRateLimitsQuery(Boolean(gateway.isConnected));
+  const { data: mcpServers = [] } = useCodexMcpServersQuery(Boolean(gateway.isConnected));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const queueDrainRef = useRef(false);
 
   const selectedModel = useMemo(
     () => models.find((m) => m.id === coachModelId || m.model === coachModelId),
@@ -277,6 +284,148 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     }
     if (mapped.length) setMessages(mapped);
   }, [coachThreadId, threadItems]);
+
+  const startQueuedTurn = useCallback(
+    (queuedSubmissionId?: string) => {
+      if (!gateway.isConnected) return;
+      if (queueDrainRef.current) return;
+      queueDrainRef.current = true;
+      sound.playClick();
+      const aiId = `a_q_${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `sys_q_${Date.now()}`,
+          role: 'system',
+          text: '▶ 正在消费队列下一项…',
+        },
+        {
+          id: aiId,
+          role: 'assistant',
+          text: '',
+          reasoning: '',
+          streaming: true,
+          toolHints: [],
+        },
+      ]);
+      setBusy(true);
+
+      const finish = (data: {
+        finalOutput?: string;
+        source?: string;
+        threadId?: string;
+        queueRemaining?: number;
+      }) => {
+        queueDrainRef.current = false;
+        if (data.threadId) {
+          setCoachThreadId(data.threadId);
+          void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
+          void queryClient.invalidateQueries({
+            queryKey: [...CODEX_QUERY_KEYS.QUEUE, data.threadId],
+          });
+        }
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== aiId) return m;
+            const next: ChatMessage = {
+              ...m,
+              text: data.finalOutput || m.text,
+              streaming: false,
+            };
+            if (data.source) next.source = data.source;
+            return next;
+          })
+        );
+        setBusy(false);
+        if ((data.queueRemaining ?? 0) > 0) {
+          window.setTimeout(() => startQueuedTurn(), 80);
+        }
+      };
+
+      const ok = gateway.startQueueStream({
+        ...(queuedSubmissionId ? { queuedSubmissionId } : {}),
+        ...(coachApprovalPolicy ? { approvalPolicy: coachApprovalPolicy } : {}),
+        onDelta: (_d, acc) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: acc, streaming: true } : m))
+          );
+        },
+        onReasoningDelta: (_d, acc) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, reasoning: acc } : m))
+          );
+        },
+        onToolCall: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== aiId) return m;
+              const label = info.toolName;
+              const hints = [...(m.toolHints ?? [])];
+              if (!hints.includes(label)) hints.push(label);
+              return { ...m, toolHints: hints };
+            })
+          );
+        },
+        onApprovalRequest: (info) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `appr_${info.approvalId}`,
+              role: 'approval',
+              text: info.description,
+              approval: {
+                approvalId: info.approvalId,
+                action: info.action,
+                description: info.description,
+                riskLevel: info.riskLevel,
+                status: 'pending',
+                ...(typeof info.expiresAt === 'number'
+                  ? { expiresAt: info.expiresAt }
+                  : {}),
+              },
+            },
+          ]);
+        },
+        onApprovalResolved: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.approval?.approvalId !== info.approvalId || !m.approval) return m;
+              if (m.approval.status !== 'pending') return m;
+              const status =
+                info.reason === 'timeout'
+                  ? 'timed_out'
+                  : info.reason === 'interrupt' || info.decision === 'cancel'
+                    ? 'cancelled'
+                    : info.decision === 'acceptForSession'
+                      ? 'accepted_session'
+                      : info.decision === 'accept'
+                        ? 'accepted'
+                        : 'declined';
+              return {
+                ...m,
+                approval: { ...m.approval, status },
+              };
+            })
+          );
+        },
+        onComplete: (data) => finish(data),
+        onError: (err) => {
+          queueDrainRef.current = false;
+          const e = err as { userMessage?: string; message?: string } | undefined;
+          const msg = e?.userMessage || e?.message || '队列消费失败';
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: msg, streaming: false } : m))
+          );
+          setBusy(false);
+        },
+      });
+      if (!ok) {
+        queueDrainRef.current = false;
+        setBusy(false);
+      }
+    },
+    [gateway, coachApprovalPolicy, setCoachThreadId, queryClient]
+  );
 
   const send = useCallback(
     async (raw: string) => {
@@ -415,6 +564,9 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             })
           );
           setBusy(false);
+          if ((data.queueRemaining ?? 0) > 0) {
+            window.setTimeout(() => startQueuedTurn(), 80);
+          }
         },
         onError: (err) => {
           const e = err as { userMessage?: string; message?: string } | undefined;
@@ -440,6 +592,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       coachCollaborationMode,
       setCoachThreadId,
       queryClient,
+      startQueuedTurn,
     ]
   );
 
@@ -471,6 +624,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
 
   const interrupt = () => {
     sound.playClick();
+    queueDrainRef.current = false;
     gateway.interruptTurn();
     setBusy(false);
     setMessages((prev) =>
@@ -523,6 +677,19 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 待 login
               </span>
             )}
+            {typeof rateLimits?.primaryUsedPercent === 'number' ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-stone-500"
+                title={
+                  rateLimits.primaryResetsAt
+                    ? `重置于 ${new Date(rateLimits.primaryResetsAt * 1000).toLocaleString()}`
+                    : rateLimits.limitName || 'rate limit'
+                }
+              >
+                <Gauge className="size-3" />
+                {Math.round(rateLimits.primaryUsedPercent)}%
+              </span>
+            ) : null}
           </div>
           <p className="mt-0.5 text-[10px] text-stone-500 truncate">
             {copy.headerHint} · App Server 流式
@@ -660,7 +827,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
               <p className="px-1 pb-2 text-[11px] font-medium text-stone-300">
                 Codex Skills（只读）
               </p>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
+              <div className="max-h-40 space-y-1 overflow-y-auto">
                 {skills.length === 0 ? (
                   <p className="px-2 py-3 text-[11px] text-stone-500">暂无 skill</p>
                 ) : (
@@ -687,6 +854,28 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                     </div>
                   ))
                 )}
+              </div>
+              <div className="mt-2 border-t border-stone-800 px-1 pt-2">
+                <p className="pb-1 text-[10px] font-medium text-stone-400">
+                  MCP 状态（观测，非学习工具总线）
+                </p>
+                <div className="max-h-28 space-y-1 overflow-y-auto">
+                  {mcpServers.length === 0 ? (
+                    <p className="px-1 py-2 text-[10px] text-stone-600">未配置 MCP</p>
+                  ) : (
+                    mcpServers.map((s) => (
+                      <div
+                        key={s.name}
+                        className="flex items-center justify-between gap-2 rounded px-1 py-0.5"
+                      >
+                        <span className="truncate text-[10px] text-stone-300">{s.name}</span>
+                        <span className="shrink-0 text-[9px] text-stone-500">
+                          {s.authStatus} · {s.toolCount} tools
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </PopoverContent>
           </Popover>
@@ -728,9 +917,22 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
         {queueItems.length > 0 ? (
           <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 px-2.5 py-2">
-            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium text-sky-300/90">
-              <ListOrdered className="size-3" />
-              下一轮队列 · {queueItems.length}
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-[10px] font-medium text-sky-300/90">
+                <ListOrdered className="size-3" />
+                下一轮队列 · {queueItems.length}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-6 gap-1 px-2 text-[10px] bg-sky-700 hover:bg-sky-600"
+                disabled={busy}
+                title="立即消费队列"
+                onClick={() => startQueuedTurn()}
+              >
+                <Play className="size-3" />
+                开始
+              </Button>
             </div>
             <div className="space-y-1">
               {queueItems.map((q) => (
@@ -766,7 +968,9 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             key={m.id}
             className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            {m.role === 'approval' && m.approval ? (
+            {m.role === 'system' ? (
+              <p className="w-full text-center text-[10px] text-stone-500">{m.text}</p>
+            ) : m.role === 'approval' && m.approval ? (
               <div className="w-full max-w-[95%] rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5">
                 <div className="flex items-start gap-2">
                   <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
@@ -1071,7 +1275,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           </div>
         </div>
         <p className="mt-1.5 px-1 text-[10px] text-stone-600">
-          ~/.codex · fork · queue · skills · steer
+          ~/.codex · queue/start · rateLimits · mcpStatus
           {codexStatus?.message ? ` · ${codexStatus.message}` : ''}
         </p>
       </footer>

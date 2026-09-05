@@ -33,6 +33,8 @@ import {
   type CodexCollaborationModeDto,
   type CodexQueuedSubmissionDto,
   type CodexSkillDto,
+  type CodexRateLimitsDto,
+  type CodexMcpServerStatusDto,
   normalizeSandboxMode,
   normalizeApprovalPolicy,
 } from './app-server-protocol.js';
@@ -231,10 +233,104 @@ export class CodexAppServerConnection {
       return;
     }
 
+    this.setActiveApprovalPolicy(params.approvalPolicy ?? this.config.approvalPolicy);
+    const turnBody: TurnStartParams = {
+      threadId: params.threadId,
+      input: [{ type: 'text', text: params.message }],
+    };
+    if (params.model) turnBody.model = params.model;
+    if (params.effort) turnBody.effort = params.effort;
+    if (params.approvalPolicy) {
+      turnBody.approvalPolicy = normalizeApprovalPolicy(params.approvalPolicy);
+    }
+    if (params.collaborationMode) {
+      const mode =
+        params.collaborationMode === 'plan' || params.collaborationMode === 'default'
+          ? params.collaborationMode
+          : 'default';
+      turnBody.collaborationMode = {
+        mode,
+        settings: {
+          model: params.model ?? this.config.model ?? '',
+          reasoning_effort: params.effort ?? this.config.effort ?? null,
+          developer_instructions: null,
+        },
+      };
+    }
+    if (!params.effort && this.config.effort) {
+      turnBody.effort = this.config.effort;
+    }
+
+    const startRes = await this.rpc.request<TurnStartResponse>('turn/start', turnBody);
+    if (!isOk(startRes)) {
+      yield { type: 'ERROR', error: startRes.error };
+      return;
+    }
+    const turnId = startRes.value?.turn?.id ?? null;
+    yield* this.consumeTurnNotifications({
+      threadId: params.threadId,
+      turnId,
+      ...(params.signal ? { signal: params.signal } : {}),
+    });
+  }
+
+  /**
+   * thread/queue/start — 启动队列项并流式消费该 turn。
+   */
+  public async *streamQueueStart(params: {
+    threadId: string;
+    queuedSubmissionId?: string;
+    signal?: AbortSignal;
+    approvalPolicy?: string;
+  }): AsyncGenerator<AgentEvent, void, unknown> {
+    const ready = await this.connect();
+    if (!isOk(ready)) {
+      yield { type: 'ERROR', error: ready.error };
+      return;
+    }
+
+    this.setActiveApprovalPolicy(params.approvalPolicy ?? this.config.approvalPolicy);
+    const body: Record<string, unknown> = { threadId: params.threadId };
+    if (params.queuedSubmissionId) body.queuedSubmissionId = params.queuedSubmissionId;
+
+    const startRes = await this.rpc.request<{ turn?: { id?: string } }>(
+      'thread/queue/start',
+      body
+    );
+    if (!isOk(startRes)) {
+      yield { type: 'ERROR', error: startRes.error };
+      return;
+    }
+    const turnId = startRes.value?.turn?.id ?? null;
+    if (!turnId) {
+      yield {
+        type: 'ERROR',
+        error: new BusinessError(
+          'E_CODEX_QUEUE',
+          'thread/queue/start 未返回 turn.id',
+          'AGENT_RUNTIME',
+          true
+        ),
+      };
+      return;
+    }
+    yield* this.consumeTurnNotifications({
+      threadId: params.threadId,
+      turnId,
+      ...(params.signal ? { signal: params.signal } : {}),
+    });
+  }
+
+  /** 订阅 turn 通知直至 completed / abort / error */
+  private async *consumeTurnNotifications(params: {
+    threadId: string;
+    turnId: string | null;
+    signal?: AbortSignal;
+  }): AsyncGenerator<AgentEvent, void, unknown> {
     const queue: AgentEvent[] = [];
     let wake: (() => void) | null = null;
     let done = false;
-    let turnId: string | null = null;
+    let turnId = params.turnId;
     let sawText = false;
     let lastFinal: string | undefined;
 
@@ -253,6 +349,8 @@ export class CodexAppServerConnection {
       wake?.();
     };
 
+    this.activeTurnId = turnId;
+
     const unsub = this.rpc.onNotification((note) => {
       const mapped = mapAppServerNotificationToEvents(note.method, note.params);
       for (const ev of mapped) {
@@ -260,7 +358,7 @@ export class CodexAppServerConnection {
           done = true;
         }
         if (note.method === 'turn/started') {
-          turnId = (note.params as any)?.turn?.id ?? turnId;
+          turnId = (note.params as { turn?: { id?: string } })?.turn?.id ?? turnId;
           this.activeTurnId = turnId;
         }
         push(ev);
@@ -284,43 +382,6 @@ export class CodexAppServerConnection {
     params.signal?.addEventListener('abort', onAbort, { once: true });
 
     try {
-      this.setActiveApprovalPolicy(params.approvalPolicy ?? this.config.approvalPolicy);
-      const turnBody: TurnStartParams = {
-        threadId: params.threadId,
-        input: [{ type: 'text', text: params.message }],
-      };
-      if (params.model) turnBody.model = params.model;
-      if (params.effort) turnBody.effort = params.effort;
-      if (params.approvalPolicy) {
-        turnBody.approvalPolicy = normalizeApprovalPolicy(params.approvalPolicy);
-      }
-      if (params.collaborationMode) {
-        const mode =
-          params.collaborationMode === 'plan' || params.collaborationMode === 'default'
-            ? params.collaborationMode
-            : 'default';
-        turnBody.collaborationMode = {
-          mode,
-          settings: {
-            model: params.model ?? this.config.model ?? '',
-            reasoning_effort: params.effort ?? this.config.effort ?? null,
-            developer_instructions: null,
-          },
-        };
-      }
-      if (!params.effort && this.config.effort) {
-        turnBody.effort = this.config.effort;
-      }
-
-      const startRes = await this.rpc.request<TurnStartResponse>('turn/start', turnBody);
-
-      if (!isOk(startRes)) {
-        yield { type: 'ERROR', error: startRes.error };
-        return;
-      }
-      turnId = startRes.value?.turn?.id ?? turnId;
-      this.activeTurnId = turnId;
-
       while (!done || queue.length > 0) {
         if (params.signal?.aborted) break;
         if (queue.length === 0) {
@@ -655,14 +716,25 @@ export class CodexAppServerConnection {
   public async queueStart(params: {
     threadId: string;
     queuedSubmissionId?: string;
-  }): Promise<Result<void, BusinessError>> {
+  }): Promise<Result<{ turnId: string }, BusinessError>> {
     const ready = await this.connect();
     if (!isOk(ready)) return ready;
     const body: Record<string, unknown> = { threadId: params.threadId };
     if (params.queuedSubmissionId) body.queuedSubmissionId = params.queuedSubmissionId;
-    const res = await this.rpc.request('thread/queue/start', body);
+    const res = await this.rpc.request<{ turn?: { id?: string } }>('thread/queue/start', body);
     if (!isOk(res)) return res;
-    return ok(undefined);
+    const turnId = res.value?.turn?.id;
+    if (!turnId) {
+      return err(
+        new BusinessError(
+          'E_CODEX_QUEUE',
+          'thread/queue/start 未返回 turn.id',
+          'AGENT_RUNTIME',
+          true
+        )
+      );
+    }
+    return ok({ turnId: String(turnId) });
   }
 
   /** skills/list */
@@ -774,6 +846,82 @@ export class CodexAppServerConnection {
     };
     if (codexHome) status.codexHome = codexHome;
     return ok(status);
+  }
+
+  /** account/rateLimits/read */
+  public async readRateLimits(): Promise<Result<CodexRateLimitsDto, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{
+      rateLimits?: {
+        limitId?: string | null;
+        limitName?: string | null;
+        planType?: string | null;
+        primary?: { usedPercent?: number; resetsAt?: number | null } | null;
+        secondary?: { usedPercent?: number; resetsAt?: number | null } | null;
+      };
+    }>('account/rateLimits/read', {});
+    if (!isOk(res)) return res;
+    const snap = res.value?.rateLimits;
+    return ok({
+      limitId: snap?.limitId ?? null,
+      limitName: snap?.limitName ?? null,
+      planType: snap?.planType != null ? String(snap.planType) : null,
+      primaryUsedPercent:
+        typeof snap?.primary?.usedPercent === 'number' ? snap.primary.usedPercent : null,
+      primaryResetsAt:
+        typeof snap?.primary?.resetsAt === 'number' ? snap.primary.resetsAt : null,
+      secondaryUsedPercent:
+        typeof snap?.secondary?.usedPercent === 'number'
+          ? snap.secondary.usedPercent
+          : null,
+      secondaryResetsAt:
+        typeof snap?.secondary?.resetsAt === 'number' ? snap.secondary.resetsAt : null,
+    });
+  }
+
+  /** mcpServerStatus/list — 只读观测本机 Codex 已配置的 MCP（非学习域工具总线） */
+  public async listMcpServerStatus(params?: {
+    cursor?: string;
+    limit?: number;
+  }): Promise<
+    Result<{ servers: CodexMcpServerStatusDto[]; nextCursor: string | null }, BusinessError>
+  > {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const body: Record<string, unknown> = {
+      limit: params?.limit ?? 40,
+    };
+    if (params?.cursor) body.cursor = params.cursor;
+    const res = await this.rpc.request<{
+      data?: Array<{
+        name?: string;
+        pluginId?: string | null;
+        authStatus?: string | { status?: string };
+        tools?: Record<string, unknown>;
+      }>;
+      nextCursor?: string | null;
+    }>('mcpServerStatus/list', body);
+    if (!isOk(res)) return res;
+    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
+    const servers: CodexMcpServerStatusDto[] = rows.map((row) => {
+      const auth =
+        typeof row.authStatus === 'string'
+          ? row.authStatus
+          : row.authStatus && typeof row.authStatus === 'object'
+            ? String((row.authStatus as { status?: string }).status ?? 'unknown')
+            : 'unknown';
+      return {
+        name: String(row.name ?? ''),
+        authStatus: auth,
+        toolCount: row.tools ? Object.keys(row.tools).length : 0,
+        pluginId: row.pluginId != null ? String(row.pluginId) : null,
+      };
+    }).filter((s) => s.name);
+    return ok({
+      servers,
+      nextCursor: res.value?.nextCursor ?? null,
+    });
   }
 
   public async close(): Promise<Result<void, BusinessError>> {

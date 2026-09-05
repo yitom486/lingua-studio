@@ -39,6 +39,9 @@ export function useAgentGateway() {
     connect: gatewayClient.connect.bind(gatewayClient),
     disconnect: gatewayClient.disconnect.bind(gatewayClient),
     sendTurnStream: (opts: StreamTurnOptions) => gatewayClient.sendTurnStream(opts),
+    startQueueStream: (
+      opts: import('../lib/gateway-client.js').StreamQueueStartOptions
+    ) => gatewayClient.startQueueStream(opts),
     interruptTurn: () => gatewayClient.interruptTurn(),
     steerTurn: (message: string) => gatewayClient.steerTurn(message),
     respondApproval: (
