@@ -8,6 +8,7 @@ import {
 import { Button } from '../ui/button.js';
 import { BorderBeam } from '../magicui/index.js';
 import { ChatTurnActivity, StreamingReplyPlaceholder } from '../ChatTurnActivity.js';
+import { MarkdownText } from '../common/MarkdownText.js';
 import { stripTranscriptNoise } from '../../lib/chat-transcript.js';
 import { sound } from '../../utils/audio.js';
 import type { CodexQueuedSubmissionDto } from '../../queries/useCodexQueries.js';
@@ -228,8 +229,8 @@ export function ChatMessageList(props: ChatMessageListProps) {
             ) : waitingFirstToken ? (
               <StreamingReplyPlaceholder />
             ) : (
-              <div className="whitespace-pre-wrap">
-                {m.text}
+              <div>
+                <MarkdownText text={m.text} surface="dark" />
                 {m.streaming && m.text ? (
                   <span className="ml-0.5 inline-block h-3.5 w-1.5 align-middle bg-sky-400/80 animate-pulse" />
                 ) : null}
