@@ -1438,21 +1438,35 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   public async getQuestions(
     userId: string,
     limit: number = 50,
-    langOverride?: string
+    langOverride?: string,
+    filter?: {
+      types?: string[] | undefined;
+      difficulty?: number | undefined;
+      skillIds?: string[] | undefined;
+    }
   ): Promise<Result<any[], BusinessError>> {
     try {
       const language = langOverride
         ? normalizeTrackLanguage(langOverride)
         : await this.resolveActiveLanguage(userId);
+      const conds = [
+        or(eq(quizQuestions.userId, userId), eq(quizQuestions.userId, 'default_user')),
+        eq(quizQuestions.language, language),
+      ];
+      // P5-E4：装配按块选题——题型 / 难度 / 技能过滤
+      if (filter?.types && filter.types.length > 0) {
+        conds.push(inArray(quizQuestions.type, filter.types));
+      }
+      if (typeof filter?.difficulty === 'number') {
+        conds.push(eq(quizQuestions.difficulty, filter.difficulty));
+      }
+      if (filter?.skillIds && filter.skillIds.length > 0) {
+        conds.push(inArray(quizQuestions.testedSkillId, filter.skillIds));
+      }
       let rows = await this.db
         .select()
         .from(quizQuestions)
-        .where(
-          and(
-            or(eq(quizQuestions.userId, userId), eq(quizQuestions.userId, 'default_user')),
-            eq(quizQuestions.language, language)
-          )
-        )
+        .where(and(...conds))
         .orderBy(desc(quizQuestions.createdAt))
         .limit(limit);
 

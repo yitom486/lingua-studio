@@ -30,7 +30,14 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
   useEffect(() => {
     if (runId && !itemsQuery.data && !itemsQuery.isLoading && !assemble.isPending) {
       assemble.mutate(runId, {
-        onSuccess: () => toast.success('已装配练习题目'),
+        onSuccess: (data) => {
+          const skipped = data.skippedBlocks?.length ?? 0;
+          if (skipped > 0) {
+            toast.warning(`已装配题目，但 ${skipped} 个练习块暂无可用题被跳过`);
+          } else {
+            toast.success('已装配练习题目');
+          }
+        },
         onError: (e) => toast.error('装配题目失败：' + e.message),
       });
     }

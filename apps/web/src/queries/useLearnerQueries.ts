@@ -1663,7 +1663,12 @@ export function useAssemblePracticeRunMutation(userId = DEFAULT_USER_ID) {
         method: 'POST',
       });
       if (!res.ok) throw new Error('装配练习题目失败');
-      return (await res.json()) as { run: PracticePlanRun; blocks: Array<{ blockId: string; collectionId: string; itemCount: number }>; totalItems: number };
+      return (await res.json()) as {
+        run: PracticePlanRun;
+        blocks: Array<{ blockId: string; collectionId: string; itemCount: number }>;
+        totalItems: number;
+        skippedBlocks?: Array<{ blockId: string; kind: string }>;
+      };
     },
     onSuccess: (_data, runId) => {
       void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, runId] });
