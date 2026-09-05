@@ -162,6 +162,87 @@ export const app = new Hono()
     }
     return c.json({ modes: res.value });
   })
+  .post('/api/agent/codex/threads/:threadId/fork', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      ephemeral?: boolean;
+      model?: string;
+    };
+    const res = await gatewayServer.forkCodexThread({
+      threadId,
+      ...(typeof body.ephemeral === 'boolean' ? { ephemeral: body.ephemeral } : {}),
+      ...(body.model ? { model: body.model } : {}),
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_THREAD_FORK');
+    }
+    return c.json(res.value);
+  })
+  .get('/api/agent/codex/threads/:threadId/queue', async (c) => {
+    const threadId = c.req.param('threadId');
+    const limit = Number(c.req.query('limit') || 20);
+    const res = await gatewayServer.listCodexQueue({
+      threadId,
+      limit: Number.isFinite(limit) ? limit : 20,
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_QUEUE_LIST');
+    }
+    return c.json(res.value);
+  })
+  .post('/api/agent/codex/threads/:threadId/queue', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+    const message = String(body.message || '').trim();
+    if (!message) {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', '队列消息不能为空', 'VALIDATION'),
+        'CODEX_QUEUE_ADD'
+      );
+    }
+    const res = await gatewayServer.queueCodexAdd({ threadId, message });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_QUEUE_ADD');
+    }
+    return c.json(res.value);
+  })
+  .delete('/api/agent/codex/threads/:threadId/queue/:queuedId', async (c) => {
+    const threadId = c.req.param('threadId');
+    const queuedSubmissionId = c.req.param('queuedId');
+    const res = await gatewayServer.deleteCodexQueueItem({
+      threadId,
+      queuedSubmissionId,
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_QUEUE_DELETE');
+    }
+    return c.json({ ok: true });
+  })
+  .post('/api/agent/codex/threads/:threadId/queue/start', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      queuedSubmissionId?: string;
+    };
+    const res = await gatewayServer.startCodexQueue({
+      threadId,
+      ...(body.queuedSubmissionId
+        ? { queuedSubmissionId: body.queuedSubmissionId }
+        : {}),
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_QUEUE_START');
+    }
+    return c.json({ ok: true });
+  })
+  .get('/api/agent/codex/skills', async (c) => {
+    const forceReload = c.req.query('forceReload') === '1';
+    const res = await gatewayServer.listCodexSkills({ forceReload });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_SKILLS');
+    }
+    return c.json({ skills: res.value });
+  })
   // 词典包默认不预装；客户端可先查询状态，再由用户显式触发一次下载与 SQLite 导入。
   .get('/api/dictionary/packages', (c) =>
     c.json({ packages: listDictionaryPackages(drizzleRepo.getRawDb()) })

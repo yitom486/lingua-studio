@@ -28,6 +28,8 @@ import type {
   CodexThreadSummary,
   CodexThreadItemDto,
   CodexCollaborationModeDto,
+  CodexQueuedSubmissionDto,
+  CodexSkillDto,
   DynamicToolCallResponse,
 } from './app-server-protocol.js';
 
@@ -434,6 +436,63 @@ export class CodexAdapter implements AgentAdapter {
     const conn = await this.ensureConnection();
     if (!isOk(conn)) return conn;
     return conn.value.archiveThread(threadId);
+  }
+
+  public async forkThread(params: {
+    threadId: string;
+    ephemeral?: boolean;
+    model?: string;
+  }): Promise<Result<{ threadId: string }, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.forkThread(params);
+  }
+
+  public async queueAdd(params: {
+    threadId: string;
+    message: string;
+    clientUserMessageId?: string;
+  }): Promise<Result<CodexQueuedSubmissionDto, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.queueAdd(params);
+  }
+
+  public async queueList(params: {
+    threadId: string;
+    limit?: number;
+  }): Promise<
+    Result<{ items: CodexQueuedSubmissionDto[]; nextCursor: string | null }, BusinessError>
+  > {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.queueList(params);
+  }
+
+  public async queueDelete(params: {
+    threadId: string;
+    queuedSubmissionId: string;
+  }): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.queueDelete(params);
+  }
+
+  public async queueStart(params: {
+    threadId: string;
+    queuedSubmissionId?: string;
+  }): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.queueStart(params);
+  }
+
+  public async listSkills(params?: {
+    forceReload?: boolean;
+  }): Promise<Result<CodexSkillDto[], BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listSkills(params);
   }
 
   public async listCollaborationModes(): Promise<

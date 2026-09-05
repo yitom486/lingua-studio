@@ -5,16 +5,20 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  ListOrdered,
   Plus,
   ShieldAlert,
+  Sparkles,
   Square,
   Trash2,
+  GitFork,
   Wrench,
   X,
   Wifi,
   WifiOff,
   KeyRound,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAgentGateway } from '../hooks/useAgentGateway.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
@@ -39,9 +43,14 @@ import {
   useArchiveCodexThreadMutation,
   useCodexCollaborationModesQuery,
   useCodexModelsQuery,
+  useCodexQueueQuery,
+  useCodexSkillsQuery,
   useCodexStatusQuery,
   useCodexThreadItemsQuery,
   useCodexThreadsQuery,
+  useDeleteCodexQueueItemMutation,
+  useForkCodexThreadMutation,
+  useQueueCodexMessageMutation,
   CODEX_QUERY_KEYS,
 } from '../queries/useCodexQueries.js';
 import { useQueryClient } from '@tanstack/react-query';
@@ -138,7 +147,16 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     Boolean(coachThreadId) && Boolean(gateway.isConnected)
   );
   const archiveThread = useArchiveCodexThreadMutation();
+  const forkThread = useForkCodexThreadMutation();
+  const queueMessage = useQueueCodexMessageMutation();
+  const deleteQueueItem = useDeleteCodexQueueItemMutation();
+  const { data: queueItems = [] } = useCodexQueueQuery(
+    coachThreadId || null,
+    Boolean(coachThreadId) && Boolean(gateway.isConnected)
+  );
+  const { data: skills = [] } = useCodexSkillsQuery(Boolean(gateway.isConnected));
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
 
   const selectedModel = useMemo(
     () => models.find((m) => m.id === coachModelId || m.model === coachModelId),
@@ -208,6 +226,28 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     sound.playClick();
     setCoachThreadId(threadId);
     setHistoryOpen(false);
+  };
+
+  const enqueueQueued = () => {
+    const text = input.trim();
+    if (!text) return;
+    if (!coachThreadId) {
+      toast.error('请先有一个活跃会话再加入队列');
+      return;
+    }
+    sound.playClick();
+    setInput('');
+    setMessages((prev) => [
+      ...prev,
+      { id: `queue_${Date.now()}`, role: 'user', text: `排队 ${text}` },
+    ]);
+    queueMessage.mutate(
+      { threadId: coachThreadId, message: text },
+      {
+        onError: () => toast.error('加入队列失败'),
+        onSuccess: () => toast.success('已加入下一轮队列'),
+      }
+    );
   };
 
   // 选中历史 thread 后，把 items 映射成聊天气泡
@@ -358,6 +398,9 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           if (data.threadId) {
             setCoachThreadId(data.threadId);
             void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
+            void queryClient.invalidateQueries({
+              queryKey: [...CODEX_QUERY_KEYS.QUEUE, data.threadId],
+            });
           }
           setMessages((prev) =>
             prev.map((m) => {
@@ -549,6 +592,32 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                         type="button"
                         variant="ghost"
                         size="icon"
+                        className="size-6 shrink-0 text-stone-500 hover:text-sky-300"
+                        title="分叉会话"
+                        disabled={forkThread.isPending}
+                        onClick={() => {
+                          sound.playClick();
+                          forkThread.mutate(
+                            {
+                              threadId: t.id,
+                              ephemeral: !coachPersistThread,
+                            },
+                            {
+                              onSuccess: (res) => {
+                                toast.success('已分叉新会话');
+                                openThread(res.threadId);
+                              },
+                              onError: () => toast.error('分叉失败'),
+                            }
+                          );
+                        }}
+                      >
+                        <GitFork className="size-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
                         className="size-6 shrink-0 text-stone-500 hover:text-rose-400"
                         title="归档"
                         onClick={() => {
@@ -574,6 +643,51 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 />
                 持久化新会话（thread ephemeral=false）
               </label>
+            </PopoverContent>
+          </Popover>
+          <Popover open={skillsOpen} onOpenChange={setSkillsOpen}>
+            <PopoverTrigger
+              className="inline-flex size-7 items-center justify-center rounded-md text-stone-400 hover:bg-stone-800 hover:text-stone-100"
+              title="Skills"
+              onClick={() => sound.playClick()}
+            >
+              <Sparkles className="size-3.5" />
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-72 p-2 bg-[#12141a] border-stone-700 text-stone-100"
+            >
+              <p className="px-1 pb-2 text-[11px] font-medium text-stone-300">
+                Codex Skills（只读）
+              </p>
+              <div className="max-h-64 space-y-1 overflow-y-auto">
+                {skills.length === 0 ? (
+                  <p className="px-2 py-3 text-[11px] text-stone-500">暂无 skill</p>
+                ) : (
+                  skills.map((s) => (
+                    <div
+                      key={`${s.scope ?? 'x'}:${s.name}`}
+                      className="rounded-lg px-2 py-1.5 hover:bg-stone-800/80"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <p className="min-w-0 truncate text-[11px] text-stone-200">{s.name}</p>
+                        <span
+                          className={`shrink-0 text-[9px] ${
+                            s.enabled ? 'text-emerald-500' : 'text-stone-600'
+                          }`}
+                        >
+                          {s.enabled ? 'on' : 'off'}
+                        </span>
+                      </div>
+                      {s.description ? (
+                        <p className="mt-0.5 line-clamp-2 text-[10px] text-stone-500">
+                          {s.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
             </PopoverContent>
           </Popover>
           <Button
@@ -612,6 +726,41 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       </header>
 
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+        {queueItems.length > 0 ? (
+          <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 px-2.5 py-2">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-medium text-sky-300/90">
+              <ListOrdered className="size-3" />
+              下一轮队列 · {queueItems.length}
+            </div>
+            <div className="space-y-1">
+              {queueItems.map((q) => (
+                <div
+                  key={q.id}
+                  className="flex items-start gap-1 rounded-lg bg-stone-900/50 px-2 py-1"
+                >
+                  <p className="min-w-0 flex-1 truncate text-[11px] text-stone-300">{q.text}</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-5 shrink-0 text-stone-500 hover:text-rose-400"
+                    title="移出队列"
+                    onClick={() => {
+                      if (!coachThreadId) return;
+                      sound.playClick();
+                      deleteQueueItem.mutate({
+                        threadId: coachThreadId,
+                        queuedId: q.id,
+                      });
+                    }}
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {messages.map((m) => (
           <div
             key={m.id}
@@ -769,7 +918,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             rows={3}
             placeholder={
               busy
-                ? '生成中可输入引导（steer）后 Enter 注入 · Shift+Enter 换行'
+                ? '生成中：Enter=steer；队列按钮=下一轮排队 · Shift+Enter 换行'
                 : '输入消息，Enter 发送 · Shift+Enter 换行'
             }
             className="w-full resize-none bg-transparent px-3 py-2.5 text-[13px] text-stone-100 placeholder:text-stone-600 outline-none min-h-[72px]"
@@ -888,6 +1037,16 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 </Button>
                 <Button
                   type="button"
+                  size="icon"
+                  className="size-7 shrink-0 rounded-full bg-violet-700 hover:bg-violet-600"
+                  title="加入下一轮队列"
+                  disabled={!input.trim() || !coachThreadId || queueMessage.isPending}
+                  onClick={enqueueQueued}
+                >
+                  <ListOrdered className="size-3.5" />
+                </Button>
+                <Button
+                  type="button"
                   variant="outline"
                   size="icon"
                   className="size-7 shrink-0 rounded-full border-stone-600"
@@ -912,7 +1071,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           </div>
         </div>
         <p className="mt-1.5 px-1 text-[10px] text-stone-600">
-          ~/.codex · thread/list · collaborationMode · steer
+          ~/.codex · fork · queue · skills · steer
           {codexStatus?.message ? ` · ${codexStatus.message}` : ''}
         </p>
       </footer>

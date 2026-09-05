@@ -7,6 +7,8 @@ export const CODEX_QUERY_KEYS = {
   THREADS: ['agent', 'codexThreads'] as const,
   THREAD_ITEMS: ['agent', 'codexThreadItems'] as const,
   COLLAB_MODES: ['agent', 'codexCollabModes'] as const,
+  QUEUE: ['agent', 'codexQueue'] as const,
+  SKILLS: ['agent', 'codexSkills'] as const,
 };
 
 export interface CodexAccountStatusDto {
@@ -53,6 +55,20 @@ export interface CodexCollaborationModeDto {
   mode: string | null;
   model: string | null;
   reasoningEffort: string | null;
+}
+
+export interface CodexQueuedSubmissionDto {
+  id: string;
+  text: string;
+  clientUserMessageId: string;
+}
+
+export interface CodexSkillDto {
+  name: string;
+  description: string;
+  enabled: boolean;
+  scope?: string;
+  path?: string;
 }
 
 /** 本机 Codex 登录联动状态（复用 ~/.codex，不另建凭证） */
@@ -175,5 +191,103 @@ export function useRenameCodexThreadMutation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
     },
+  });
+}
+
+export function useForkCodexThreadMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { threadId: string; ephemeral?: boolean }) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/threads/${encodeURIComponent(input.threadId)}/fork`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ephemeral: input.ephemeral ?? false,
+          }),
+        }
+      );
+      if (!res.ok) throw new Error('分叉会话失败');
+      return (await res.json()) as { threadId: string };
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
+    },
+  });
+}
+
+export function useCodexQueueQuery(threadId: string | null, enabled = true) {
+  return useQuery<CodexQueuedSubmissionDto[]>({
+    queryKey: [...CODEX_QUERY_KEYS.QUEUE, threadId],
+    enabled: Boolean(threadId) && enabled,
+    queryFn: async () => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/threads/${encodeURIComponent(threadId!)}/queue`
+      );
+      if (!res.ok) return [];
+      const data = (await res.json()) as { items?: CodexQueuedSubmissionDto[] };
+      return Array.isArray(data.items) ? data.items : [];
+    },
+    staleTime: 5_000,
+    refetchInterval: enabled ? 8_000 : false,
+    retry: 1,
+  });
+}
+
+export function useQueueCodexMessageMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { threadId: string; message: string }) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/threads/${encodeURIComponent(input.threadId)}/queue`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: input.message }),
+        }
+      );
+      if (!res.ok) throw new Error('加入队列失败');
+      return (await res.json()) as CodexQueuedSubmissionDto;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: [...CODEX_QUERY_KEYS.QUEUE, vars.threadId],
+      });
+    },
+  });
+}
+
+export function useDeleteCodexQueueItemMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { threadId: string; queuedId: string }) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.queuedId)}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) throw new Error('删除队列项失败');
+      return input;
+    },
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: [...CODEX_QUERY_KEYS.QUEUE, vars.threadId],
+      });
+    },
+  });
+}
+
+export function useCodexSkillsQuery(enabled = true) {
+  return useQuery<CodexSkillDto[]>({
+    queryKey: CODEX_QUERY_KEYS.SKILLS,
+    enabled,
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/agent/codex/skills`);
+      if (!res.ok) return [];
+      const data = (await res.json()) as { skills?: CodexSkillDto[] };
+      return Array.isArray(data.skills) ? data.skills : [];
+    },
+    staleTime: 1000 * 60 * 5,
+    retry: 1,
   });
 }

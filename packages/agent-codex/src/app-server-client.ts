@@ -31,6 +31,8 @@ import {
   type CodexThreadSummary,
   type CodexThreadItemDto,
   type CodexCollaborationModeDto,
+  type CodexQueuedSubmissionDto,
+  type CodexSkillDto,
   normalizeSandboxMode,
   normalizeApprovalPolicy,
 } from './app-server-protocol.js';
@@ -533,6 +535,166 @@ export class CodexAppServerConnection {
     const res = await this.rpc.request('thread/archive', { threadId });
     if (!isOk(res)) return res;
     return ok(undefined);
+  }
+
+  /** thread/fork — 从已有会话分叉 */
+  public async forkThread(params: {
+    threadId: string;
+    ephemeral?: boolean;
+    model?: string;
+  }): Promise<Result<{ threadId: string }, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const body: Record<string, unknown> = {
+      threadId: params.threadId,
+      excludeTurns: true,
+    };
+    if (typeof params.ephemeral === 'boolean') body.ephemeral = params.ephemeral;
+    if (params.model) body.model = params.model;
+    const res = await this.rpc.request<{ thread?: { id?: string } }>('thread/fork', body);
+    if (!isOk(res)) return res;
+    const threadId = res.value?.thread?.id;
+    if (!threadId) {
+      return err(
+        new BusinessError('E_CODEX_THREAD', 'thread/fork 未返回 thread.id', 'AGENT_RUNTIME', true)
+      );
+    }
+    return ok({ threadId });
+  }
+
+  /** thread/queue/add */
+  public async queueAdd(params: {
+    threadId: string;
+    message: string;
+    clientUserMessageId?: string;
+  }): Promise<Result<CodexQueuedSubmissionDto, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const clientUserMessageId =
+      params.clientUserMessageId || `q_${Date.now().toString(36)}`;
+    const res = await this.rpc.request<{
+      queuedSubmission?: {
+        id?: string;
+        clientUserMessageId?: string;
+        input?: Array<{ type?: string; text?: string }>;
+      };
+    }>('thread/queue/add', {
+      threadId: params.threadId,
+      clientUserMessageId,
+      input: [{ type: 'text', text: params.message }],
+    });
+    if (!isOk(res)) return res;
+    const q = res.value?.queuedSubmission;
+    if (!q?.id) {
+      return err(
+        new BusinessError('E_CODEX_QUEUE', 'thread/queue/add 未返回队列项', 'AGENT_RUNTIME', true)
+      );
+    }
+    const text =
+      Array.isArray(q.input) && q.input[0]?.text
+        ? String(q.input[0].text)
+        : params.message;
+    return ok({
+      id: String(q.id),
+      text,
+      clientUserMessageId: String(q.clientUserMessageId ?? clientUserMessageId),
+    });
+  }
+
+  public async queueList(params: {
+    threadId: string;
+    limit?: number;
+  }): Promise<
+    Result<{ items: CodexQueuedSubmissionDto[]; nextCursor: string | null }, BusinessError>
+  > {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{
+      data?: Array<{
+        id?: string;
+        clientUserMessageId?: string;
+        input?: Array<{ type?: string; text?: string }>;
+      }>;
+      nextCursor?: string | null;
+    }>('thread/queue/list', {
+      threadId: params.threadId,
+      limit: params.limit ?? 20,
+    });
+    if (!isOk(res)) return res;
+    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
+    const items: CodexQueuedSubmissionDto[] = rows
+      .map((row) => {
+        const text =
+          Array.isArray(row.input) && row.input[0]?.text
+            ? String(row.input[0].text)
+            : '';
+        return {
+          id: String(row.id ?? ''),
+          text,
+          clientUserMessageId: String(row.clientUserMessageId ?? ''),
+        };
+      })
+      .filter((i) => i.id);
+    return ok({ items, nextCursor: res.value?.nextCursor ?? null });
+  }
+
+  public async queueDelete(params: {
+    threadId: string;
+    queuedSubmissionId: string;
+  }): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/queue/delete', {
+      threadId: params.threadId,
+      queuedSubmissionId: params.queuedSubmissionId,
+    });
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
+  public async queueStart(params: {
+    threadId: string;
+    queuedSubmissionId?: string;
+  }): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const body: Record<string, unknown> = { threadId: params.threadId };
+    if (params.queuedSubmissionId) body.queuedSubmissionId = params.queuedSubmissionId;
+    const res = await this.rpc.request('thread/queue/start', body);
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
+  /** skills/list */
+  public async listSkills(params?: {
+    forceReload?: boolean;
+  }): Promise<Result<CodexSkillDto[], BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{
+      data?: Array<{
+        skills?: Array<Record<string, unknown>>;
+      }>;
+    }>('skills/list', {
+      forceReload: params?.forceReload ?? false,
+    });
+    if (!isOk(res)) return res;
+    const groups = Array.isArray(res.value?.data) ? res.value.data : [];
+    const skills: CodexSkillDto[] = [];
+    for (const g of groups) {
+      const rows = Array.isArray(g.skills) ? g.skills : [];
+      for (const row of rows) {
+        const s: CodexSkillDto = {
+          name: String(row.name ?? ''),
+          description: String(row.description ?? row.shortDescription ?? ''),
+          enabled: Boolean(row.enabled),
+        };
+        if (row.scope != null) s.scope = String(row.scope);
+        if (row.path != null) s.path = String(row.path);
+        if (s.name) skills.push(s);
+      }
+    }
+    return ok(skills);
   }
 
   /** collaborationMode/list */

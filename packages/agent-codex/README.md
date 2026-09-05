@@ -47,6 +47,11 @@
 - `GET /api/agent/codex/threads/:id/items` — 会话条目
 - `POST /api/agent/codex/threads/:id/name` — 重命名
 - `POST /api/agent/codex/threads/:id/archive` — 归档
+- `POST /api/agent/codex/threads/:id/fork` — 分叉会话（`thread/fork`）
+- `GET|POST /api/agent/codex/threads/:id/queue` — 队列列表 / 入队
+- `DELETE /api/agent/codex/threads/:id/queue/:queuedId` — 移出队列项
+- `POST /api/agent/codex/threads/:id/queue/start` — 启动队列项
+- `GET /api/agent/codex/skills` — Skills 只读列表（`skills/list`）
 - `GET /api/agent/codex/collaboration-modes` — 协作模式预设
 
 ## 再生协议类型（可选）

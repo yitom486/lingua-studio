@@ -139,6 +139,44 @@ export class GatewayServer {
     return this.agentAdapter.archiveThread(threadId);
   }
 
+  public async forkCodexThread(params: {
+    threadId: string;
+    ephemeral?: boolean;
+    model?: string;
+  }) {
+    return this.agentAdapter.forkThread(params);
+  }
+
+  public async queueCodexAdd(params: {
+    threadId: string;
+    message: string;
+    clientUserMessageId?: string;
+  }) {
+    return this.agentAdapter.queueAdd(params);
+  }
+
+  public async listCodexQueue(params: { threadId: string; limit?: number }) {
+    return this.agentAdapter.queueList(params);
+  }
+
+  public async deleteCodexQueueItem(params: {
+    threadId: string;
+    queuedSubmissionId: string;
+  }) {
+    return this.agentAdapter.queueDelete(params);
+  }
+
+  public async startCodexQueue(params: {
+    threadId: string;
+    queuedSubmissionId?: string;
+  }) {
+    return this.agentAdapter.queueStart(params);
+  }
+
+  public async listCodexSkills(params?: { forceReload?: boolean }) {
+    return this.agentAdapter.listSkills(params);
+  }
+
   public async listCodexCollaborationModes() {
     return this.agentAdapter.listCollaborationModes();
   }

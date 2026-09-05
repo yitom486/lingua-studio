@@ -97,6 +97,20 @@ export interface CodexCollaborationModeDto {
   reasoningEffort: string | null;
 }
 
+export interface CodexQueuedSubmissionDto {
+  id: string;
+  text: string;
+  clientUserMessageId: string;
+}
+
+export interface CodexSkillDto {
+  name: string;
+  description: string;
+  enabled: boolean;
+  scope?: string;
+  path?: string;
+}
+
 export interface DynamicToolCallParams {
   threadId: string;
   turnId: string;
