@@ -51,7 +51,8 @@ interface ChatMessage {
     action: string;
     description: string;
     riskLevel: string;
-    status: 'pending' | 'accepted' | 'declined';
+    status: 'pending' | 'accepted' | 'accepted_session' | 'declined' | 'timed_out' | 'cancelled';
+    expiresAt?: number;
   };
 }
 
@@ -242,9 +243,34 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
                 description: info.description,
                 riskLevel: info.riskLevel,
                 status: 'pending',
+                ...(typeof info.expiresAt === 'number'
+                  ? { expiresAt: info.expiresAt }
+                  : {}),
               },
             },
           ]);
+        },
+        onApprovalResolved: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.approval?.approvalId !== info.approvalId || !m.approval) return m;
+              if (m.approval.status !== 'pending') return m;
+              const status =
+                info.reason === 'timeout'
+                  ? 'timed_out'
+                  : info.reason === 'interrupt' || info.decision === 'cancel'
+                    ? 'cancelled'
+                    : info.decision === 'acceptForSession'
+                      ? 'accepted_session'
+                      : info.decision === 'accept'
+                        ? 'accepted'
+                        : 'declined';
+              return {
+                ...m,
+                approval: { ...m.approval, status },
+              };
+            })
+          );
         },
         onComplete: (data) => {
           setMessages((prev) =>
@@ -282,9 +308,12 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
     ]
   );
 
-  const respondApproval = (approvalId: string, approved: boolean) => {
+  const respondApproval = (
+    approvalId: string,
+    decision: 'accept' | 'acceptForSession' | 'decline'
+  ) => {
     sound.playClick();
-    gateway?.respondApproval?.(approvalId, approved);
+    gateway?.respondApproval?.(approvalId, decision);
     setMessages((prev) =>
       prev.map((m) =>
         m.approval?.approvalId === approvalId && m.approval
@@ -292,7 +321,12 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
               ...m,
               approval: {
                 ...m.approval,
-                status: approved ? 'accepted' : 'declined',
+                status:
+                  decision === 'acceptForSession'
+                    ? 'accepted_session'
+                    : decision === 'accept'
+                      ? 'accepted'
+                      : 'declined',
               },
             }
           : m
@@ -416,28 +450,60 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
                       </p>
                     </div>
                     {m.approval.status === 'pending' ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 px-2.5 text-[11px] bg-emerald-700 hover:bg-emerald-600"
-                          onClick={() => respondApproval(m.approval!.approvalId, true)}
-                        >
-                          允许
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2.5 text-[11px] border-stone-600"
-                          onClick={() => respondApproval(m.approval!.approvalId, false)}
-                        >
-                          拒绝
-                        </Button>
+                      <div className="space-y-2">
+                        {m.approval.expiresAt ? (
+                          <p className="text-[10px] text-amber-500/80">
+                            约 2 分钟内未操作将自动拒绝
+                          </p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 px-2.5 text-[11px] bg-emerald-700 hover:bg-emerald-600"
+                            onClick={() =>
+                              respondApproval(m.approval!.approvalId, 'accept')
+                            }
+                          >
+                            允许
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 px-2.5 text-[11px] bg-emerald-800/80 hover:bg-emerald-700"
+                            onClick={() =>
+                              respondApproval(
+                                m.approval!.approvalId,
+                                'acceptForSession'
+                              )
+                            }
+                          >
+                            本会话允许
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5 text-[11px] border-stone-600"
+                            onClick={() =>
+                              respondApproval(m.approval!.approvalId, 'decline')
+                            }
+                          >
+                            拒绝
+                          </Button>
+                        </div>
                       </div>
                     ) : (
                       <p className="text-[10px] text-stone-500">
-                        已{m.approval.status === 'accepted' ? '允许' : '拒绝'}
+                        {m.approval.status === 'accepted'
+                          ? '已允许'
+                          : m.approval.status === 'accepted_session'
+                            ? '已允许（本会话）'
+                            : m.approval.status === 'timed_out'
+                              ? '已超时自动拒绝'
+                              : m.approval.status === 'cancelled'
+                                ? '已取消'
+                                : '已拒绝'}
                       </p>
                     )}
                   </div>

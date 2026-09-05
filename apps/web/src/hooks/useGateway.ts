@@ -34,6 +34,12 @@ export interface StreamTurnOptions {
     action: string;
     description: string;
     riskLevel: string;
+    expiresAt?: number;
+  }) => void;
+  onApprovalResolved?: (info: {
+    approvalId: string;
+    decision: string;
+    reason?: string;
   }) => void;
   onComplete: (data: {
     status: 'COMPLETED' | 'INTERRUPTED';
@@ -81,6 +87,12 @@ export function useGateway({
       action: string;
       description: string;
       riskLevel: string;
+      expiresAt?: number;
+    }) => void) | undefined;
+    onApprovalResolved?: ((info: {
+      approvalId: string;
+      decision: string;
+      reason?: string;
     }) => void) | undefined;
     onComplete: (data: any) => void;
     onError?: ((err: any) => void) | undefined;
@@ -194,6 +206,7 @@ export function useGateway({
               action?: string;
               description?: string;
               riskLevel?: string;
+              expiresAt?: number;
             };
             if (p?.approvalId) {
               activeStreamRef.current?.onApprovalRequest?.({
@@ -201,6 +214,20 @@ export function useGateway({
                 action: String(p.action || 'action'),
                 description: String(p.description || ''),
                 riskLevel: String(p.riskLevel || 'medium'),
+                ...(typeof p.expiresAt === 'number' ? { expiresAt: p.expiresAt } : {}),
+              });
+            }
+          } else if (envelope.type === WsEventTypes.AGENT_APPROVAL_RESOLVED) {
+            const p = envelope.payload as {
+              approvalId?: string;
+              decision?: string;
+              reason?: string;
+            };
+            if (p?.approvalId && p.decision) {
+              activeStreamRef.current?.onApprovalResolved?.({
+                approvalId: p.approvalId,
+                decision: p.decision,
+                ...(p.reason ? { reason: p.reason } : {}),
               });
             }
           } else if (envelope.type === WsEventTypes.AGENT_TOOL_CALL) {
@@ -478,6 +505,7 @@ export function useGateway({
         onReasoningDelta: options.onReasoningDelta,
         onToolCall: options.onToolCall,
         onApprovalRequest: options.onApprovalRequest,
+        onApprovalResolved: options.onApprovalResolved,
         onComplete: options.onComplete,
         onError: options.onError,
         accumulatedText: '',
@@ -522,8 +550,17 @@ export function useGateway({
   }, []);
 
   const respondApproval = useCallback(
-    (approvalId: string, approved: boolean) => {
+    (
+      approvalId: string,
+      decision: boolean | 'accept' | 'acceptForSession' | 'decline' | 'cancel'
+    ) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return false;
+      const normalized =
+        typeof decision === 'boolean'
+          ? decision
+            ? 'accept'
+            : 'decline'
+          : decision;
       const envelope: WsEnvelope = {
         version: '1.0',
         id: generateId('appr_req'),
@@ -531,8 +568,9 @@ export function useGateway({
         type: WsEventTypes.CLIENT_APPROVAL_RESPOND,
         payload: {
           approvalId,
-          approved,
-          decision: approved ? 'accept' : 'decline',
+          decision: normalized,
+          approved:
+            normalized === 'accept' || normalized === 'acceptForSession',
         },
         timestamp: Date.now(),
       };

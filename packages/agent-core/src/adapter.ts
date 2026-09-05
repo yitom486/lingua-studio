@@ -9,6 +9,8 @@ export interface CreateSessionOptions {
   tools?: ToolDefinition[];
   /** 可选：覆盖本轮 / 本会话模型（Codex App Server thread/start.model） */
   model?: string;
+  /** 可选：thread/start.approvalPolicy（never / on-request / untrusted） */
+  approvalPolicy?: string;
 }
 
 export interface AgentAdapter {

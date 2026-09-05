@@ -5,6 +5,7 @@ import type {
   AgentInput,
   AgentEvent,
   ContextSnapshot,
+  ApprovalDecision,
 } from '@study-studio/agent-core';
 import {
   ok,
@@ -45,7 +46,7 @@ export class ResponsesSession implements AgentSession {
 
   public async submitApproval(
     _approvalId: string,
-    _approved: boolean
+    _decision: boolean | ApprovalDecision
   ): Promise<Result<void, BusinessError>> {
     return ok(undefined);
   }

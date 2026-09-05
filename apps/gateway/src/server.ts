@@ -769,12 +769,14 @@ export class GatewayServer {
                   userId: string;
                   tools: any;
                   model?: string;
+                  approvalPolicy?: string;
                 } = {
                   sessionId: envelope.sessionId,
                   userId,
                   tools: learningTools as any,
                 };
                 if (preferredModel) sessionOpts.model = preferredModel;
+                if (preferredApproval) sessionOpts.approvalPolicy = preferredApproval;
 
                 const sessionRes = await this.agentAdapter.createSession(sessionOpts);
                 if (isOk(sessionRes)) {
@@ -855,6 +857,22 @@ export class GatewayServer {
                           action: ev.action,
                           description: ev.description,
                           riskLevel: ev.riskLevel,
+                          expiresAt: ev.expiresAt,
+                        },
+                        timestamp: Date.now(),
+                      });
+                    }
+                  } else if (ev.type === 'APPROVAL_RESOLVED') {
+                    if (emit) {
+                      emit({
+                        version: '1.0',
+                        id: generateId('appr_res'),
+                        sessionId: envelope.sessionId,
+                        type: WsEventTypes.AGENT_APPROVAL_RESOLVED,
+                        payload: {
+                          approvalId: ev.approvalId,
+                          decision: ev.decision,
+                          reason: ev.reason,
                         },
                         timestamp: Date.now(),
                       });
@@ -972,12 +990,27 @@ export class GatewayServer {
             new BusinessError('E_INVALID_INPUT', '缺少 approvalId', 'VALIDATION')
           );
         }
-        const approved =
-          typeof payload.approved === 'boolean'
-            ? payload.approved
-            : payload.decision === 'accept' ||
-              payload.decision === 'acceptForSession' ||
-              payload.decision === 'approved';
+
+        const allowed = new Set([
+          'accept',
+          'acceptForSession',
+          'decline',
+          'cancel',
+        ]);
+        let decision: boolean | string;
+        if (typeof payload.decision === 'string' && allowed.has(payload.decision)) {
+          decision = payload.decision;
+        } else if (typeof payload.approved === 'boolean') {
+          decision = payload.approved;
+        } else {
+          return err(
+            new BusinessError(
+              'E_INVALID_INPUT',
+              '缺少有效的审批决策（accept / acceptForSession / decline）。',
+              'VALIDATION'
+            )
+          );
+        }
 
         const sess = this.sessionManager.getSession(envelope.sessionId);
         if (!isOk(sess) || !sess.value.agentSession) {
@@ -989,7 +1022,10 @@ export class GatewayServer {
             )
           );
         }
-        const res = await sess.value.agentSession.submitApproval(approvalId, approved);
+        const res = await sess.value.agentSession.submitApproval(
+          approvalId,
+          decision as boolean | 'accept' | 'acceptForSession' | 'decline' | 'cancel'
+        );
         if (!isOk(res)) return err(res.error);
         return ok({
           version: '1.0',
@@ -999,7 +1035,16 @@ export class GatewayServer {
           payload: {
             status: 'APPROVAL_ACK',
             approvalId,
-            approved,
+            decision:
+              typeof decision === 'string'
+                ? decision
+                : decision
+                  ? 'accept'
+                  : 'decline',
+            approved:
+              decision === true ||
+              decision === 'accept' ||
+              decision === 'acceptForSession',
           },
           timestamp: Date.now(),
         });

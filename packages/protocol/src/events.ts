@@ -24,6 +24,7 @@ export const WsEventTypes = {
   AGENT_REASONING_DELTA: 'agent.reasoning.delta',
   AGENT_TOOL_CALL: 'agent.tool.call',
   AGENT_APPROVAL_REQUEST: 'agent.approval.request',
+  AGENT_APPROVAL_RESOLVED: 'agent.approval.resolved',
   AGENT_TURN_COMPLETED: 'agent.turn.completed',
   AGENT_ERROR: 'agent.error',
   LEARNER_PROFILE_UPDATED: 'learner.profile.updated',

@@ -21,6 +21,13 @@
 | `STUDY_STUDIO_CODEX_APPROVAL` | `never` / `on-request` / `untrusted` | `never` |
 | `STUDY_STUDIO_CODEX_EFFORT` | 默认思考等级（`turn/start.effort`） | CLI/模型默认 |
 
+## 审批（on-request）
+
+- 策略 `never`：适配器自动 `accept`
+- 策略 `on-request` / `untrusted`：经 Gateway WS `agent.approval.request` 下发；前端可回 `accept` / `acceptForSession` / `decline`
+- 120s 未决断：自动 `decline`，并推送 `agent.approval.resolved`（`reason: timeout`）
+- `thread/start` 与 `turn/start` 均可带 `approvalPolicy`
+
 ## Gateway HTTP
 
 - `GET /api/agent/codex/status` — 联动登录态探测（`account/read`）

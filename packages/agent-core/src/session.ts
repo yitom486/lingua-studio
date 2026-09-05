@@ -2,6 +2,13 @@ import type { AgentEvent } from './event.js';
 import type { AgentInput } from './context.js';
 import type { Result, BusinessError } from '@study-studio/shared';
 
+/** 对齐 Codex App Server 审批决策枚举 */
+export type ApprovalDecision =
+  | 'accept'
+  | 'acceptForSession'
+  | 'decline'
+  | 'cancel';
+
 export interface AgentSession {
   readonly sessionId: string;
 
@@ -19,11 +26,12 @@ export interface AgentSession {
   ): Promise<Result<void, BusinessError>>;
 
   /**
-   * 提交敏感操作审批决策
+   * 提交敏感操作审批决策。
+   * `boolean` 仍兼容：true→accept，false→decline。
    */
   submitApproval(
     approvalId: string,
-    approved: boolean
+    decision: boolean | ApprovalDecision
   ): Promise<Result<void, BusinessError>>;
 
   /**

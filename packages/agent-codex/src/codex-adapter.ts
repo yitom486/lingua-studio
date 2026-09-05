@@ -4,6 +4,7 @@ import type {
   CreateSessionOptions,
   AgentInput,
   AgentEvent,
+  ApprovalDecision,
 } from '@study-studio/agent-core';
 import type { ToolDefinition } from '@study-studio/tool-core';
 import {
@@ -39,6 +40,16 @@ export interface CodexAdapterOptions {
   executeTool?: ExternalToolExecutor;
 }
 
+/** 用户未操作时自动 decline，避免 App Server 审批请求挂死 */
+const APPROVAL_TIMEOUT_MS = 120_000;
+
+function normalizeApprovalDecision(
+  decision: boolean | ApprovalDecision
+): ApprovalDecision {
+  if (typeof decision === 'boolean') return decision ? 'accept' : 'decline';
+  return decision;
+}
+
 /**
  * 真实 Codex App Server 适配器（stdio JSON-RPC）。
  * 无 CLI / 未登录时 createSession 失败，由 Gateway 回落本地旁路。
@@ -49,7 +60,7 @@ export class CodexSession implements AgentSession {
   private abort: AbortController | null = null;
   private readonly pendingApprovals = new Map<
     string,
-    (decision: 'accept' | 'decline' | 'cancel' | 'acceptForSession') => void
+    (decision: ApprovalDecision, reason?: 'user' | 'timeout' | 'interrupt') => void
   >();
   private eventSink: ((ev: AgentEvent) => void) | null = null;
 
@@ -95,25 +106,38 @@ export class CodexSession implements AgentSession {
     });
 
     this.connection.setApprovalHandler(async (req) => {
+      const expiresAt = Date.now() + APPROVAL_TIMEOUT_MS;
       this.eventSink?.({
         type: 'APPROVAL_REQUESTED',
         approvalId: req.approvalId,
         action: req.action,
         description: req.description,
         riskLevel: req.riskLevel,
+        expiresAt,
       });
-      return await new Promise<'accept' | 'decline' | 'cancel' | 'acceptForSession'>(
-        (resolve) => {
-          const timer = setTimeout(() => {
-            this.pendingApprovals.delete(req.approvalId);
-            resolve('decline');
-          }, 120_000);
-          this.pendingApprovals.set(req.approvalId, (decision) => {
-            clearTimeout(timer);
-            resolve(decision);
+      return await new Promise<ApprovalDecision>((resolve) => {
+        const timer = setTimeout(() => {
+          if (!this.pendingApprovals.has(req.approvalId)) return;
+          this.pendingApprovals.delete(req.approvalId);
+          this.eventSink?.({
+            type: 'APPROVAL_RESOLVED',
+            approvalId: req.approvalId,
+            decision: 'decline',
+            reason: 'timeout',
           });
-        }
-      );
+          resolve('decline');
+        }, APPROVAL_TIMEOUT_MS);
+        this.pendingApprovals.set(req.approvalId, (decision, reason = 'user') => {
+          clearTimeout(timer);
+          this.eventSink?.({
+            type: 'APPROVAL_RESOLVED',
+            approvalId: req.approvalId,
+            decision,
+            reason,
+          });
+          resolve(decision);
+        });
+      });
     });
   }
 
@@ -198,7 +222,7 @@ export class CodexSession implements AgentSession {
 
   public async submitApproval(
     approvalId: string,
-    approved: boolean
+    decision: boolean | ApprovalDecision
   ): Promise<Result<void, BusinessError>> {
     const resolve = this.pendingApprovals.get(approvalId);
     if (!resolve) {
@@ -211,15 +235,15 @@ export class CodexSession implements AgentSession {
       );
     }
     this.pendingApprovals.delete(approvalId);
-    resolve(approved ? 'accept' : 'decline');
+    resolve(normalizeApprovalDecision(decision));
     return ok(undefined);
   }
 
   public async interrupt(): Promise<Result<void, BusinessError>> {
     this.abort?.abort();
-    for (const [id, resolve] of this.pendingApprovals) {
-      resolve('cancel');
+    for (const [id, settle] of this.pendingApprovals) {
       this.pendingApprovals.delete(id);
+      settle('cancel', 'interrupt');
     }
     if (this.activeTurnId) {
       return this.connection.interrupt(this.threadId, this.activeTurnId);
@@ -266,10 +290,12 @@ export class CodexAdapter implements AgentAdapter {
       const threadParams: {
         dynamicTools: typeof bridge.specs;
         model?: string;
+        approvalPolicy?: string;
       } = {
         dynamicTools: bridge.specs,
       };
       if (options.model) threadParams.model = options.model;
+      if (options.approvalPolicy) threadParams.approvalPolicy = options.approvalPolicy;
 
       const threadRes = await conn.value.startThread(threadParams);
       if (!isOk(threadRes)) return threadRes;
