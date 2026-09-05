@@ -1,0 +1,64 @@
+/**
+ * 受限 Markdown 渲染（react-markdown + remark-gfm，无 rehype，不过滤之外不执行 HTML）。
+ * - 加粗 / 列表 / `[文案](链接)` / 裸 URL 自动链接；
+ * - 链接统一走平台外链口（Tauri 下不会开空白页）；
+ * - 先给 AI 导师气泡用，AgentChat 接入前需复查系统文案在 md 下的观感。
+ */
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { getPlatform } from '../../platform/capabilities.js';
+
+function handleLinkClick(e: React.MouseEvent<HTMLAnchorElement>) {
+  const href = e.currentTarget.getAttribute('href');
+  if (!href) return;
+  e.preventDefault();
+  void getPlatform().openExternalUrl(href);
+}
+
+const components: Components = {
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      onClick={handleLinkClick}
+      className="text-amber-700 dark:text-amber-300 underline decoration-amber-500/50 underline-offset-2 break-all cursor-pointer"
+    >
+      {children}
+    </a>
+  ),
+  p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0 leading-relaxed">{children}</p>,
+  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-1 pl-5">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  strong: ({ children }) => (
+    <strong className="font-bold text-stone-900 dark:text-stone-100">{children}</strong>
+  ),
+  code: ({ children }) => (
+    <code className="rounded bg-stone-200/70 dark:bg-stone-800 px-1 py-0.5 font-mono text-[0.95em]">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-x-auto rounded-xl bg-stone-100 dark:bg-stone-950 p-2.5 text-[0.95em]">
+      {children}
+    </pre>
+  ),
+  h1: ({ children }) => <div className="mt-2 mb-1 font-bold">{children}</div>,
+  h2: ({ children }) => <div className="mt-2 mb-1 font-bold">{children}</div>,
+  h3: ({ children }) => <div className="mt-2 mb-1 font-bold">{children}</div>,
+  h4: ({ children }) => <div className="mt-2 mb-1 font-bold">{children}</div>,
+  blockquote: ({ children }) => (
+    <div className="border-l-2 border-amber-500/40 pl-2 text-stone-600 dark:text-stone-300">
+      {children}
+    </div>
+  ),
+};
+
+export function MarkdownText({ text }: { text: string }) {
+  return (
+    <div className="markdown-body text-xs sm:text-sm leading-relaxed">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}

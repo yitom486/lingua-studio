@@ -14,6 +14,7 @@ import {
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
+import { MarkdownText } from './common/MarkdownText.js';
 import {
   buildTutorBootstrapPrompt,
   buildTutorOfflineReply,
@@ -563,11 +564,15 @@ export function AiTutorDrawer({
                       }`}
                     >
                       {isAi && msg.reasoning ? (
-                        <div className="mb-2 text-[11px] text-stone-500 dark:text-stone-400 border-l-2 border-amber-500/40 pl-2 whitespace-pre-wrap font-sans">
-                          {msg.reasoning}
+                        <div className="mb-2 text-[11px] text-stone-500 dark:text-stone-400 border-l-2 border-amber-500/40 pl-2 font-sans">
+                          <MarkdownText text={msg.reasoning} />
                         </div>
                       ) : null}
-                      {msg.text}
+                      {isAi ? (
+                        <MarkdownText text={msg.text} />
+                      ) : (
+                        msg.text
+                      )}
                       {msg.isStreaming && (
                         <span className="inline-block w-1.5 h-4 ml-1 bg-amber-500 animate-pulse align-middle" />
                       )}
