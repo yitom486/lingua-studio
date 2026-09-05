@@ -119,11 +119,17 @@ export const flashcards = sqliteTable(
     back: text('back').notNull(),
     phonetic: text('phonetic'),
     audioUrl: text('audio_url'),
+    /** 词典来源条目；用于用户生词本去重，不替代词典包本身。 */
+    sourceEntryId: text('source_entry_id'),
     tags: text('tags').notNull(),
     fsrs: text('fsrs').notNull(),
   },
   (table) => ({
     userLangIdx: index('idx_flashcards_user_lang').on(table.userId, table.language),
+    userSourceEntryIdx: index('idx_flashcards_user_source_entry').on(
+      table.userId,
+      table.sourceEntryId
+    ),
   })
 );
 

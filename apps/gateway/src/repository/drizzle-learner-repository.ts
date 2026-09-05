@@ -68,6 +68,12 @@ export interface LocalDictionaryEntry {
   licenseNote: string;
 }
 
+/** 词典资产被收集为用户 FSRS 生词卡后的领域结果；不依赖任何具体界面。 */
+export interface DictionaryEntryCollection {
+  card: Flashcard;
+  created: boolean;
+}
+
 export function normalizeTrackLanguage(raw: string | null | undefined): TrackLanguage {
   const v = (raw || '').toLowerCase();
   if (v === 'en' || v === 'eng') return 'en';
@@ -169,6 +175,100 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           category: 'DATABASE',
           action: 'searchLocalDictionary',
           entityId: query,
+        })
+      );
+    }
+  }
+
+  /**
+   * 将一个已安装的本地词典条目收集为用户生词卡。
+   * 词典内容仍保持公共只读资产；这里只创建或返回用户自己的 FSRS 状态。
+   */
+  public async collectDictionaryEntry(
+    userId: string,
+    entryId: string
+  ): Promise<Result<DictionaryEntryCollection, BusinessError>> {
+    try {
+      const entryRows = await this.db
+        .select()
+        .from(localDictionaryEntries)
+        .where(eq(localDictionaryEntries.id, entryId))
+        .limit(1);
+      const entry = entryRows[0];
+      if (!entry) {
+        return err(
+          new BusinessError('E_NOT_FOUND', '该词典条目不存在或对应词典包尚未安装。', 'LEARNER_STATE')
+        );
+      }
+
+      const existingRows = await this.db
+        .select()
+        .from(flashcards)
+        .where(
+          and(
+            eq(flashcards.userId, userId),
+            eq(flashcards.sourceEntryId, entry.id)
+          )
+        )
+        .limit(1);
+      const existing = existingRows[0];
+      if (existing) {
+        return ok({
+          created: false,
+          card: {
+            id: existing.id,
+            userId: existing.userId,
+            type: existing.type as Flashcard['type'],
+            front: existing.front,
+            back: existing.back,
+            phonetic: existing.phonetic ?? undefined,
+            audioUrl: existing.audioUrl ?? undefined,
+            tags: JSON.parse(existing.tags) as string[],
+            fsrs: JSON.parse(existing.fsrs),
+          },
+        });
+      }
+
+      const meanings = JSON.parse(entry.meaningsJson) as string[];
+      const reading = entry.reading ?? entry.romanization ?? undefined;
+      const now = nowIso();
+      const card: Flashcard = {
+        id: generateId('card_dict'),
+        userId,
+        type: 'VOCABULARY',
+        front: entry.headword,
+        back: meanings.join('；'),
+        phonetic: reading,
+        tags: ['词典生词', entry.partOfSpeech ?? '词汇', entry.sourceLabel],
+        fsrs: {
+          stability: 1,
+          difficulty: 5,
+          reps: 0,
+          lapses: 0,
+          dueAt: now,
+          state: 'NEW',
+        },
+      };
+      await this.db.insert(flashcards).values({
+        id: card.id,
+        userId,
+        language: normalizeTrackLanguage(entry.language),
+        type: card.type,
+        front: card.front,
+        back: card.back,
+        phonetic: card.phonetic ?? null,
+        audioUrl: null,
+        sourceEntryId: entry.id,
+        tags: JSON.stringify(card.tags),
+        fsrs: JSON.stringify(card.fsrs),
+      });
+      return ok({ card, created: true });
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'collectDictionaryEntry',
+          entityId: entryId,
         })
       );
     }

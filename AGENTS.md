@@ -50,6 +50,12 @@
   - 引入任何 MCP 依赖时，必须证明「目标系统无等价原生 API / 无本仓库内工具可覆盖」，并保持与 `agent-core` 契约隔离。
 - **违反判定**：凡学习域工具仅因“图省事”改走 MCP、导致额外进程/协议往返的，一律视为架构违规。
 
+### 1.7 领域能力与 UI 组合解耦 (Composable Domain Capabilities)
+- **领域命令先于界面**：学习域能力（查词、收藏生词、建卡、复习、学习记录、AI 分析）必须先定义为 Gateway / Repository / `learner-core` 可调用的命令与数据契约；不得把核心流程藏在某个 React 组件、按钮回调或页面状态中。
+- **UI 只负责组合与呈现**：Web / Tauri 组件通过 TanStack Query Mutation 调用领域命令、组合展示结果与交互反馈；禁止直连 SQLite、复制 FSRS / 统计 / 去重等业务规则，或让一个“大而全页面”成为唯一调用入口。
+- **多入口复用同一业务链路**：同一能力必须可被不同界面、HTTP / WebSocket，以及未来 Agent 原生 Tool 复用；新增 AI 分析时应消费持久化学习资产与 `ContextSnapshot`，再通过同一命令写回结果，而不是读取或操纵 UI 私有状态。
+- **数据归属明确**：词典包是可再分发的公共课程资产；生词卡、复习历史、每日统计和 AI 分析结果均为用户学习资产，必须按用户与目标语种持久化并可追溯。
+
 ---
 
 ## 2. 错误处理机制与链条规范 (Error Handling & Result Pattern)
@@ -142,5 +148,4 @@
 - **客户端偏好与本地状态 (Client State) 归 Zustand + `persist`**：
   - TTS 语音参数（男女声、语速、音色、自定义外挂端点）、主题明暗（Light/Dark）、盲听遮罩开关、假名注音开关、UI 导航状态，以及**阅读双栏宽度比（splitPaneRatio）**等布局偏好，统一使用 **Zustand 并启用 `persist` 中间件**；
   - 彻底杜绝在各个组件中到处分散编写 `localStorage.getItem/setItem` 胶水代码，保证多组件、跨标签页与未来 Tauri 桌面端的响应式自动持久化。
-
 

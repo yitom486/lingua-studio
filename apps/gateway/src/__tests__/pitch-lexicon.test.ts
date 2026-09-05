@@ -81,4 +81,20 @@ describe('pitch lexicon coach', () => {
       })
     );
   });
+
+  it('collects a local dictionary entry as one deduplicated FSRS card', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const first = await repo.collectDictionaryEntry('dictionary_test_user', 'ja_pitch_p1');
+    expect(isOk(first)).toBe(true);
+    if (!isOk(first)) return;
+    expect(first.value.created).toBe(true);
+    expect(first.value.card.front).toBe('雨');
+    expect(first.value.card.fsrs.state).toBe('NEW');
+
+    const second = await repo.collectDictionaryEntry('dictionary_test_user', 'ja_pitch_p1');
+    expect(isOk(second)).toBe(true);
+    if (!isOk(second)) return;
+    expect(second.value.created).toBe(false);
+    expect(second.value.card.id).toBe(first.value.card.id);
+  });
 });

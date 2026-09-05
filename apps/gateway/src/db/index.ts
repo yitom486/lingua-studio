@@ -144,6 +144,7 @@ export function initSchema(sqlite: Database): void {
       back TEXT NOT NULL,
       phonetic TEXT,
       audio_url TEXT,
+      source_entry_id TEXT,
       tags TEXT NOT NULL,
       fsrs TEXT NOT NULL
     );
@@ -330,6 +331,7 @@ export function initSchema(sqlite: Database): void {
     "ALTER TABLE study_activity_logs ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE skill_metrics ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE flashcards ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    'ALTER TABLE flashcards ADD COLUMN source_entry_id TEXT',
     "ALTER TABLE quiz_attempts ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE mistakes ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE quiz_questions ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
@@ -350,6 +352,9 @@ export function initSchema(sqlite: Database): void {
       'CREATE INDEX IF NOT EXISTS idx_activity_user_date_lang ON study_activity_logs(user_id, activity_date, language)'
     );
     sqlite.exec('CREATE INDEX IF NOT EXISTS idx_flashcards_user_lang ON flashcards(user_id, language)');
+    sqlite.exec(
+      'CREATE INDEX IF NOT EXISTS idx_flashcards_user_source_entry ON flashcards(user_id, source_entry_id)'
+    );
     sqlite.exec(
       'CREATE INDEX IF NOT EXISTS idx_mistakes_user_lang_resolved ON mistakes(user_id, language, is_resolved)'
     );

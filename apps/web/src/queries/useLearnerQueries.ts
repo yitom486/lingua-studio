@@ -953,6 +953,18 @@ export type DictionaryPackageInfo = {
   installedAt?: string;
 };
 
+export type DictionaryEntryCollection = {
+  card: {
+    id: string;
+    userId: string;
+    front: string;
+    back: string;
+    phonetic?: string;
+    tags: string[];
+  };
+  created: boolean;
+};
+
 type DictionaryPackagesResponse = { packages: DictionaryPackageInfo[] };
 
 /** 词典包只读取 Gateway 状态；不把大词典内容放入浏览器缓存。 */
@@ -989,6 +1001,29 @@ export function useInstallDictionaryPackageMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'packages'] });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DICTIONARY });
+    },
+  });
+}
+
+/** 收集本地词典条目为用户生词卡；界面不直接构造或持久化 FSRS 状态。 */
+export function useCollectDictionaryEntryMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (entryId: string) => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/vocabulary/${encodeURIComponent(userId)}/entries/${encodeURIComponent(entryId)}/collect`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '暂时无法加入生词本，请稍后重试。');
+      }
+      return (await response.json()) as DictionaryEntryCollection;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
     },
   });
 }
@@ -1198,4 +1233,3 @@ export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
     },
   });
 }
-

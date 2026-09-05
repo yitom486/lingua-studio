@@ -104,6 +104,64 @@ export const app = new Hono()
     }
     return c.json({ models: res.value });
   })
+  .get('/api/agent/codex/threads', async (c) => {
+    const limit = Number(c.req.query('limit') || 40);
+    const cursor = c.req.query('cursor') || undefined;
+    const searchTerm = c.req.query('q') || undefined;
+    const res = await gatewayServer.listCodexThreads({
+      limit: Number.isFinite(limit) ? limit : 40,
+      ...(cursor ? { cursor } : {}),
+      ...(searchTerm ? { searchTerm } : {}),
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_THREADS');
+    }
+    return c.json(res.value);
+  })
+  .get('/api/agent/codex/threads/:threadId/items', async (c) => {
+    const threadId = c.req.param('threadId');
+    const limit = Number(c.req.query('limit') || 80);
+    const res = await gatewayServer.listCodexThreadItems({
+      threadId,
+      limit: Number.isFinite(limit) ? limit : 80,
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_THREAD_ITEMS');
+    }
+    return c.json(res.value);
+  })
+  .post('/api/agent/codex/threads/:threadId/name', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as { name?: string };
+    const name = String(body.name || '').trim();
+    if (!name) {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', '缺少会话名称', 'VALIDATION'),
+        'CODEX_THREAD_NAME'
+      );
+    }
+    const res = await gatewayServer.setCodexThreadName(threadId, name);
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_THREAD_NAME');
+    }
+    return c.json({ ok: true, threadId, name });
+  })
+  .post('/api/agent/codex/threads/:threadId/archive', async (c) => {
+    const threadId = c.req.param('threadId');
+    const res = await gatewayServer.archiveCodexThread(threadId);
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_THREAD_ARCHIVE');
+    }
+    return c.json({ ok: true, threadId });
+  })
+  .get('/api/agent/codex/collaboration-modes', async (c) => {
+    const res = await gatewayServer.listCodexCollaborationModes();
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_COLLAB_MODES');
+    }
+    return c.json({ modes: res.value });
+  })
   // 词典包默认不预装；客户端可先查询状态，再由用户显式触发一次下载与 SQLite 导入。
   .get('/api/dictionary/packages', (c) =>
     c.json({ packages: listDictionaryPackages(drizzleRepo.getRawDb()) })
@@ -151,6 +209,15 @@ export const app = new Hono()
         ? { provider: 'OJAD', url: externalUrl, opensExternally: true }
         : undefined,
     });
+  })
+  // 将公共词典资产收集为用户自己的 FSRS 生词卡；Web、桌面端与未来 Agent Tool 共用。
+  .post('/api/vocabulary/:userId/entries/:entryId/collect', async (c) => {
+    const result = await drizzleRepo.collectDictionaryEntry(
+      c.req.param('userId'),
+      c.req.param('entryId')
+    );
+    if (isOk(result)) return c.json(result.value);
+    return formatBusinessErrorResponse(c, result.error, 'collectDictionaryEntry');
   })
   // 1. 学习者全景画像与打卡进度
   .get('/api/profile/:userId', async (c) => {

@@ -14,6 +14,7 @@ import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
+import { DictionaryLookupPanel } from './DictionaryLookupPanel.js';
 import type { StudyCardItem } from '../data/learning-data.js';
 import { useReviewCardMutation } from '../queries/useAgentMutations.js';
 
@@ -84,6 +85,14 @@ export function FsrsCardWorkbench() {
       className="flex flex-col gap-5 max-w-2xl"
     >
       <PracticeQueueToCardsPanel />
+
+      {shell.track === 'en' && (
+        <DictionaryLookupPanel
+          language="en"
+          title="英语生词本"
+          helper="查询已安装的离线英语词典；加入后由 FSRS 计算每日复习安排。"
+        />
+      )}
 
       <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 gap-3">
         <span>
