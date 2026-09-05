@@ -1,0 +1,503 @@
+import { useCallback } from 'react';
+import type { useAgentGateway } from '../../hooks/useAgentGateway.js';
+import {
+  markToolCallsDone,
+  upsertToolCall,
+} from '../../lib/chat-transcript.js';
+import { sound } from '../../utils/audio.js';
+import { buildTutorOfflineReply } from '../../copy/tutor-track-copy.js';
+import { CODEX_QUERY_KEYS } from '../../queries/useCodexQueries.js';
+import type { useQueryClient } from '@tanstack/react-query';
+import type { ChatMessage, CodexTurnHealth } from './chat-shared.js';
+
+/** P2-1 拆分：AgentChatPanel 的轮次执行逻辑（发送/steer/队列消费/重试/审批/中断），纯搬运。 */
+
+type Gateway = ReturnType<typeof useAgentGateway>;
+type QueryClient = ReturnType<typeof useQueryClient>;
+
+export interface ChatTurnDeps {
+  gateway: Gateway;
+  busy: boolean;
+  setBusy: (v: boolean) => void;
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setCodexTurnHealth: (h: CodexTurnHealth) => void;
+  queueDrainRef: React.MutableRefObject<boolean>;
+  lastCoachPromptRef: React.MutableRefObject<string | null>;
+  snapshot: () => Record<string, unknown>;
+  track: 'ja' | 'en' | 'ko';
+  setInput: (v: string) => void;
+  coachModelId: string;
+  coachEffort: string;
+  coachApprovalPolicy: string;
+  coachThreadId: string;
+  coachPersistThread: boolean;
+  coachCollaborationMode: string;
+  setCoachThreadId: (v: string) => void;
+  queryClient: QueryClient;
+  refetchCodexStatus: () => void;
+}
+
+export function useChatTurn(deps: ChatTurnDeps) {
+  const {
+    gateway,
+    busy,
+    setBusy,
+    setMessages,
+    setCodexTurnHealth,
+    queueDrainRef,
+    lastCoachPromptRef,
+    snapshot,
+    track,
+    setInput,
+    coachModelId,
+    coachEffort,
+    coachApprovalPolicy,
+    coachThreadId,
+    coachPersistThread,
+    coachCollaborationMode,
+    setCoachThreadId,
+    queryClient,
+    refetchCodexStatus,
+  } = deps;
+
+  const recordCodexTurnCompletion = useCallback(
+    (data: {
+      status?: 'COMPLETED' | 'INTERRUPTED' | 'FAILED';
+      source?: string;
+      // 旧字段（兼容）
+      codexOutcome?: 'streamed' | 'fallback' | 'not_requested';
+      codexFailureMessage?: string;
+      // P3-C 结构化字段（优先）
+      outcome?: 'streamed' | 'fallback' | 'not_requested';
+      failure?: {
+        code: string;
+        userMessage: string;
+        category: 'SESSION_CREATE' | 'STREAM' | 'QUEUE' | 'INTERRUPTED' | 'UNKNOWN';
+        retryable?: boolean;
+      };
+      fromQueue?: boolean;
+    }) => {
+      if (data.status === 'INTERRUPTED') {
+        setCodexTurnHealth({ state: 'idle' });
+        return;
+      }
+      // P3-C：优先读结构化 outcome / failure，旧字段作为兜底
+      const outcome = data.outcome ?? data.codexOutcome;
+      const failMessage =
+        data.failure?.userMessage || data.codexFailureMessage;
+      if (outcome === 'streamed' || data.source === 'codex') {
+        setCodexTurnHealth({ state: 'healthy' });
+        return;
+      }
+      if (outcome === 'fallback') {
+        setCodexTurnHealth({
+          state: 'fallback',
+          message: failMessage || 'Codex 本轮未完成，已使用本地学习提示。',
+        });
+        void refetchCodexStatus();
+        return;
+      }
+      if (data.status === 'FAILED' || data.failure) {
+        setCodexTurnHealth({
+          state: 'failed',
+          message: failMessage || '本轮请求未完成，请重试。',
+        });
+        void refetchCodexStatus();
+      }
+    },
+    [setCodexTurnHealth, refetchCodexStatus]
+  );
+
+  const startQueuedTurn = useCallback(
+    (queuedSubmissionId?: string) => {
+      if (!gateway.isConnected) return;
+      if (queueDrainRef.current) return;
+      queueDrainRef.current = true;
+      sound.playClick();
+      const aiId = `a_q_${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `sys_q_${Date.now()}`,
+          role: 'system',
+          text: '▶ 正在消费队列下一项…',
+        },
+        {
+          id: aiId,
+          role: 'assistant',
+          text: '',
+          reasoning: '',
+          streaming: true,
+          toolCalls: [],
+        },
+      ]);
+      setBusy(true);
+      setCodexTurnHealth({ state: 'running' });
+
+      const finish = (data: {
+        finalOutput?: string;
+        source?: string;
+        threadId?: string;
+        queueRemaining?: number;
+        status?: 'COMPLETED' | 'INTERRUPTED' | 'FAILED';
+        outcome?: 'streamed' | 'fallback' | 'not_requested';
+        failure?: {
+          code: string;
+          userMessage: string;
+          category: 'SESSION_CREATE' | 'STREAM' | 'QUEUE' | 'INTERRUPTED' | 'UNKNOWN';
+          retryable?: boolean;
+        };
+        fromQueue?: boolean;
+      }) => {
+        queueDrainRef.current = false;
+        recordCodexTurnCompletion(data);
+        if (data.threadId) {
+          setCoachThreadId(data.threadId);
+          void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
+          void queryClient.invalidateQueries({
+            queryKey: [...CODEX_QUERY_KEYS.QUEUE, data.threadId],
+          });
+        }
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== aiId) return m;
+            const next: ChatMessage = {
+              ...m,
+              text: data.finalOutput || m.text,
+              streaming: false,
+            };
+            const doneCalls = markToolCallsDone(m.toolCalls);
+            if (doneCalls) next.toolCalls = doneCalls;
+            if (data.source) next.source = data.source;
+            return next;
+          })
+        );
+        setBusy(false);
+        if ((data.queueRemaining ?? 0) > 0) {
+          window.setTimeout(() => startQueuedTurn(), 80);
+        }
+      };
+
+      const ok = gateway.startQueueStream({
+        lane: 'coach',
+        ...(queuedSubmissionId ? { queuedSubmissionId } : {}),
+        ...(coachApprovalPolicy ? { approvalPolicy: coachApprovalPolicy } : {}),
+        onDelta: (_d, acc) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: acc, streaming: true } : m))
+          );
+        },
+        onReasoningDelta: (_d, acc) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, reasoning: acc } : m))
+          );
+        },
+        onToolCall: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== aiId) return m;
+              return { ...m, toolCalls: upsertToolCall(m.toolCalls ?? [], info) };
+            })
+          );
+        },
+        onApprovalRequest: (info) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `appr_${info.approvalId}`,
+              role: 'approval',
+              text: info.description,
+              approval: {
+                approvalId: info.approvalId,
+                action: info.action,
+                description: info.description,
+                riskLevel: info.riskLevel,
+                status: 'pending',
+                ...(typeof info.expiresAt === 'number'
+                  ? { expiresAt: info.expiresAt }
+                  : {}),
+              },
+            },
+          ]);
+        },
+        onApprovalResolved: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.approval?.approvalId !== info.approvalId || !m.approval) return m;
+              if (m.approval.status !== 'pending') return m;
+              const status =
+                info.reason === 'timeout'
+                  ? 'timed_out'
+                  : info.reason === 'interrupt' || info.decision === 'cancel'
+                    ? 'cancelled'
+                    : info.decision === 'acceptForSession'
+                      ? 'accepted_session'
+                      : info.decision === 'accept'
+                        ? 'accepted'
+                        : 'declined';
+              return {
+                ...m,
+                approval: { ...m.approval, status },
+              };
+            })
+          );
+        },
+        onComplete: (data) => finish(data),
+        onError: (err) => {
+          queueDrainRef.current = false;
+          const e = err as { userMessage?: string; message?: string } | undefined;
+          const msg = e?.userMessage || e?.message || '队列消费失败';
+          setCodexTurnHealth({ state: 'failed', message: msg });
+          void refetchCodexStatus();
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: msg, streaming: false } : m))
+          );
+          setBusy(false);
+        },
+      });
+      if (!ok) {
+        queueDrainRef.current = false;
+        setBusy(false);
+      }
+    },
+    [
+      gateway,
+      queueDrainRef,
+      setMessages,
+      setBusy,
+      setCodexTurnHealth,
+      recordCodexTurnCompletion,
+      setCoachThreadId,
+      queryClient,
+      coachApprovalPolicy,
+      refetchCodexStatus,
+    ]
+  );
+
+  const send = useCallback(
+    async (raw: string) => {
+      const text = raw.trim();
+      if (!text) return;
+
+      // 生成中：注入 turn/steer，不新开一轮
+      if (busy) {
+        if (!gateway.isConnected) return;
+        sound.playClick();
+        setInput('');
+        setMessages((prev) => [
+          ...prev,
+          { id: `steer_${Date.now()}`, role: 'user', text: `↗ ${text}` },
+        ]);
+        gateway.steerTurn?.(text, 'coach');
+        return;
+      }
+
+      sound.playClick();
+      setInput('');
+      const userId = `u_${Date.now()}`;
+      const aiId = `a_${Date.now()}`;
+      setMessages((prev) => [
+        ...prev,
+        { id: userId, role: 'user', text },
+        { id: aiId, role: 'assistant', text: '', reasoning: '', streaming: true, toolCalls: [] },
+      ]);
+      setBusy(true);
+      setCodexTurnHealth({ state: 'running' });
+      lastCoachPromptRef.current = text;
+
+      if (!gateway.isConnected) {
+        const offline = buildTutorOfflineReply(track, text);
+        setCodexTurnHealth({ state: 'failed', message: 'Gateway 未连接，无法请求 Codex。' });
+        setMessages((prev) =>
+          prev.map((m) => (m.id === aiId ? { ...m, text: offline, streaming: false } : m))
+        );
+        setBusy(false);
+        return;
+      }
+
+      gateway.sendTurnStream({
+        input: text,
+        intent: 'FREE_COACH',
+        contextSnapshot: snapshot(),
+        agentOptions: {
+          preferCodex: true,
+          lane: 'coach',
+          ephemeral: !coachPersistThread,
+          ...(coachModelId ? { model: coachModelId } : {}),
+          ...(coachEffort ? { effort: coachEffort } : {}),
+          ...(coachApprovalPolicy ? { approvalPolicy: coachApprovalPolicy } : {}),
+          ...(coachThreadId ? { threadId: coachThreadId } : {}),
+          ...(coachCollaborationMode
+            ? { collaborationMode: coachCollaborationMode }
+            : {}),
+        },
+        onDelta: (_d, acc) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: acc, streaming: true } : m))
+          );
+        },
+        onReasoningDelta: (_d, acc) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, reasoning: acc } : m))
+          );
+        },
+        onToolCall: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== aiId) return m;
+              return { ...m, toolCalls: upsertToolCall(m.toolCalls ?? [], info) };
+            })
+          );
+        },
+        onApprovalRequest: (info) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `appr_${info.approvalId}`,
+              role: 'approval',
+              text: info.description,
+              approval: {
+                approvalId: info.approvalId,
+                action: info.action,
+                description: info.description,
+                riskLevel: info.riskLevel,
+                status: 'pending',
+                ...(typeof info.expiresAt === 'number'
+                  ? { expiresAt: info.expiresAt }
+                  : {}),
+              },
+            },
+          ]);
+        },
+        onApprovalResolved: (info) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.approval?.approvalId !== info.approvalId || !m.approval) return m;
+              if (m.approval.status !== 'pending') return m;
+              const status =
+                info.reason === 'timeout'
+                  ? 'timed_out'
+                  : info.reason === 'interrupt' || info.decision === 'cancel'
+                    ? 'cancelled'
+                    : info.decision === 'acceptForSession'
+                      ? 'accepted_session'
+                      : info.decision === 'accept'
+                        ? 'accepted'
+                        : 'declined';
+              return {
+                ...m,
+                approval: { ...m.approval, status },
+              };
+            })
+          );
+        },
+        onComplete: (data) => {
+          recordCodexTurnCompletion(data);
+          if (data.threadId) {
+            setCoachThreadId(data.threadId);
+            void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
+            void queryClient.invalidateQueries({
+              queryKey: [...CODEX_QUERY_KEYS.QUEUE, data.threadId],
+            });
+          }
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== aiId) return m;
+              const next: ChatMessage = {
+                ...m,
+                text: data.finalOutput || m.text,
+                streaming: false,
+              };
+              const doneCalls = markToolCallsDone(m.toolCalls);
+              if (doneCalls) next.toolCalls = doneCalls;
+              if (data.source) next.source = data.source;
+              return next;
+            })
+          );
+          setBusy(false);
+          if ((data.queueRemaining ?? 0) > 0) {
+            window.setTimeout(() => startQueuedTurn(), 80);
+          }
+        },
+        onError: (err) => {
+          const e = err as { userMessage?: string; message?: string } | undefined;
+          const msg =
+            e?.userMessage || e?.message || '导师服务暂时不可用，请稍后重试。';
+          setCodexTurnHealth({ state: 'failed', message: msg });
+          void refetchCodexStatus();
+          setMessages((prev) =>
+            prev.map((m) => (m.id === aiId ? { ...m, text: msg, streaming: false } : m))
+          );
+          setBusy(false);
+        },
+      });
+    },
+    [
+      busy,
+      gateway,
+      setInput,
+      setMessages,
+      setBusy,
+      setCodexTurnHealth,
+      lastCoachPromptRef,
+      track,
+      snapshot,
+      coachPersistThread,
+      coachModelId,
+      coachEffort,
+      coachApprovalPolicy,
+      coachThreadId,
+      coachCollaborationMode,
+      setCoachThreadId,
+      queryClient,
+      startQueuedTurn,
+      recordCodexTurnCompletion,
+      refetchCodexStatus,
+    ]
+  );
+
+  const retryLastCodexTurn = useCallback(() => {
+    const prompt = lastCoachPromptRef.current;
+    if (!prompt || busy) return;
+    void send(prompt);
+  }, [lastCoachPromptRef, busy, send]);
+
+  const respondApproval = useCallback(
+    (approvalId: string, decision: 'accept' | 'acceptForSession' | 'decline') => {
+      sound.playClick();
+      gateway.respondApproval(approvalId, decision);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.approval?.approvalId === approvalId && m.approval
+            ? {
+                ...m,
+                approval: {
+                  ...m.approval,
+                  status:
+                    decision === 'acceptForSession'
+                      ? 'accepted_session'
+                      : decision === 'accept'
+                        ? 'accepted'
+                        : 'declined',
+                },
+              }
+            : m
+        )
+      );
+    },
+    [gateway, setMessages]
+  );
+
+  const interrupt = useCallback(() => {
+    sound.playClick();
+    queueDrainRef.current = false;
+    gateway.interruptTurn('coach');
+    setBusy(false);
+    setCodexTurnHealth({ state: 'idle' });
+    setMessages((prev) =>
+      prev.map((m) => (m.streaming ? { ...m, streaming: false } : m))
+    );
+  }, [queueDrainRef, gateway, setBusy, setCodexTurnHealth, setMessages]);
+
+  return { recordCodexTurnCompletion, startQueuedTurn, send, retryLastCodexTurn, respondApproval, interrupt };
+}
