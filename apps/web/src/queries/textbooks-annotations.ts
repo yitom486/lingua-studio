@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { logger } from '@study-studio/shared';
 import { apiClient } from '../lib/api-client.js';
 import type { TextbookBook } from '../models/textbook.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
@@ -35,7 +36,7 @@ export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
           }
         }
       } catch (e) {
-        console.warn('[useTextbooksQuery] failed to load documents from gateway', e);
+        logger.debug('[useTextbooksQuery] failed to load documents from gateway', e);
       }
       return [];
     },
@@ -63,7 +64,7 @@ export function useImportTextbookMutation(userId = DEFAULT_USER_ID) {
           },
         });
       } catch (e) {
-        console.warn('[useImportTextbookMutation] Hono RPC failed to save textbook to gateway', e);
+        logger.debug('[useImportTextbookMutation] Hono RPC failed to save textbook to gateway', e);
       }
       return book;
     },
@@ -92,7 +93,7 @@ export function useAnnotationsQuery(documentId: string, userId = DEFAULT_USER_ID
           if (Array.isArray(list)) return list;
         }
       } catch (e) {
-        console.warn('[useAnnotationsQuery] Hono RPC failed to load annotations', e);
+        logger.debug('[useAnnotationsQuery] Hono RPC failed to load annotations', e);
       }
       return [];
     },

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
+import { logger } from '@study-studio/shared';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
 
@@ -21,7 +22,7 @@ export function useCurriculumKanaQuery(type?: string) {
           }
         }
       } catch (e) {
-        console.warn('[useCurriculumKanaQuery] Hono RPC fallback to local memory', e);
+        logger.debug('[useCurriculumKanaQuery] Hono RPC fallback to local memory', e);
       }
       return [];
     },
@@ -52,7 +53,7 @@ export function useKanaPracticeMutation(userId = DEFAULT_USER_ID) {
           return await res.json();
         }
       } catch (e) {
-        console.warn('[useKanaPracticeMutation] Failed to post kana practice', e);
+        logger.debug('[useKanaPracticeMutation] Failed to post kana practice', e);
       }
       return { success: true };
     },
@@ -86,7 +87,7 @@ export function useReadingSetsQuery(
           }
         }
       } catch (e) {
-        console.warn('[useReadingSetsQuery] Hono RPC fallback', e);
+        logger.debug('[useReadingSetsQuery] Hono RPC fallback', e);
       }
       return [];
     },
@@ -106,7 +107,7 @@ export function useNewsTopicsQuery() {
           if (Array.isArray(topics) && topics.length > 0) return topics as NewsTopic[];
         }
       } catch (e) {
-        console.warn('[useNewsTopicsQuery] fallback to protocol NEWS_TOPICS', e);
+        logger.debug('[useNewsTopicsQuery] fallback to protocol NEWS_TOPICS', e);
       }
       const { NEWS_TOPICS } = await import('@study-studio/protocol');
       return [...NEWS_TOPICS];
@@ -284,7 +285,7 @@ export function usePitchLexiconQuery(search = '') {
         if (!Array.isArray(data.pitchEntries)) throw new Error('声调基准词表返回格式异常。');
         return data.pitchEntries;
       } catch (e) {
-        console.warn('[usePitchLexiconQuery] gateway request failed', e);
+        logger.debug('[usePitchLexiconQuery] gateway request failed', e);
         throw e instanceof Error ? e : new Error('暂时无法读取声调基准词表。');
       }
     },

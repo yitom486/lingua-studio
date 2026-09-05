@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { generateId } from '@study-studio/shared';
+import { generateId, logger } from '@study-studio/shared';
 import type { FsrsState } from '@study-studio/learner-core';
 import type { CardReviewRating } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
@@ -53,7 +53,7 @@ export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
           }
         }
       } catch (e) {
-        console.warn('[useCardsQuery] failed to load cards', e);
+        logger.debug('[useCardsQuery] failed to load cards', e);
       }
       return [];
     },
@@ -91,7 +91,7 @@ export function useAddCardsMutation(userId = DEFAULT_USER_ID) {
           json: payload as any,
         });
       } catch (e) {
-        console.warn('[useAddCardsMutation] Hono RPC failed to save cards', e);
+        logger.debug('[useAddCardsMutation] Hono RPC failed to save cards', e);
       }
       return cards;
     },
@@ -217,7 +217,7 @@ export function useMistakesQuery(userId = DEFAULT_USER_ID, langOverride?: string
           }
         }
       } catch (e) {
-        console.warn('[useMistakesQuery] failed to load mistakes', e);
+        logger.debug('[useMistakesQuery] failed to load mistakes', e);
       }
       return [];
     },
@@ -324,7 +324,7 @@ export function useAddMistakeMutation(userId = DEFAULT_USER_ID) {
           } as any,
         });
       } catch (e) {
-        console.warn('[useAddMistakeMutation] Hono RPC failed to save mistake to gateway', e);
+        logger.debug('[useAddMistakeMutation] Hono RPC failed to save mistake to gateway', e);
       }
       return { item, id: mistakeId };
     },
@@ -382,7 +382,7 @@ export function useQuestionsQuery(userId = DEFAULT_USER_ID, langOverride?: strin
           }
         }
       } catch (e) {
-        console.warn('[useQuestionsQuery] failed to load questions', e);
+        logger.debug('[useQuestionsQuery] failed to load questions', e);
       }
       return [];
     },

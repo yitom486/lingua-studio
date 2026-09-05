@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DailyStudyPlan, DailyTaskProgress, SkillMetric } from '@study-studio/learner-core';
 import type { LearningAnalysisReport } from '@study-studio/protocol';
+import { logger } from '@study-studio/shared';
 import { GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
@@ -28,7 +29,7 @@ export function useLearnerProfileQuery(userId = DEFAULT_USER_ID, langOverride?: 
           }
         }
       } catch (e) {
-        console.warn('[useLearnerProfileQuery] failed to load profile', e);
+        logger.debug('[useLearnerProfileQuery] failed to load profile', e);
       }
       return [];
     },
@@ -55,7 +56,7 @@ export function useDailyTaskQuery(userId = DEFAULT_USER_ID, date?: string, langO
           return (await res.json()) as DailyTaskProgress;
         }
       } catch (e) {
-        console.warn('[useDailyTaskQuery] Failed to load daily task progress', e);
+        logger.debug('[useDailyTaskQuery] Failed to load daily task progress', e);
       }
       return null;
     },
@@ -78,7 +79,7 @@ export function useDailyPlanQuery(userId = DEFAULT_USER_ID, date?: string, langO
           return (await res.json()) as DailyStudyPlan;
         }
       } catch (e) {
-        console.warn('[useDailyPlanQuery] Failed to load daily study plan', e);
+        logger.debug('[useDailyPlanQuery] Failed to load daily study plan', e);
       }
       return null;
     },
@@ -133,7 +134,7 @@ export function useLearningAnalysisQuery(userId = DEFAULT_USER_ID, langOverride?
           return (await res.json()) as LearningAnalysisReport;
         }
       } catch (e) {
-        console.warn('[useLearningAnalysisQuery] Failed to load learning analysis', e);
+        logger.debug('[useLearningAnalysisQuery] Failed to load learning analysis', e);
       }
       return null;
     },
@@ -178,7 +179,7 @@ export function useActivityHistoryQuery(
           if (Array.isArray(list)) return list;
         }
       } catch (e) {
-        console.warn('[useActivityHistoryQuery] Failed to load activity history', e);
+        logger.debug('[useActivityHistoryQuery] Failed to load activity history', e);
       }
       return [];
     },

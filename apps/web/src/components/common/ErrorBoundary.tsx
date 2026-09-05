@@ -3,6 +3,7 @@ import { AlertTriangle, RefreshCw, Copy, Check, Home, ChevronDown, ChevronRight 
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { getPlatform } from '../../platform/capabilities.js';
+import { logger } from '@study-studio/shared';
 
 export interface ErrorBoundaryProps {
   children: ReactNode;
@@ -46,7 +47,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
-    console.error('[ErrorBoundary caught error]:', error, errorInfo);
+    logger.error('[ErrorBoundary caught error]:', error, errorInfo);
   }
 
   handleReset = () => {

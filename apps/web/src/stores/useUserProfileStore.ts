@@ -7,6 +7,7 @@ import type {
   LearnerLevel,
 } from '@study-studio/protocol';
 import { sound } from '../utils/audio.js';
+import { logger } from '@study-studio/shared';
 import { fireTaskCompletedConfetti, fireGoldenBurstConfetti } from '../utils/confetti.js';
 
 const GATEWAY_HTTP_URL = 'http://localhost:8080';
@@ -151,7 +152,7 @@ export const useUserProfileStore = create<UserProfileState>()(
             return true;
           }
         } catch (e) {
-          console.warn('[UserProfileStore] 更新远端档案失败，已保存在本地:', e);
+          logger.debug('[UserProfileStore] 更新远端档案失败，已保存在本地:', e);
         }
         return true;
       },
@@ -231,7 +232,7 @@ export const useUserProfileStore = create<UserProfileState>()(
             body: JSON.stringify({ ...delta, date: today }),
           });
         } catch (e) {
-          console.warn('[UserProfileStore] 同步足迹打卡至网关失败:', e);
+          logger.debug('[UserProfileStore] 同步足迹打卡至网关失败:', e);
         }
       },
     }),

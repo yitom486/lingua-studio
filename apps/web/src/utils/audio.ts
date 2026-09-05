@@ -3,6 +3,8 @@
  * 具备“一男一女”双音色预设与本地/外部 TTS 神经语音小外挂扩展槽位
  */
 
+import { logger } from '@study-studio/shared';
+
 export type TtsGender = 'FEMALE' | 'MALE';
 export type SupportedLanguage = 'JA' | 'EN' | 'KO';
 
@@ -433,7 +435,7 @@ class SpeechStudioEngine {
           return;
         }
       } catch (e) {
-        console.warn('[SpeechStudio] 小外挂服务未响应，平滑降级为系统高清音色:', e);
+        logger.debug('[SpeechStudio] 小外挂服务未响应，平滑降级为系统高清音色:', e);
       }
     }
 
