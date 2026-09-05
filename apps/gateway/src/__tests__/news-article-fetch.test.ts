@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { extractReadablePlainText } from '../modules/curriculum/infrastructure/news-article-fetch.js';
+import {
+  extractReadablePlainText,
+  extractWithReadability,
+} from '../modules/curriculum/infrastructure/news-article-fetch.js';
 import { formatNewsBody } from '../modules/curriculum/application/news-reading.js';
 
 describe('extractReadablePlainText', () => {
@@ -16,17 +19,50 @@ describe('extractReadablePlainText', () => {
 </body></html>`;
     const out = extractReadablePlainText(html);
     expect(out.fromFullText).toBe(true);
-    expect(out.strategy).toBe('article-paragraphs');
+    // Readability 一级抽取优先（样板去除更干净）；启发式仅作二级兜底
+    expect(out.strategy).toBe('readability');
     expect(out.text).toContain('Ed Miliband');
     expect(out.text).toContain('self-determination');
     expect(out.text).not.toMatch(/<\/?p>/i);
     expect(out.text.toLowerCase()).not.toContain('cookie policy');
   });
 
+  it('falls back to heuristic when readability finds nothing', () => {
+    // 无正文容器、无段落：两级皆失败 → rss-only
+    const out = extractReadablePlainText('<html><body><p>Hi</p></body></html>');
+    expect(out.fromFullText).toBe(false);
+    expect(out.strategy).toBe('rss-only');
+  });
+
   it('returns fromFullText false when content is too short', () => {
     const html = `<html><body><p>Hi</p></body></html>`;
     const out = extractReadablePlainText(html);
     expect(out.fromFullText).toBe(false);
+  });
+
+  it('extractWithReadability wins on div-soup pages without semantic tags', () => {
+    const para = (n: number) =>
+      `<div class="x${n}"><div>Substantial paragraph ${n} about the technology policy and its impact on learners across the region today.</div></div>`;
+    const html = `<!doctype html><html><head><title>Tech</title></head><body>
+<nav>Home Menu Subscribe Login Advertisement Cookie policy newsletter</nav>
+<div id="main-content">${para(1)}${para(2)}${para(3)}${para(4)}</div>
+<footer>Cookie policy newsletter sign in advertisement</footer>
+</body></html>`;
+    const direct = extractWithReadability(html);
+    expect(direct).not.toBeNull();
+    expect(direct?.strategy).toBe('readability');
+    expect(direct?.fromFullText).toBe(true);
+    expect(direct?.text).toContain('Substantial paragraph 1');
+    expect(direct?.text.toLowerCase()).not.toContain('cookie policy');
+
+    const out = extractReadablePlainText(html);
+    expect(out.fromFullText).toBe(true);
+    expect(out.strategy).toBe('readability');
+  });
+
+  it('extractWithReadability returns null when nothing substantial', () => {
+    expect(extractWithReadability('<html><body><p>Hi</p></body></html>')).toBeNull();
+    expect(extractWithReadability('')).toBeNull();
   });
 });
 

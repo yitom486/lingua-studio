@@ -5,6 +5,8 @@ import {
   BusinessError,
   translateToBusinessError,
 } from '@study-studio/shared';
+import { JSDOM } from 'jsdom';
+import { Readability } from '@mozilla/readability';
 import { sanitizeRssText, stripHtml } from './news-rss.js';
 
 export interface NewsArticleFullText {
@@ -12,7 +14,7 @@ export interface NewsArticleFullText {
   /** 是否来自页面正文抽取（相对 RSS 摘要显著更长） */
   fromFullText: boolean;
   /** 抽取命中的容器提示，便于日志 */
-  strategy: 'article-paragraphs' | 'main-paragraphs' | 'fallback-plain' | 'rss-only';
+  strategy: 'readability' | 'article-paragraphs' | 'main-paragraphs' | 'fallback-plain' | 'rss-only';
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -22,7 +24,8 @@ const MIN_FULLTEXT_CHARS = 180;
 
 /**
  * 抓取新闻原文页并抽取可读纯文本。
- * 无 cheerio / Readability 依赖：启发式抽 <article>/<main> 内段落；失败由调用方回退 RSS 摘要。
+ * 两级抽取：先走 Mozilla Readability 真机解析，失败再走零依赖启发式
+ * （article/main 段落）；仍失败由调用方回退 RSS 摘要。
  */
 export async function fetchNewsArticleFullText(
   url: string,
@@ -115,6 +118,11 @@ export function extractReadablePlainText(
   html: string,
   maxChars = MAX_CHARS
 ): NewsArticleFullText {
+  // 一级：Mozilla Readability 真机抽取（样板/导航去除最干净）。
+  const readability = extractWithReadability(html, maxChars);
+  if (readability) return readability;
+
+  // 二级：零依赖启发式（article/main 段落），Readability 失败/过短时兜底。
   let h = html
     .replace(/<script\b[\s\S]*?<\/script>/gi, '')
     .replace(/<style\b[\s\S]*?<\/style>/gi, '')
@@ -160,6 +168,22 @@ export function extractReadablePlainText(
     fromFullText: false,
     strategy: 'rss-only',
   };
+}
+
+/** Mozilla Readability + JSDOM 二次抽取（纯函数，可单测；失败返回 null）。 */
+export function extractWithReadability(html: string, maxChars = MAX_CHARS): NewsArticleFullText | null {
+  try {
+    const dom = new JSDOM(html, { url: 'https://localhost/' });
+    const article = new Readability(dom.window.document).parse();
+    dom.window.close();
+    const raw = article?.textContent ?? '';
+    if (!raw || raw.length < MIN_FULLTEXT_CHARS) return null;
+    const text = truncateAtSentence(sanitizeRssText(raw), maxChars);
+    if (text.length < MIN_FULLTEXT_CHARS) return null;
+    return { text, fromFullText: true, strategy: 'readability' };
+  } catch {
+    return null;
+  }
 }
 
 function matchTagInner(html: string, tag: string): string | null {

@@ -4,15 +4,17 @@
   "type": "module",
   "main": "./src/index.ts",
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "@study-studio/agent-codex": "workspace:*",
-    "@study-studio/agent-responses": "workspace:*",
     "@study-studio/agent-core": "workspace:*",
+    "@study-studio/agent-responses": "workspace:*",
     "@study-studio/learner-core": "workspace:*",
     "@study-studio/protocol": "workspace:*",
     "@study-studio/shared": "workspace:*",
     "@study-studio/tool-core": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.13.5"
+    "hono": "^4.13.5",
+    "jsdom": "^30.0.1"
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
@@ -20,5 +22,8 @@
     "test": "bun test",
     "dictionary:import:oewn": "bun src/scripts/import-oewn.ts",
     "sidecar:build": "bun scripts/build-sidecar.ts"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0"
   }
 }
