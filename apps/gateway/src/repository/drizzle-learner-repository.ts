@@ -125,6 +125,16 @@ import {
   retryMistake as retryMistakeDomain,
 } from './domains/mistakes.js';
 import {
+  saveDocument as saveDocumentDomain,
+  listDocuments as listDocumentsDomain,
+  getDocumentById as getDocumentByIdDomain,
+  deleteDocument as deleteDocumentDomain,
+  saveAnnotation as saveAnnotationDomain,
+  listAnnotations as listAnnotationsDomain,
+  deleteAnnotation as deleteAnnotationDomain,
+  convertAnnotationToCard as convertAnnotationToCardDomain,
+} from './domains/documents-annotations.js';
+import {
   getTodayString,
   getYesterdayString,
   safeJsonParse,
@@ -443,277 +453,67 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   // ==================== 文档与教材资产 (Documents) ====================
 
   /**
-   * 保存或更新教材/文档
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async saveDocument(doc: DocumentItem): Promise<Result<DocumentItem, BusinessError>> {
-    try {
-      const existing = await this.db
-        .select()
-        .from(documents)
-        .where(eq(documents.id, doc.id))
-        .limit(1);
-
-      if (existing.length > 0) {
-        await this.db
-          .update(documents)
-          .set({
-            title: doc.title,
-            sourceKind: doc.sourceKind,
-            language: doc.language,
-            content: doc.content,
-            astJson: doc.astJson ?? null,
-            topic: doc.topic ?? null,
-            difficulty: doc.difficulty ?? null,
-            sourceUrl: doc.sourceUrl ?? null,
-            sourcePublisher: doc.sourcePublisher ?? null,
-            examTag: doc.examTag ?? null,
-            updatedAt: doc.updatedAt || nowIso(),
-          })
-          .where(eq(documents.id, doc.id));
-      } else {
-        await this.db.insert(documents).values({
-          id: doc.id,
-          userId: doc.userId,
-          title: doc.title,
-          sourceKind: doc.sourceKind,
-          language: doc.language,
-          content: doc.content,
-          astJson: doc.astJson ?? null,
-          topic: doc.topic ?? null,
-          difficulty: doc.difficulty ?? null,
-          sourceUrl: doc.sourceUrl ?? null,
-          sourcePublisher: doc.sourcePublisher ?? null,
-          examTag: doc.examTag ?? null,
-          createdAt: doc.createdAt || nowIso(),
-          updatedAt: doc.updatedAt || nowIso(),
-        });
-      }
-
-      return ok(doc);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'saveDocument',
-          entityId: doc.id,
-        })
-      );
-    }
+    return saveDocumentDomain(this.deps, doc);
   }
 
   /**
-   * 列出用户拥有的教材与导入文档
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async listDocuments(
     userId: string,
     sourceKind?: string
   ): Promise<Result<DocumentItem[], BusinessError>> {
-    try {
-      let query = this.db.select().from(documents);
-      const conditions = [eq(documents.userId, userId)];
-      if (sourceKind) {
-        conditions.push(eq(documents.sourceKind, sourceKind));
-      }
-
-      const rows = await query
-        .where(and(...conditions))
-        .orderBy(desc(documents.updatedAt));
-
-      const items: DocumentItem[] = rows.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        title: r.title,
-        sourceKind: r.sourceKind as any,
-        language: r.language,
-        content: r.content,
-        astJson: r.astJson ?? undefined,
-        topic: r.topic ?? undefined,
-        difficulty: r.difficulty ?? undefined,
-        sourceUrl: r.sourceUrl ?? undefined,
-        sourcePublisher: r.sourcePublisher ?? undefined,
-        examTag: r.examTag ?? undefined,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      }));
-
-      return ok(items);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'listDocuments',
-          entityId: userId,
-        })
-      );
-    }
+    return listDocumentsDomain(this.deps, userId, sourceKind);
   }
 
   /**
-   * 根据 ID 查询特定文档/教材
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async getDocumentById(id: string): Promise<Result<DocumentItem | null, BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(documents)
-        .where(eq(documents.id, id))
-        .limit(1);
-
-      if (rows.length === 0) {
-        return ok(null);
-      }
-
-      const r = rows[0]!;
-      return ok({
-        id: r.id,
-        userId: r.userId,
-        title: r.title,
-        sourceKind: r.sourceKind as any,
-        language: r.language,
-        content: r.content,
-        astJson: r.astJson ?? undefined,
-        topic: r.topic ?? undefined,
-        difficulty: r.difficulty ?? undefined,
-        sourceUrl: r.sourceUrl ?? undefined,
-        sourcePublisher: r.sourcePublisher ?? undefined,
-        examTag: r.examTag ?? undefined,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-      });
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'getDocumentById',
-          entityId: id,
-        })
-      );
-    }
+    return getDocumentByIdDomain(this.deps, id);
   }
 
   /**
-   * 删除文档及其关联批注
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async deleteDocument(id: string, userId: string): Promise<Result<void, BusinessError>> {
-    try {
-      await this.db
-        .delete(annotations)
-        .where(and(eq(annotations.documentId, id), eq(annotations.userId, userId)));
-      await this.db
-        .delete(documents)
-        .where(and(eq(documents.id, id), eq(documents.userId, userId)));
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'deleteDocument',
-          entityId: id,
-        })
-      );
-    }
+    return deleteDocumentDomain(this.deps, id, userId);
   }
 
   // ==================== 划线高亮与批注 (Annotations) ====================
 
   /**
-   * 保存划线批注
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async saveAnnotation(ann: AnnotationItem): Promise<Result<AnnotationItem, BusinessError>> {
-    try {
-      await this.db.insert(annotations).values({
-        id: ann.id,
-        documentId: ann.documentId,
-        userId: ann.userId,
-        kind: ann.kind,
-        quote: ann.quote,
-        note: ann.note ?? null,
-        startOffset: ann.startOffset,
-        endOffset: ann.endOffset,
-        pageNumber: ann.pageNumber ?? null,
-        createdBy: ann.createdBy,
-        flashcardId: ann.flashcardId ?? null,
-        createdAt: ann.createdAt || nowIso(),
-      });
-
-      return ok(ann);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'saveAnnotation',
-          entityId: ann.id,
-        })
-      );
-    }
+    return saveAnnotationDomain(this.deps, ann);
   }
 
   /**
-   * 获取某篇文档下的所有划线批注
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async listAnnotations(
     documentId: string,
     userId: string
   ): Promise<Result<AnnotationItem[], BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(annotations)
-        .where(and(eq(annotations.documentId, documentId), eq(annotations.userId, userId)))
-        .orderBy(desc(annotations.createdAt));
-
-      const items: AnnotationItem[] = rows.map((r) => ({
-        id: r.id,
-        documentId: r.documentId,
-        userId: r.userId,
-        kind: r.kind as any,
-        quote: r.quote,
-        note: r.note ?? undefined,
-        startOffset: r.startOffset,
-        endOffset: r.endOffset,
-        pageNumber: r.pageNumber ?? undefined,
-        createdBy: r.createdBy as any,
-        flashcardId: r.flashcardId ?? undefined,
-        createdAt: r.createdAt,
-      }));
-
-      return ok(items);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'listAnnotations',
-          entityId: documentId,
-        })
-      );
-    }
+    return listAnnotationsDomain(this.deps, documentId, userId);
   }
 
   /**
-   * 删除特定批注
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async deleteAnnotation(
     annotationId: string,
     userId: string
   ): Promise<Result<void, BusinessError>> {
-    try {
-      await this.db
-        .delete(annotations)
-        .where(and(eq(annotations.id, annotationId), eq(annotations.userId, userId)));
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'deleteAnnotation',
-          entityId: annotationId,
-        })
-      );
-    }
+    return deleteAnnotationDomain(this.deps, annotationId, userId);
   }
 
   /**
-   * 批注一键转为 FSRS 复习卡片
+   * 实现已下沉 domains/documents-annotations.ts，此处仅委托。
    */
   public async convertAnnotationToCard(
     annotationId: string,
@@ -726,59 +526,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       phonetic?: string | undefined;
     }
   ): Promise<Result<Flashcard, BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(annotations)
-        .where(and(eq(annotations.id, annotationId), eq(annotations.userId, userId)))
-        .limit(1);
-
-      if (rows.length === 0) {
-        return err(new BusinessError('E_NOT_FOUND', '未找到对应的批注记录', 'DATABASE'));
-      }
-
-      const ann = rows[0]!;
-      const cardId = generateId('card_ann');
-      const now = nowIso();
-
-      const newCard: Flashcard = {
-        id: cardId,
-        userId,
-        type: 'VOCABULARY',
-        front: cardData.front,
-        back: cardData.back,
-        phonetic: cardData.phonetic || undefined,
-        audioUrl: undefined,
-        tags: [cardData.tag || '课文批注', cardData.pos || '重点词句'],
-        fsrs: {
-          stability: 1.0,
-          difficulty: 5.0,
-          reps: 0,
-          lapses: 0,
-          dueAt: now,
-          state: 'NEW',
-        },
-      };
-
-      // 1. 插入 flashcards
-      await this.saveCard(newCard);
-
-      // 2. 回填批注关联卡片 ID
-      await this.db
-        .update(annotations)
-        .set({ flashcardId: cardId })
-        .where(eq(annotations.id, annotationId));
-
-      return ok(newCard);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'convertAnnotationToCard',
-          entityId: annotationId,
-        })
-      );
-    }
+    return convertAnnotationToCardDomain(this.deps, annotationId, userId, cardData);
   }
 
   // ==================== 五十音课程底座 (Curriculum Kana) ====================
