@@ -44,6 +44,7 @@ const defaultDailyTask: DailyTaskProgress = {
   dailyGoalCards: 10,
   listeningMinutes: 0,
   mistakesResolvedCount: 0,
+  readingCount: 0,
   isGoalCompleted: false,
   streakDays: 0,
   intensityLevel: 0,
@@ -66,6 +67,7 @@ export interface UserProfileState {
     cards?: number;
     listeningMinutes?: number;
     mistakesResolved?: number;
+    reading?: number;
   }) => Promise<void>;
 }
 
@@ -164,6 +166,7 @@ export const useUserProfileStore = create<UserProfileState>()(
         const newCards = currentTask.cardsReviewedCount + (delta.cards ?? 0);
         const newListening = currentTask.listeningMinutes + (delta.listeningMinutes ?? 0);
         const newMistakes = currentTask.mistakesResolvedCount + (delta.mistakesResolved ?? 0);
+        const newReading = (currentTask.readingCount ?? 0) + (delta.reading ?? 0);
 
         const wasCompleted = currentTask.isGoalCompleted;
         const isCompleted =
@@ -187,6 +190,7 @@ export const useUserProfileStore = create<UserProfileState>()(
           cardsReviewedCount: newCards,
           listeningMinutes: newListening,
           mistakesResolvedCount: newMistakes,
+          readingCount: newReading,
           isGoalCompleted: isCompleted,
           streakDays: newStreak,
           isOvertimeBurst: isBurst,

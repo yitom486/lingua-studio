@@ -140,10 +140,10 @@ export function ChatTurnActivity({
 }
 
 const STREAMING_HINTS = [
-  '正在组织回复',
+  '正在等待回复',
   '正在整理思路',
   '马上开始书写',
-  '正在铺开上下文',
+  '仍在生成中',
 ] as const;
 
 export function StreamingReplyPlaceholder() {

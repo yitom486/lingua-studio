@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookPlus, Check, Search } from 'lucide-react';
+import { BookPlus, Check, ExternalLink, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCollectDictionaryEntryMutation,
@@ -73,6 +73,10 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
         <div className="mt-3 border-t border-stone-200 pt-3 dark:border-stone-800">
           {lookup.isFetching ? (
             <p className="text-xs text-stone-500">正在查询本地词典…</p>
+          ) : lookup.isError ? (
+            <p className="text-xs text-stone-500">
+              暂时无法查询本地词典，请检查 Gateway 连接后重试。
+            </p>
           ) : lookup.data?.entries.length ? (
             <div className="space-y-2">
               {lookup.data.entries.map((entry) => (
@@ -114,6 +118,18 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                   </Button>
                 </div>
               ))}
+            </div>
+          ) : lookup.data?.externalLookup ? (
+            <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600 dark:text-stone-300">
+              <span>本地词典暂未收录「{query}」。</span>
+              <a
+                href={lookup.data.externalLookup.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline dark:text-amber-300"
+              >
+                前往 OJAD 查询 <ExternalLink className="h-3.5 w-3.5" />
+              </a>
             </div>
           ) : (
             <p className="text-xs text-stone-500">

@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import type { GeneratedQuestion } from '@study-studio/protocol';
+import type { DailyPlanStepKind } from '@study-studio/learner-core';
 import type { AiTutorContext } from '../components/AiTutorDrawer.js';
 import { usePreferencesStore } from './usePreferencesStore.js';
 
 export type NavigationTab =
+  | 'TODAY'
   | 'QUIZ'
   | 'CARDS'
   | 'KANA'
@@ -15,6 +17,14 @@ export type NavigationTab =
   | 'MISTAKES'
   | 'RADAR'
   | 'STATS';
+
+export interface PlanIntent {
+  stepId: string;
+  kind: DailyPlanStepKind;
+  title: string;
+  skillId?: string | undefined;
+  skillName?: string | undefined;
+}
 
 export type TutorSurface = 'free' | 'question';
 
@@ -39,6 +49,8 @@ export interface StudySessionState {
   tutorContext: AiTutorContext | null;
   /** Agent ui.present 灌入的临时题包（优先于静态/RPC 队列展示） */
   presentedQuiz: PresentedQuizPackage | null;
+  /** 从今日计划点入某个模块时的引导意图 */
+  planIntent: PlanIntent | null;
 
   setActiveTab: (tab: NavigationTab) => void;
   setIsCommandOpen: (open: boolean) => void;
@@ -49,10 +61,12 @@ export interface StudySessionState {
   closeTutor: () => void;
   presentQuiz: (pkg: Omit<PresentedQuizPackage, 'presentedAt'> & { presentedAt?: string }) => void;
   clearPresentedQuiz: () => void;
+  setPlanIntent: (intent: PlanIntent | null) => void;
   applyUiNavigate: (target: string, openTutor?: boolean) => void;
 }
 
 const TAB_SET = new Set<string>([
+  'TODAY',
   'QUIZ',
   'CARDS',
   'KANA',
@@ -77,7 +91,7 @@ function snapshotTutorContext(ctx: AiTutorContext) {
 }
 
 export const useStudySessionStore = create<StudySessionState>((set, get) => ({
-  activeTab: 'SHADOWING',
+  activeTab: 'TODAY',
   isCommandOpen: false,
   cardFilter: 'ALL',
   questionIndex: 0,
@@ -85,6 +99,7 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
   tutorSurface: 'free',
   tutorContext: null,
   presentedQuiz: null,
+  planIntent: null,
 
   setActiveTab: (activeTab) => set({ activeTab }),
   setIsCommandOpen: (isCommandOpen) => set({ isCommandOpen }),
@@ -138,6 +153,7 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
               : 'QUIZ',
     }),
   clearPresentedQuiz: () => set({ presentedQuiz: null }),
+  setPlanIntent: (planIntent) => set({ planIntent }),
   applyUiNavigate: (target, openTutorFlag) => {
     if (target === 'TUTOR' || openTutorFlag) {
       get().openTutor(null);

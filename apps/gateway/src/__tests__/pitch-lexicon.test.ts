@@ -7,6 +7,7 @@ import {
 } from '../db/seeds/pitch-seed.js';
 import { buildOjadSearchUrl } from '../services/dictionary-external-links.js';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DictionaryLookupTool } from '../tools/dictionary-lookup-tool.js';
 import { app } from '../index.js';
 import { isOk } from '@study-studio/shared';
 
@@ -66,6 +67,28 @@ describe('pitch lexicon coach', () => {
     const englishMiss = await app.request('/api/dictionary/en?q=unlisted');
     const englishBody = await englishMiss.json();
     expect(englishBody.externalLookup).toBeUndefined();
+  });
+
+  it('exposes the same compliant dictionary lookup to an Agent tool', async () => {
+    const tool = new DictionaryLookupTool(new DrizzleLearnerRepository(':memory:'));
+    const hit = await tool.execute(
+      { language: 'ja', query: '雨' },
+      { userId: 'tool_test_user', sessionId: 'tool_test_session' }
+    );
+    expect(isOk(hit)).toBe(true);
+    if (!isOk(hit)) return;
+    expect(hit.value.entries[0]?.headword).toBe('雨');
+    expect(hit.value.externalLookup).toBeUndefined();
+
+    const miss = await tool.execute(
+      { language: 'ja', query: '火星語' },
+      { userId: 'tool_test_user', sessionId: 'tool_test_session' }
+    );
+    expect(isOk(miss)).toBe(true);
+    if (!isOk(miss)) return;
+    expect(miss.value.entries).toHaveLength(0);
+    expect(miss.value.externalLookup?.provider).toBe('OJAD');
+    expect(miss.value.externalLookup?.url).toBe(buildOjadSearchUrl('火星語'));
   });
 
   it('lists the English dictionary as an explicit on-demand package', async () => {

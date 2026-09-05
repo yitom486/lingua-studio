@@ -125,11 +125,12 @@ export class ContextBuilder {
     learnerRepo: LearnerRepository,
     clientSnapshot?: Partial<ContextSnapshot>
   ): Promise<ContextSnapshot> {
-    const [profileRes, snapshotRes, dueCardsRes, mistakesRes] = await Promise.all([
+    const [profileRes, snapshotRes, dueCardsRes, mistakesRes, planRes] = await Promise.all([
       learnerRepo.getLearnerProfile(userId),
       learnerRepo.getProfileSnapshot(userId),
       learnerRepo.getDueCards(userId, 100),
       learnerRepo.getMistakes(userId, { resolved: false }),
+      learnerRepo.getOrCreateDailyStudyPlan(userId),
     ]);
 
     const profile = isOk(profileRes) ? profileRes.value : null;
@@ -186,6 +187,13 @@ export class ContextBuilder {
         streakDays: profile?.streakDays || 0,
         recentErrorTags,
         ...(kanaMastery ? { kanaMastery } : {}),
+        ...(isOk(planRes)
+          ? {
+              dailyPlanRemaining: planRes.value.steps
+                .filter((step) => !step.done)
+                .map((step) => step.title),
+            }
+          : {}),
       },
       userIntentHint: clientSnapshot?.userIntentHint || 'EXPLAIN',
       constraints: clientSnapshot?.constraints,

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
-import type { SkillMetric, DailyTaskProgress } from '@study-studio/learner-core';
+import type { FsrsState, SkillMetric, DailyTaskProgress, DailyStudyPlan } from '@study-studio/learner-core';
 import type { KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
@@ -29,6 +29,7 @@ export const QUERY_KEYS = {
   PRACTICE_COLLECTIONS: ['learner', 'practiceCollections'] as const,
   PRACTICE_ITEMS: ['learner', 'practiceItems'] as const,
   DAILY_TASK: ['learner', 'dailyTask'] as const,
+  DAILY_PLAN: ['learner', 'dailyPlan'] as const,
   ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
 };
 
@@ -86,6 +87,7 @@ export async function invalidateAllLearningQueries(queryClient: ReturnType<typeo
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.READING }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ACTIVITY_HISTORY }),
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK }),
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN }),
   ]);
 }
 
@@ -230,6 +232,10 @@ export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
               exampleZh: (Array.isArray(c.tags) && c.tags[3]) || c.exampleZh || '',
               stability: c.fsrs?.stability ?? 1.0,
               reps: c.fsrs?.reps ?? 0,
+              difficulty: c.fsrs?.difficulty ?? 5.0,
+              lapses: c.fsrs?.lapses ?? 0,
+              state: c.fsrs?.state ?? 'NEW',
+              ...(c.fsrs?.lastReviewedAt ? { lastReviewedAt: c.fsrs.lastReviewedAt } : {}),
               dueAt: c.fsrs?.dueAt,
             }));
           }
@@ -267,6 +273,58 @@ export function useDailyTaskQuery(userId = DEFAULT_USER_ID, date?: string, langO
       return null;
     },
     staleTime: 1000 * 30,
+  });
+}
+
+export function useDailyPlanQuery(userId = DEFAULT_USER_ID, date?: string, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<DailyStudyPlan | null>({
+    queryKey: [...QUERY_KEYS.DAILY_PLAN, userId, date ?? 'today', targetLanguage],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/learning/plan/${userId}`);
+        if (date) url.searchParams.set('date', date);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          return (await res.json()) as DailyStudyPlan;
+        }
+      } catch (e) {
+        console.warn('[useDailyPlanQuery] Failed to load daily study plan', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 20,
+  });
+}
+
+export function useCompletePlanStepMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: { stepId: string; date?: string }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/plan/${userId}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '暂时无法标记该步骤，请稍后重试。');
+      }
+      return (await res.json()) as DailyStudyPlan;
+    },
+    onSuccess: (plan) => {
+      queryClient.setQueryData(
+        [...QUERY_KEYS.DAILY_PLAN, userId, 'today', plan.language],
+        plan
+      );
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+    },
   });
 }
 
@@ -377,6 +435,7 @@ export function useAddCardsMutation(userId = DEFAULT_USER_ID) {
         ...prev,
       ]);
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }
@@ -384,51 +443,72 @@ export function useAddCardsMutation(userId = DEFAULT_USER_ID) {
 /** 更新单张卡片 FSRS 状态并累计足迹 (Hono RPC 持久化至 SQLite) */
 export function useUpdateCardMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(profileLang);
 
   return useMutation({
-    mutationFn: async (patch: Pick<StudyCardItem, 'id' | 'stability' | 'reps'>) => {
-      // 1. 同步累计每日打卡足迹
+    mutationFn: async (patch: { id: string; fsrs: FsrsState }) => {
+      // 网关是卡片状态唯一写入者：提交完整 FSRS 快照，避免前端和 WS 双写互相覆盖。
+      const existingCards =
+        queryClient.getQueryData<StudyCardItem[]>([
+          ...QUERY_KEYS.CARDS,
+          userId,
+          targetLanguage,
+        ]) || [];
+      const target = existingCards.find((c) => c.id === patch.id);
+      if (!target) throw new Error('未找到待复习卡片，请刷新后重试。');
+
+      const payload = {
+        id: target.id,
+        userId,
+        type: target.type,
+        front: target.frontWord,
+        back: target.backMeaning,
+        phonetic: target.reading || null,
+        audioUrl: null,
+        tags: [target.tag, target.pos, target.exampleJp, target.exampleZh].filter(Boolean),
+        fsrs: patch.fsrs,
+      };
+      const cardResponse = await apiClient.api.cards[':userId'].$post({
+        param: { userId },
+        json: [payload] as any,
+      });
+      if (!cardResponse.ok) throw new Error('保存闪卡复习状态失败');
+
       const activityResponse = await apiClient.api.task.activity[':userId'].$post({
-          param: { userId },
-          json: { cards: 1 },
+        param: { userId },
+        json: { cards: 1 },
       });
       if (!activityResponse.ok) throw new Error('记录卡片复习足迹失败');
-
-      // 2. 将卡片最新 FSRS 进度持久化写入 SQLite flashcards 表
-      const existingCards = queryClient.getQueryData<StudyCardItem[]>([...QUERY_KEYS.CARDS, userId]) || [];
-      const target = existingCards.find((c) => c.id === patch.id);
-      if (target) {
-          const payload = {
-            id: target.id,
-            userId,
-            type: target.type,
-            front: target.frontWord,
-            back: target.backMeaning,
-            phonetic: target.reading || null,
-            audioUrl: null,
-            tags: [target.tag, target.pos, target.exampleJp, target.exampleZh].filter(Boolean),
-            fsrs: {
-              stability: patch.stability,
-              difficulty: 5.0,
-              reps: patch.reps,
-              lapses: 0,
-              dueAt: new Date().toISOString(),
-              state: 'REVIEW',
-            },
-          };
-          const cardResponse = await apiClient.api.cards[':userId'].$post({
-            param: { userId },
-            json: [payload] as any,
-          });
-          if (!cardResponse.ok) throw new Error('保存闪卡复习状态失败');
-      }
       return patch;
     },
     onSuccess: (patch) => {
-      queryClient.setQueryData<StudyCardItem[]>([...QUERY_KEYS.CARDS, userId], (prev = []) =>
-        prev.map((c) => (c.id === patch.id ? { ...c, ...patch } : c))
+      queryClient.setQueryData<StudyCardItem[]>([
+        ...QUERY_KEYS.CARDS,
+        userId,
+        targetLanguage,
+      ], (prev = []) =>
+        prev.map((c) =>
+          c.id === patch.id
+            ? {
+                ...c,
+                stability: patch.fsrs.stability,
+                reps: patch.fsrs.reps,
+                difficulty: patch.fsrs.difficulty,
+                lapses: patch.fsrs.lapses,
+                state: patch.fsrs.state,
+                ...(patch.fsrs.lastReviewedAt
+                  ? { lastReviewedAt: patch.fsrs.lastReviewedAt }
+                  : {}),
+                dueAt: patch.fsrs.dueAt,
+              }
+            : c
+        )
       );
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }
@@ -436,38 +516,57 @@ export function useUpdateCardMutation(userId = DEFAULT_USER_ID) {
 /** 错题两连对攻克状态更新 (Hono RPC 持久化至 SQLite) */
 export function useUpdateMistakeMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(profileLang);
 
   return useMutation({
     mutationFn: async (payload: { mistakeId: string; isCorrect: boolean }) => {
-      try {
-        if (payload.isCorrect) {
-          await apiClient.api.mistakes[':userId'].resolve[':mistakeId'].$post({
-            param: { userId, mistakeId: payload.mistakeId },
-          });
-          await apiClient.api.task.activity[':userId'].$post({
-            param: { userId },
-            json: { mistakesResolved: 1 },
-          });
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/mistakes/${encodeURIComponent(userId)}/retry/${encodeURIComponent(payload.mistakeId)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isCorrect: payload.isCorrect }),
         }
-      } catch (e) {
-        console.warn('[useUpdateMistakeMutation] Hono RPC failed to update mistake on gateway', e);
+      );
+      const result = (await response.json()) as {
+        success?: boolean;
+        message?: string;
+        error?: { userMessage?: string };
+        mistakeId?: string;
+        consecutiveCorrect?: number;
+        isResolved?: boolean;
+      };
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.error?.userMessage || result.message || '更新错题订正状态失败，请稍后重试。'
+        );
       }
-      return payload;
+      return {
+        mistakeId: payload.mistakeId,
+        consecutiveCorrect: result.consecutiveCorrect ?? 0,
+        isResolved: Boolean(result.isResolved),
+      };
     },
-    onSuccess: ({ mistakeId, isCorrect }) => {
-      queryClient.setQueryData<MistakeNotebookItem[]>([...QUERY_KEYS.MISTAKES, userId], (prev = []) =>
+    onSuccess: ({ mistakeId, consecutiveCorrect, isResolved }) => {
+      queryClient.setQueryData<MistakeNotebookItem[]>([
+        ...QUERY_KEYS.MISTAKES,
+        userId,
+        targetLanguage,
+      ], (prev = []) =>
         prev.map((m) => {
           if (m.id !== mistakeId) return m;
-          const consecutiveCorrect = isCorrect ? m.consecutiveCorrect + 1 : 0;
           return {
             ...m,
             consecutiveCorrect,
-            isResolved: isCorrect ? true : m.isResolved,
+            isResolved,
           };
         })
       );
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.MISTAKES });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }
@@ -1024,6 +1123,7 @@ export function useCollectDictionaryEntryMutation(userId = DEFAULT_USER_ID) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }
@@ -1042,7 +1142,10 @@ export function useDictionaryLookupQuery(
         `${GATEWAY_BASE_URL}/api/dictionary/${language}?q=${encodeURIComponent(normalized)}`
       );
       if (!response.ok) {
-        return { entries: [] };
+        const body = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '暂时无法查询本地词典，请稍后重试。');
       }
       return (await response.json()) as DictionaryLookupResult;
     },
@@ -1133,6 +1236,7 @@ export function useSubmitReadingPracticeMutation(userId = DEFAULT_USER_ID) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }

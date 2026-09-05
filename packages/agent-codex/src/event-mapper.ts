@@ -1,5 +1,5 @@
 import type { AgentEvent } from '@study-studio/agent-core';
-import { translateToBusinessError } from '@study-studio/shared';
+import { translateCodexNotificationParams, translateCodexTurnError } from './codex-error.js';
 
 /**
  * 将 Codex App Server v2 通知映射为内部 AgentEvent。
@@ -67,14 +67,22 @@ export function mapAppServerNotificationToEvents(
       break;
     }
     case 'turn/completed': {
+      const turn = params?.turn ?? params;
+      if (turn?.status === 'failed' || turn?.error) {
+        events.push({
+          type: 'ERROR',
+          error: translateCodexTurnError(turn?.error ?? turn),
+        });
+        break;
+      }
       events.push({ type: 'COMPLETED' });
       break;
     }
     case 'error': {
-      events.push({
-        type: 'ERROR',
-        error: translateToBusinessError(params?.error ?? params, 'CODEX_NOTIFY'),
-      });
+      const error = translateCodexNotificationParams(params);
+      if (error) {
+        events.push({ type: 'ERROR', error });
+      }
       break;
     }
     default:

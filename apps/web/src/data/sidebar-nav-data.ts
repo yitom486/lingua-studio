@@ -10,7 +10,8 @@ export type SidebarBadgeSpec =
   | { kind: 'static'; value: string }
   | { kind: 'quizProgress' }
   | { kind: 'cardCount' }
-  | { kind: 'mistakeCount' };
+  | { kind: 'mistakeCount' }
+  | { kind: 'planProgress' };
 
 /** 节点标题：静态，或拼接薄弱项名 */
 export type SidebarLabelSpec =
@@ -32,7 +33,8 @@ export type SidebarIconKey =
   | 'Library'
   | 'User'
   | 'Flame'
-  | 'Sparkles';
+  | 'Sparkles'
+  | 'CalendarCheck';
 
 export interface SidebarNavItemDef {
   id: NavigationTab;
@@ -77,6 +79,7 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
     label: '练习闭环',
     defaultOpen: true,
     items: [
+      { id: 'TODAY', label: '今日学习', icon: 'CalendarCheck', badge: { kind: 'planProgress' } },
       { id: 'QUIZ', label: '自适应做题', icon: 'Zap', badge: { kind: 'quizProgress' } },
       { id: 'READING', label: '阅读理解', icon: 'Newspaper', badge: { kind: 'static', value: '双栏' } },
       { id: 'WRITING', label: '写作翻译', icon: 'PenLine', badge: { kind: 'static', value: 'AI' } },
@@ -117,6 +120,13 @@ export const SIDEBAR_AST_TREE: SidebarAstNodeDef[] = [
     icon: 'FolderTree',
     defaultOpen: true,
     children: [
+      {
+        id: 'today',
+        label: { kind: 'static', value: '今日学习计划' },
+        icon: 'CalendarCheck',
+        tab: 'TODAY',
+        meta: { kind: 'planProgress' },
+      },
       {
         id: 'radar',
         label: { kind: 'static', value: '能力雷达总览' },
@@ -192,6 +202,7 @@ export interface SidebarRuntimeCounts {
   quizProgress?: string | undefined;
   cardCount?: number | undefined;
   unresolvedMistakeCount?: number | undefined;
+  planProgress?: string | undefined;
   topWeaknessLabel: string;
 }
 
@@ -211,6 +222,8 @@ export function resolveSidebarBadge(
       return runtime.unresolvedMistakeCount !== undefined
         ? String(runtime.unresolvedMistakeCount)
         : undefined;
+    case 'planProgress':
+      return runtime.planProgress;
     default:
       return undefined;
   }

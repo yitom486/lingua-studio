@@ -19,6 +19,7 @@ import {
   Target,
   Library,
   Sparkles,
+  CalendarCheck,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -52,6 +53,7 @@ import {
   useLearnerProfileQuery,
   useMistakesQuery,
   useQuestionsQuery,
+  useDailyPlanQuery,
 } from '../queries/useLearnerQueries.js';
 
 export interface AppSidebarProps {
@@ -59,6 +61,7 @@ export interface AppSidebarProps {
   quizProgress?: string | undefined;
   cardCount?: number | undefined;
   unresolvedMistakeCount?: number | undefined;
+  planProgress?: string | undefined;
   /** 薄弱项示例名，来自学情 */
   topWeaknessLabel?: string | undefined;
   mobileOpen?: boolean | undefined;
@@ -81,6 +84,7 @@ const SIDEBAR_ICONS: Record<SidebarIconKey, LucideIcon> = {
   User,
   Flame,
   Sparkles,
+  CalendarCheck,
 };
 
 type ResolvedNavItem = {
@@ -154,6 +158,7 @@ function SidebarBody({
   quizProgress,
   cardCount,
   unresolvedMistakeCount,
+  planProgress,
   topWeaknessLabel,
   onNavigate,
   showDesktopCollapse,
@@ -162,6 +167,7 @@ function SidebarBody({
   quizProgress?: string | undefined;
   cardCount?: number | undefined;
   unresolvedMistakeCount?: number | undefined;
+  planProgress?: string | undefined;
   topWeaknessLabel: string;
   onNavigate: (tab: NavigationTab) => void;
   showDesktopCollapse?: boolean | undefined;
@@ -178,9 +184,10 @@ function SidebarBody({
       quizProgress,
       cardCount,
       unresolvedMistakeCount,
+      planProgress,
       topWeaknessLabel,
     }),
-    [quizProgress, cardCount, unresolvedMistakeCount, topWeaknessLabel]
+    [quizProgress, cardCount, unresolvedMistakeCount, planProgress, topWeaknessLabel]
   );
 
   const groups = useMemo(
@@ -294,13 +301,21 @@ function SidebarBody({
           )}
         </div>
         {!collapsed && (
-          <div className="mt-3 space-y-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              sound.playClick();
+              onNavigate('TODAY');
+            }}
+            className="mt-3 space-y-1.5 w-full text-left cursor-pointer"
+          >
             <div className="flex justify-between text-[10px] text-stone-500">
               <span>{profile.todayGoalLabel}</span>
               <span className="font-mono">{profile.todayGoalPercent}%</span>
             </div>
             <Progress value={profile.todayGoalPercent} className="h-1.5" />
-          </div>
+          </button>
         )}
       </div>
 
@@ -519,6 +534,7 @@ export function AppSidebar({
   const { data: cards = [] } = useCardsQuery();
   const { data: mistakes = [] } = useMistakesQuery();
   const { data: metrics = [] } = useLearnerProfileQuery();
+  const { data: dailyPlan } = useDailyPlanQuery();
 
   const nowIso = new Date().toISOString();
   const dueCardCount = cards.filter((c) => !c.dueAt || c.dueAt <= nowIso).length;
@@ -532,6 +548,9 @@ export function AppSidebar({
     topWeaknessProp ??
     [...metrics].sort((a, b) => a.proficiency - b.proficiency)[0]?.name ??
     SIDEBAR_PROFILE_DEMO.defaultWeaknessLabel;
+  const planProgress = dailyPlan
+    ? `${dailyPlan.completedCount}/${dailyPlan.totalCount || 1}`
+    : undefined;
 
   const navigate = (tab: NavigationTab) => {
     useStudySessionStore.getState().setActiveTab(tab);
@@ -546,6 +565,7 @@ export function AppSidebar({
           quizProgress={quizProgress}
           cardCount={cardCount}
           unresolvedMistakeCount={unresolvedMistakeCount}
+          planProgress={planProgress}
           topWeaknessLabel={topWeaknessLabel}
           onNavigate={navigate}
           showDesktopCollapse
@@ -566,6 +586,7 @@ export function AppSidebar({
               quizProgress={quizProgress}
               cardCount={cardCount}
               unresolvedMistakeCount={unresolvedMistakeCount}
+              planProgress={planProgress}
               topWeaknessLabel={topWeaknessLabel}
               onNavigate={navigate}
             />

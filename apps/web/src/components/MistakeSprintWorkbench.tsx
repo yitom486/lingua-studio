@@ -16,6 +16,7 @@ import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { ShimmerButton } from './magicui/index.js';
+import { PlanIntentBanner } from './PlanIntentBanner.js';
 
 interface MistakeSprintWorkbenchProps {
   onOpenTutor: (context: AiTutorContext) => void;
@@ -82,19 +83,28 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
       trimmed.toLowerCase() === activeSprintItem.correctAnswer.toLowerCase();
 
     setSprintFeedback({ submitted: true, isCorrect });
-    updateMistake.mutate({ mistakeId: activeSprintItem.id, isCorrect });
-
-    if (isCorrect) {
-      sound.playSuccess();
-      toast.success(
-        activeSprintItem.consecutiveCorrect + 1 >= 2
-          ? '🎉 连续 2 次正确！该题已彻底攻克出库！'
-          : '回答正确！连对进度 +1'
-      );
-    } else {
-      sound.playError();
-      toast.error(`回答有误：正确应为「${activeSprintItem.correctAnswer}」`);
-    }
+    updateMistake.mutate(
+      { mistakeId: activeSprintItem.id, isCorrect },
+      {
+        onSuccess: (result) => {
+          if (isCorrect) {
+            sound.playSuccess();
+            toast.success(
+              result.isResolved
+                ? '🎉 连续 2 次正确！该题已彻底攻克出库！'
+                : `回答正确！连对进度 ${result.consecutiveCorrect}/2`
+            );
+          } else {
+            sound.playError();
+            toast.error(`回答有误：正确应为「${activeSprintItem.correctAnswer}」`);
+          }
+        },
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : '更新错题订正状态失败，请稍后重试。';
+          toast.error(message);
+        },
+      }
+    );
   };
 
   const handleNextSprintItem = () => {
@@ -111,6 +121,7 @@ export const MistakeSprintWorkbench: React.FC<MistakeSprintWorkbenchProps> = ({
 
   return (
     <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+      <PlanIntentBanner />
       {/* 顶部总览与冲刺卡片 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-[#faf9f6] dark:bg-[#1a1816] p-5 rounded-2xl border border-amber-900/10 dark:border-amber-500/15 shadow-xs">
         <div className="flex items-center gap-3">

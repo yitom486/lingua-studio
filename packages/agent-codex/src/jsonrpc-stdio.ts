@@ -9,6 +9,7 @@ import {
   err,
   type Result,
   BusinessError,
+  extractErrorText,
   translateToBusinessError,
 } from '@study-studio/shared';
 
@@ -270,10 +271,11 @@ export class JsonRpcStdioClient {
       if (!pending) return;
       this.pending.delete(key);
       if ('error' in msg && msg.error) {
+        const rpcText = extractErrorText(msg.error);
         pending.reject(
           new BusinessError(
             'E_CODEX_RPC',
-            String(msg.error.message || 'Codex RPC error'),
+            rpcText ? `Codex RPC 失败：${rpcText}` : 'Codex RPC 调用失败。',
             'AGENT_RUNTIME',
             true,
             { code: msg.error.code, data: msg.error.data }

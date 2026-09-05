@@ -70,6 +70,19 @@ export interface StreamTurnOptions {
     threadId?: string;
     queueRemaining?: number;
     fromQueue?: boolean;
+    // P3-C 结构化执行摘要字段（统一普通回合与队列回合）
+    /** Codex 通路本轮结果（与 codexOutcome 等价，统一字段名） */
+    outcome?: 'streamed' | 'fallback' | 'not_requested';
+    /** 结构化失败原因；仅含用户可读信息，不含底层错误栈 */
+    failure?: {
+      code: string;
+      userMessage: string;
+      category: 'SESSION_CREATE' | 'STREAM' | 'QUEUE' | 'INTERRUPTED' | 'UNKNOWN';
+      retryable?: boolean;
+    };
+    /** 本轮耗时（毫秒） */
+    elapsedMs?: number;
+    lane?: 'coach' | 'learning';
   }) => void;
   onError?: (err: unknown) => void;
 }
@@ -592,11 +605,13 @@ export class GatewayClient {
           this.activeStream = null;
           listener.onError?.(envelope.payload);
         }
-        const errPayload = (envelope.payload as any)?.error;
+        const errPayload = (envelope.payload as any)?.error ?? envelope.payload;
         const userMsg =
           typeof errPayload === 'string'
             ? errPayload
-            : errPayload?.userMessage || 'AI 学习助手遇到了一点小问题，请稍后重试。';
+            : errPayload?.userMessage ||
+              errPayload?.message ||
+              '本轮请求未完成，请稍后重试。';
         toast.error(userMsg);
       }
     } catch {

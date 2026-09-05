@@ -32,6 +32,7 @@ import {
 } from '../queries/useAgentMutations.js';
 import { useGatewayStore } from '../stores/useGatewayStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
+import { PlanIntentBanner } from './PlanIntentBanner.js';
 
 interface AdaptiveQuizWorkbenchProps {
   onOpenTutor: (ctx: AiTutorContext) => void;
@@ -284,6 +285,7 @@ export function AdaptiveQuizWorkbench({ onOpenTutor }: AdaptiveQuizWorkbenchProp
       transition={{ duration: 0.25 }}
       className="flex flex-col gap-5 max-w-3xl"
     >
+      <PlanIntentBanner />
       {/* 做题顶部子模式切换与 AI 靶向弱项组卷按钮 */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-[#faf9f6] dark:bg-[#1a1816] p-3 rounded-2xl border border-amber-900/10 dark:border-amber-500/15 shadow-xs">
         {/* 子模式切换 */}
@@ -415,7 +417,7 @@ export function AdaptiveQuizWorkbench({ onOpenTutor }: AdaptiveQuizWorkbenchProp
                     disabled={quizSubmitted}
                     value={fillBlankInput}
                     onChange={(e) => setFillBlankInput(e.target.value)}
-                    placeholder="在此键入日文变形形式..."
+                    placeholder="在此输入你的答案..."
                     className="flex-1 py-3 px-4 rounded-xl bg-stone-100/90 dark:bg-stone-900/80 text-stone-900 dark:text-stone-100 border border-stone-300 dark:border-stone-700 outline-none focus:border-amber-500 text-base"
                   />
                 </div>

@@ -62,6 +62,28 @@ function mockRepo(overrides: {
     saveCard: async () => ok(undefined),
     recordQuizAttempt: async () => ok(undefined),
     saveMistake: async () => ok(undefined),
+    getOrCreateDailyStudyPlan: async () =>
+      ok({
+        id: 'plan_u1',
+        userId: 'u1',
+        language: targetLanguage,
+        planDate: '2026-09-05',
+        steps: [],
+        completedCount: 0,
+        totalCount: 0,
+        createdAt: new Date().toISOString(),
+      }),
+    completeDailyPlanStep: async () =>
+      ok({
+        id: 'plan_u1',
+        userId: 'u1',
+        language: targetLanguage,
+        planDate: '2026-09-05',
+        steps: [],
+        completedCount: 0,
+        totalCount: 0,
+        createdAt: new Date().toISOString(),
+      }),
     getMistakes: async () =>
       ok(
         (overrides.mistakes ?? []).map((m) => ({

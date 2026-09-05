@@ -51,7 +51,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
   en: {
     track: 'en',
     trackName: '英语',
-    allowedTabs: ['QUIZ', 'CARDS', 'READING', 'WRITING', 'MISTAKES', 'RADAR'],
+    allowedTabs: ['TODAY', 'QUIZ', 'CARDS', 'READING', 'WRITING', 'MISTAKES', 'RADAR'],
     featureFlags: {
       kanaStudio: false,
       pitchAccent: false,
@@ -68,12 +68,13 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
     },
     comingSoonModules: [],
     defaultReadingLang: 'EN',
-    fallbackTab: 'QUIZ',
+    fallbackTab: 'TODAY',
   },
   ja: {
     track: 'ja',
     trackName: '日语',
     allowedTabs: [
+      'TODAY',
       'QUIZ',
       'CARDS',
       'READING',
@@ -101,12 +102,12 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
     },
     comingSoonModules: [],
     defaultReadingLang: 'JA',
-    fallbackTab: 'QUIZ',
+    fallbackTab: 'TODAY',
   },
   ko: {
     track: 'ko',
     trackName: '韩语',
-    allowedTabs: ['QUIZ', 'CARDS', 'READING', 'MISTAKES', 'RADAR'],
+    allowedTabs: ['TODAY', 'QUIZ', 'CARDS', 'READING', 'MISTAKES', 'RADAR'],
     featureFlags: {
       kanaStudio: false,
       pitchAccent: false,
@@ -138,7 +139,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
       },
     ],
     defaultReadingLang: 'KO',
-    fallbackTab: 'READING',
+    fallbackTab: 'TODAY',
   },
 };
 

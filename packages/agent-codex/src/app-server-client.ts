@@ -366,11 +366,16 @@ export class CodexAppServerConnection {
     const queue: AgentEvent[] = [];
     let wake: (() => void) | null = null;
     let done = false;
+    let hadError = false;
     let turnId = params.turnId;
     let sawText = false;
     let lastFinal: string | undefined;
 
     const push = (ev: AgentEvent) => {
+      if (ev.type === 'ERROR') {
+        hadError = true;
+        done = true;
+      }
       if (ev.type === 'TEXT_DELTA' && ev.delta) sawText = true;
       if (ev.type === 'COMPLETED' && ev.finalOutput) {
         lastFinal = ev.finalOutput;
@@ -434,6 +439,9 @@ export class CodexAppServerConnection {
         if (next.type === 'COMPLETED' && done && queue.length === 0) break;
       }
 
+      if (hadError) {
+        return;
+      }
       if (!sawText && lastFinal) {
         yield { type: 'TEXT_DELTA', delta: lastFinal };
         yield { type: 'COMPLETED', finalOutput: lastFinal };

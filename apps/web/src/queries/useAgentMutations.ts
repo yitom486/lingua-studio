@@ -39,6 +39,7 @@ export function useSubmitQuizMutation() {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.MISTAKES });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }
@@ -61,6 +62,7 @@ export function useReviewCardMutation() {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
     },
   });
 }

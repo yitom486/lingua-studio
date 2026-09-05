@@ -1,5 +1,6 @@
 export * from './mapper.js';
 export * from './event-mapper.js';
+export * from './codex-error.js';
 export * from './jsonrpc-stdio.js';
 export * from './app-server-protocol.js';
 export * from './app-server-client.js';

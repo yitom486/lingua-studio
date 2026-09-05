@@ -112,6 +112,7 @@ export function initSchema(sqlite: Database): void {
       cards_reviewed_count INTEGER NOT NULL DEFAULT 0,
       listening_minutes INTEGER NOT NULL DEFAULT 0,
       mistakes_resolved_count INTEGER NOT NULL DEFAULT 0,
+      reading_count INTEGER NOT NULL DEFAULT 0,
       is_goal_completed INTEGER NOT NULL DEFAULT 0,
       intensity_level INTEGER NOT NULL DEFAULT 0,
       is_overtime_burst INTEGER NOT NULL DEFAULT 0,
@@ -326,6 +327,16 @@ export function initSchema(sqlite: Database): void {
     CREATE INDEX IF NOT EXISTS idx_content_templates_action_lang
       ON learning_content_templates(action, language, sort_order);
     CREATE INDEX IF NOT EXISTS idx_practice_items_user ON practice_items(user_id, collected_at);
+
+    CREATE TABLE IF NOT EXISTS daily_study_plans (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      language TEXT NOT NULL,
+      plan_date TEXT NOT NULL,
+      steps_json TEXT NOT NULL,
+      completed_step_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
   `);
 
   // 增量列：已有库补字段
@@ -341,6 +352,7 @@ export function initSchema(sqlite: Database): void {
     "ALTER TABLE practice_collections ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE practice_items ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     'ALTER TABLE local_dictionary_entries ADD COLUMN source_id TEXT',
+    'ALTER TABLE study_activity_logs ADD COLUMN reading_count INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE documents ADD COLUMN source_kind_detail TEXT',
     'ALTER TABLE documents ADD COLUMN fetch_status TEXT',
     'ALTER TABLE documents ADD COLUMN news_publisher TEXT',
@@ -366,6 +378,9 @@ export function initSchema(sqlite: Database): void {
     );
     sqlite.exec(
       'CREATE INDEX IF NOT EXISTS idx_quiz_questions_user_lang ON quiz_questions(user_id, language, created_at)'
+    );
+    sqlite.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_plans_user_lang_date ON daily_study_plans(user_id, language, plan_date)'
     );
   } catch {
     /* ignore */

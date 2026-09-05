@@ -7,6 +7,7 @@ import { AiTutorDrawer } from './components/AiTutorDrawer.js';
 import { AgentChatPanel } from './components/AgentChatPanel.js';
 import { AppHeader } from './components/AppHeader.js';
 import { AppSidebar } from './components/AppSidebar.js';
+import { TodayPlanWorkbench } from './components/TodayPlanWorkbench.js';
 import { AdaptiveQuizWorkbench } from './components/AdaptiveQuizWorkbench.js';
 import { FsrsCardWorkbench } from './components/FsrsCardWorkbench.js';
 import { TextbookCurriculum } from './components/TextbookCurriculum.js';
@@ -283,6 +284,8 @@ export function App() {
             title="当前工作区遇到临时渲染异常"
             message="此模块由于外部数据或音频上下文发生了临时异常。您的个人学情资产已安全持久化，可点击下方按钮重新加载。"
           >
+            {activeTab === 'TODAY' && <TodayPlanWorkbench key={shell.track} />}
+
             {activeTab === 'QUIZ' && (
               <AdaptiveQuizWorkbench
                 key={shell.track}

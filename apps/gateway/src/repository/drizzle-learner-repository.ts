@@ -18,6 +18,14 @@ import type {
   LearnerProfile,
   DailyTaskProgress,
   MistakeEntry,
+  DailyStudyPlan,
+  DailyPlanStepTemplate,
+} from '@study-studio/learner-core';
+import {
+  buildDailyPlanStepTemplates,
+  parseCompletedStepIds,
+  parseDailyPlanStepTemplates,
+  summarizeDailyStudyPlan,
 } from '@study-studio/learner-core';
 import type {
   Flashcard,
@@ -51,6 +59,7 @@ import {
   INITIAL_SKILL_METRIC_SEEDS,
   learningContentTemplates,
   localDictionaryEntries,
+  dailyStudyPlans,
 } from '../db/index.js';
 
 export type TrackLanguage = 'ja' | 'en' | 'ko';
@@ -106,6 +115,15 @@ function getYesterdayString(todayStr: string): string {
   const d = new Date(`${todayStr}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+function safeJsonParse(raw: string | null | undefined): unknown {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 export class DrizzleLearnerRepository implements LearnerRepository {
@@ -594,6 +612,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
             dailyGoalCards: profile.dailyGoalCards,
             listeningMinutes: 0,
             mistakesResolvedCount: 0,
+            readingCount: 0,
             isGoalCompleted: false,
             streakDays: profile.streakDays,
             intensityLevel: 0,
@@ -618,6 +637,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         dailyGoalCards: profile.dailyGoalCards,
         listeningMinutes: log.listeningMinutes,
         mistakesResolvedCount: log.mistakesResolvedCount,
+        readingCount: log.readingCount ?? 0,
         isGoalCompleted: Boolean(log.isGoalCompleted),
         streakDays: profile.streakDays,
         intensityLevel: log.intensityLevel,
@@ -689,6 +709,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
             dailyGoalCards: profile.dailyGoalCards,
             listeningMinutes: 0,
             mistakesResolvedCount: 0,
+            readingCount: 0,
             isGoalCompleted: false,
             streakDays: profile.streakDays,
             intensityLevel: 0,
@@ -706,6 +727,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           dailyGoalCards: profile.dailyGoalCards,
           listeningMinutes: log.listeningMinutes,
           mistakesResolvedCount: log.mistakesResolvedCount,
+          readingCount: log.readingCount ?? 0,
           isGoalCompleted: Boolean(log.isGoalCompleted),
           streakDays: profile.streakDays,
           intensityLevel: log.intensityLevel,
@@ -763,6 +785,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       cards?: number;
       listeningMinutes?: number;
       mistakesResolved?: number;
+      reading?: number;
       date?: string;
       language?: TrackLanguage | string;
     }
@@ -791,6 +814,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       const newCards = (existing?.cardsReviewedCount ?? 0) + (delta.cards ?? 0);
       const newListening = (existing?.listeningMinutes ?? 0) + (delta.listeningMinutes ?? 0);
       const newMistakes = (existing?.mistakesResolvedCount ?? 0) + (delta.mistakesResolved ?? 0);
+      const newReading = (existing?.readingCount ?? 0) + (delta.reading ?? 0);
 
       const wasCompleted = Boolean(existing?.isGoalCompleted);
       const isCompleted =
@@ -883,6 +907,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
             cardsReviewedCount: newCards,
             listeningMinutes: newListening,
             mistakesResolvedCount: newMistakes,
+            readingCount: newReading,
             isGoalCompleted: isCompleted,
             intensityLevel: intensity,
             isOvertimeBurst: isBurst,
@@ -899,6 +924,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           cardsReviewedCount: newCards,
           listeningMinutes: newListening,
           mistakesResolvedCount: newMistakes,
+          readingCount: newReading,
           isGoalCompleted: isCompleted,
           intensityLevel: intensity,
           isOvertimeBurst: isBurst,
@@ -916,6 +942,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         dailyGoalCards: profile.dailyGoalCards,
         listeningMinutes: newListening,
         mistakesResolvedCount: newMistakes,
+        readingCount: newReading,
         isGoalCompleted: isCompleted,
         streakDays: updatedStreak,
         intensityLevel: intensity,
@@ -931,6 +958,170 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         })
       );
     }
+  }
+
+  public async getOrCreateDailyStudyPlan(
+    userId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>> {
+    try {
+      return await this.hydrateDailyStudyPlan(userId, date);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'getOrCreateDailyStudyPlan',
+          entityId: userId,
+        })
+      );
+    }
+  }
+
+  public async completeDailyPlanStep(
+    userId: string,
+    stepId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>> {
+    try {
+      const planRes = await this.hydrateDailyStudyPlan(userId, date);
+      if (!isOk(planRes)) return planRes;
+      const plan = planRes.value;
+      if (!plan.steps.some((step) => step.id === stepId)) {
+        return err(
+          new BusinessError('E_INVALID_INPUT', '当日计划中没有这一步，请刷新后重试。', 'VALIDATION')
+        );
+      }
+
+      const rows = await this.db
+        .select()
+        .from(dailyStudyPlans)
+        .where(eq(dailyStudyPlans.id, plan.id))
+        .limit(1);
+      const row = rows[0];
+      if (!row) {
+        return err(
+          new BusinessError('E_NOT_FOUND', '找不到今日学习计划，请刷新后重试。', 'LEARNER_STATE')
+        );
+      }
+
+      let completedIds = parseCompletedStepIds(safeJsonParse(row.completedStepIdsJson));
+      if (!completedIds.includes(stepId)) {
+        completedIds = [...completedIds, stepId];
+        await this.db
+          .update(dailyStudyPlans)
+          .set({ completedStepIdsJson: JSON.stringify(completedIds) })
+          .where(eq(dailyStudyPlans.id, plan.id));
+      }
+
+      return this.hydrateDailyStudyPlan(userId, plan.planDate);
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'completeDailyPlanStep',
+          entityId: stepId,
+        })
+      );
+    }
+  }
+
+  private async hydrateDailyStudyPlan(
+    userId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>> {
+    const targetDate = date || getTodayString();
+    const profileRes = await this.getLearnerProfile(userId);
+    if (!isOk(profileRes)) return profileRes;
+    const profile = profileRes.value;
+    const language = normalizeTrackLanguage(profile.targetLanguage);
+
+    const [dueRes, mistakesRes, snapshotRes, progressRes] = await Promise.all([
+      this.getDueCards(userId, 200, { dueOnly: true, language }),
+      this.getMistakes(userId, { resolved: false, language }),
+      this.getProfileSnapshot(userId, language),
+      this.getDailyTaskProgress(userId, targetDate),
+    ]);
+    if (!isOk(dueRes)) return dueRes;
+    if (!isOk(mistakesRes)) return mistakesRes;
+    if (!isOk(snapshotRes)) return snapshotRes;
+    if (!isOk(progressRes)) return progressRes;
+
+    const topWeakness = snapshotRes.value.weaknesses[0];
+    const signals = {
+      track: language,
+      dailyGoalQuizzes: profile.dailyGoalQuizzes,
+      dailyGoalCards: profile.dailyGoalCards,
+      dueCardsCount: dueRes.value.length,
+      unresolvedMistakesCount: mistakesRes.value.length,
+      ...(topWeakness ? { topWeakness: { skillId: topWeakness.id, name: topWeakness.name } } : {}),
+    };
+
+    const existingRows = await this.db
+      .select()
+      .from(dailyStudyPlans)
+      .where(
+        and(
+          eq(dailyStudyPlans.userId, userId),
+          eq(dailyStudyPlans.language, language),
+          eq(dailyStudyPlans.planDate, targetDate)
+        )
+      )
+      .limit(1);
+
+    let planId: string;
+    let createdAt: string;
+    let templates: DailyPlanStepTemplate[];
+    let completedStepIds: string[];
+
+    const existing = existingRows[0];
+    const parsedTemplates = existing
+      ? parseDailyPlanStepTemplates(safeJsonParse(existing.stepsJson))
+      : null;
+
+    if (existing && parsedTemplates) {
+      planId = existing.id;
+      createdAt = existing.createdAt;
+      templates = parsedTemplates;
+      completedStepIds = parseCompletedStepIds(safeJsonParse(existing.completedStepIdsJson));
+    } else {
+      templates = buildDailyPlanStepTemplates(signals);
+      planId = existing?.id ?? generateId('plan');
+      createdAt = existing?.createdAt ?? nowIso();
+      completedStepIds = existing
+        ? parseCompletedStepIds(safeJsonParse(existing.completedStepIdsJson))
+        : [];
+      const payload = {
+        id: planId,
+        userId,
+        language,
+        planDate: targetDate,
+        stepsJson: JSON.stringify(templates),
+        completedStepIdsJson: JSON.stringify(completedStepIds),
+        createdAt,
+      };
+      if (existing) {
+        await this.db
+          .update(dailyStudyPlans)
+          .set({
+            stepsJson: payload.stepsJson,
+            completedStepIdsJson: payload.completedStepIdsJson,
+          })
+          .where(eq(dailyStudyPlans.id, existing.id));
+      } else {
+        await this.db.insert(dailyStudyPlans).values(payload);
+      }
+    }
+
+    return ok(
+      summarizeDailyStudyPlan(planId, userId, language, targetDate, createdAt, templates, {
+        quizzesCount: progressRes.value.quizzesCount,
+        cardsReviewedCount: progressRes.value.cardsReviewedCount,
+        readingCount: progressRes.value.readingCount,
+        mistakesResolvedCount: progressRes.value.mistakesResolvedCount,
+        unresolvedMistakesCount: mistakesRes.value.length,
+        completedStepIds,
+      })
+    );
   }
 
   /**
@@ -1518,6 +1709,57 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         translateToBusinessError(error, {
           category: 'DATABASE',
           action: 'resolveMistake',
+          entityId: mistakeId,
+        })
+      );
+    }
+  }
+
+  /**
+   * 记录一次错题重做结果；是否出库完全由 SQLite 中的连续正确次数决定。
+   */
+  public async retryMistake(
+    userId: string,
+    mistakeId: string,
+    isCorrect: boolean
+  ): Promise<Result<Pick<MistakeEntry, 'consecutiveCorrect' | 'isResolved' | 'retryCount'>, BusinessError>> {
+    try {
+      const rows = await this.db
+        .select()
+        .from(mistakes)
+        .where(and(eq(mistakes.id, mistakeId), eq(mistakes.userId, userId)))
+        .limit(1);
+
+      if (rows.length === 0) {
+        return err(new BusinessError('E_NOT_FOUND', '错题记录未找到', 'DATABASE'));
+      }
+
+      const mistake = rows[0]!;
+      const consecutiveCorrect = isCorrect ? mistake.consecutiveCorrect + 1 : 0;
+      const isResolved = consecutiveCorrect >= 2;
+      const retryCount = mistake.retryCount + 1;
+
+      await this.db
+        .update(mistakes)
+        .set({
+          retryCount,
+          consecutiveCorrect,
+          isResolved,
+          lastRetriedAt: nowIso(),
+        })
+        .where(eq(mistakes.id, mistakeId));
+
+      // 仅在本次由未攻克转为攻克时计入每日完成量。
+      if (isResolved && !mistake.isResolved) {
+        await this.recordDailyActivity(userId, { mistakesResolved: 1 });
+      }
+
+      return ok({ consecutiveCorrect, isResolved, retryCount });
+    } catch (error) {
+      return err(
+        translateToBusinessError(error, {
+          category: 'DATABASE',
+          action: 'retryMistake',
           entityId: mistakeId,
         })
       );
@@ -2285,8 +2527,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         lastPracticedAt: nowIso(),
       });
 
-      // 累计当日做题数
-      await this.recordDailyActivity(userId, { quizzes: input.totalQuestions });
+      // 阅读篇目单独计数；题量仍计入 quizzes 以兼容原有每日目标
+      await this.recordDailyActivity(userId, {
+        quizzes: input.totalQuestions,
+        reading: 1,
+      });
 
       return ok({ proficiency });
     } catch (error) {

@@ -201,27 +201,44 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     (data: {
       status?: 'COMPLETED' | 'INTERRUPTED' | 'FAILED';
       source?: string;
+      // 旧字段（兼容）
       codexOutcome?: 'streamed' | 'fallback' | 'not_requested';
       codexFailureMessage?: string;
+      // P3-C 结构化字段（优先）
+      outcome?: 'streamed' | 'fallback' | 'not_requested';
+      failure?: {
+        code: string;
+        userMessage: string;
+        category: 'SESSION_CREATE' | 'STREAM' | 'QUEUE' | 'INTERRUPTED' | 'UNKNOWN';
+        retryable?: boolean;
+      };
+      fromQueue?: boolean;
     }) => {
       if (data.status === 'INTERRUPTED') {
         setCodexTurnHealth({ state: 'idle' });
         return;
       }
-      if (data.codexOutcome === 'streamed' || data.source === 'codex') {
+      // P3-C：优先读结构化 outcome / failure，旧字段作为兜底
+      const outcome = data.outcome ?? data.codexOutcome;
+      const failMessage =
+        data.failure?.userMessage || data.codexFailureMessage;
+      if (outcome === 'streamed' || data.source === 'codex') {
         setCodexTurnHealth({ state: 'healthy' });
         return;
       }
-      if (data.codexOutcome === 'fallback') {
+      if (outcome === 'fallback') {
         setCodexTurnHealth({
           state: 'fallback',
-          message: data.codexFailureMessage || 'Codex 本轮未完成，已使用本地学习提示。',
+          message: failMessage || 'Codex 本轮未完成，已使用本地学习提示。',
         });
         void refetchCodexStatus();
         return;
       }
-      if (data.status === 'FAILED') {
-        setCodexTurnHealth({ state: 'failed', message: '本轮请求未完成，请重试。' });
+      if (data.status === 'FAILED' || data.failure) {
+        setCodexTurnHealth({
+          state: 'failed',
+          message: failMessage || '本轮请求未完成，请重试。',
+        });
         void refetchCodexStatus();
       }
     },
@@ -402,6 +419,15 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         source?: string;
         threadId?: string;
         queueRemaining?: number;
+        status?: 'COMPLETED' | 'INTERRUPTED' | 'FAILED';
+        outcome?: 'streamed' | 'fallback' | 'not_requested';
+        failure?: {
+          code: string;
+          userMessage: string;
+          category: 'SESSION_CREATE' | 'STREAM' | 'QUEUE' | 'INTERRUPTED' | 'UNKNOWN';
+          retryable?: boolean;
+        };
+        fromQueue?: boolean;
       }) => {
         queueDrainRef.current = false;
         recordCodexTurnCompletion(data);
@@ -845,19 +871,36 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
               <span
                 className="inline-flex items-center gap-1 text-[10px] text-stone-500"
                 title={
-                  rateLimits.primaryResetsAt
-                    ? `重置于 ${new Date(rateLimits.primaryResetsAt * 1000).toLocaleString()}`
-                    : rateLimits.limitName || 'rate limit'
+                  [
+                    '这是 Codex 账号额度占用，不是本轮生成进度。',
+                    rateLimits.primaryResetsAt
+                      ? `重置于 ${new Date(rateLimits.primaryResetsAt * 1000).toLocaleString()}`
+                      : rateLimits.limitName || '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')
                 }
               >
                 <Gauge className="size-3" />
-                {Math.round(rateLimits.primaryUsedPercent)}%
+                额度已用 {Math.round(rateLimits.primaryUsedPercent)}%
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 text-[10px] text-stone-500 truncate">
-            {copy.headerHint} · App Server 流式
-            {coachThreadId ? ` · ${coachThreadId.slice(0, 8)}…` : ''}
+          <p
+            className={`mt-0.5 text-[10px] truncate ${
+              codexTurnHealth.state === 'fallback' || codexTurnHealth.state === 'failed'
+                ? 'text-amber-500/90'
+                : 'text-stone-500'
+            }`}
+            title={
+              codexTurnHealth.state === 'fallback' || codexTurnHealth.state === 'failed'
+                ? codexTurnHealth.message
+                : undefined
+            }
+          >
+            {codexTurnHealth.state === 'fallback' || codexTurnHealth.state === 'failed'
+              ? codexTurnHealth.message
+              : `${copy.headerHint} · App Server 流式${coachThreadId ? ` · ${coachThreadId.slice(0, 8)}…` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-0.5 shrink-0">

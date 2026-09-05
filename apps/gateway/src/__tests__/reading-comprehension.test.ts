@@ -121,6 +121,7 @@ describe('Reading Comprehension Repository & Seeds (Companion Integration)', () 
     expect(isOk(progressRes)).toBe(true);
     if (isOk(progressRes)) {
       expect(progressRes.value.quizzesCount).toBeGreaterThanOrEqual(3);
+      expect(progressRes.value.readingCount).toBeGreaterThanOrEqual(1);
     }
   });
 });

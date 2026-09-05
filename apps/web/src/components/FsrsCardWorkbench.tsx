@@ -15,17 +15,31 @@ import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
 import { DictionaryLookupPanel } from './DictionaryLookupPanel.js';
+import { PlanIntentBanner } from './PlanIntentBanner.js';
 import type { StudyCardItem } from '../data/learning-data.js';
-import { useReviewCardMutation } from '../queries/useAgentMutations.js';
 
 export function FsrsCardWorkbench() {
   const { data: cards = [] } = useCardsQuery();
   const updateCard = useUpdateCardMutation();
-  const reviewCard = useReviewCardMutation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
   const shell = useLearningShell();
   const cardSpeechLang: SupportedLanguage = trackToSpeechLang(shell.track);
+  const dictionaryCopy =
+    shell.track === 'en'
+      ? {
+          title: '英语生词本',
+          helper: '查询已安装的离线英语词典；加入后由 FSRS 计算每日复习安排。',
+        }
+      : shell.track === 'ja'
+        ? {
+            title: '日语生词本',
+            helper: '优先查询本地词典；未收录时可跳转 OJAD 自行确认，加入后由 FSRS 安排复习。',
+          }
+        : {
+            title: '韩语生词本',
+            helper: '查询本地词典；加入后由 FSRS 计算每日复习安排。',
+          };
 
   const cardFilter = useStudySessionStore((s) => s.cardFilter);
   const setCardFilter = useStudySessionStore((s) => s.setCardFilter);
@@ -39,25 +53,17 @@ export function FsrsCardWorkbench() {
 
     const fsrsCurrent = {
       stability: activeCard.stability,
-      difficulty: 5.0,
+      difficulty: activeCard.difficulty ?? 5.0,
       reps: activeCard.reps,
-      lapses: 0,
-      dueAt: new Date().toISOString(),
-      state: 'REVIEW' as const,
+      lapses: activeCard.lapses ?? 0,
+      dueAt: activeCard.dueAt ?? new Date().toISOString(),
+      state: activeCard.state ?? (activeCard.reps > 0 ? 'REVIEW' : 'NEW'),
     };
     const nextFsrs = scheduleNextReview(fsrsCurrent, rating);
 
     updateCard.mutate({
       id: activeCard.id,
-      stability: nextFsrs.stability,
-      reps: nextFsrs.reps,
-    });
-
-    reviewCard.mutate({
-      cardId: activeCard.id,
-      rating,
-      currentStability: activeCard.stability,
-      currentReps: activeCard.reps,
+      fsrs: nextFsrs,
     });
 
     setCardFlipped(false);
@@ -84,15 +90,14 @@ export function FsrsCardWorkbench() {
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col gap-5 max-w-2xl"
     >
+      <PlanIntentBanner />
       <PracticeQueueToCardsPanel />
 
-      {shell.track === 'en' && (
-        <DictionaryLookupPanel
-          language="en"
-          title="英语生词本"
-          helper="查询已安装的离线英语词典；加入后由 FSRS 计算每日复习安排。"
-        />
-      )}
+      <DictionaryLookupPanel
+        language={shell.track}
+        title={dictionaryCopy.title}
+        helper={dictionaryCopy.helper}
+      />
 
       <div className="flex items-center justify-between text-xs text-stone-500 dark:text-stone-400 gap-3">
         <span>

@@ -5,6 +5,7 @@ import { LearningProgressTool } from '../tools/learning-progress-tool.js';
 import { LearningCurriculumTool } from '../tools/learning-curriculum-tool.js';
 import { LearningLibraryTool } from '../tools/learning-library-tool.js';
 import { LearningContentTool } from '../tools/learning-content-tool.js';
+import { LearningPlanTool } from '../tools/learning-plan-tool.js';
 
 describe('learning control tools (C1–C3 / D)', () => {
   it('learning.progress records quiz attempt', async () => {
@@ -98,6 +99,18 @@ describe('learning control tools (C1–C3 / D)', () => {
     expect(isOk(dictation)).toBe(true);
     if (isOk(dictation)) {
       expect(dictation.value.dictationItems?.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('learning.plan returns a sequenced daily plan', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    await repo.updateLearnerProfile('u_plan', { targetLanguage: 'en' });
+    const tool = new LearningPlanTool(repo);
+    const res = await tool.execute({ action: 'get' }, { userId: 'u_plan', sessionId: 's1' });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.steps.length).toBeGreaterThan(0);
+      expect(res.value.steps[0]?.navigateTo).toBeDefined();
     }
   });
 });

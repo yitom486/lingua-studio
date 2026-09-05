@@ -29,8 +29,10 @@ import { GradeSubjectiveQuizTool } from './tools/grade-subjective-quiz.js';
 import { LearningContentTool, type LearningContentOutput } from './tools/learning-content-tool.js';
 import { LearningAssessTool } from './tools/learning-assess-tool.js';
 import { LearningProgressTool } from './tools/learning-progress-tool.js';
+import { LearningPlanTool } from './tools/learning-plan-tool.js';
 import { LearningCurriculumTool } from './tools/learning-curriculum-tool.js';
 import { LearningLibraryTool } from './tools/learning-library-tool.js';
+import { DictionaryLookupTool } from './tools/dictionary-lookup-tool.js';
 import { UiNavigateTool, UiPresentTool } from './tools/ui-command-tools.js';
 import {
   buildGenericCoachReply,
@@ -41,6 +43,7 @@ import {
 } from './services/learning-language-policy.js';
 import { selectAgentRoute } from './router/agent-router.js';
 import { resolveResponsesLiteCoach } from './services/responses-lite-coach.js';
+import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from './services/turn-summary-builder.js';
 
 function resolveAgentLane(
   intent: string,
@@ -70,7 +73,11 @@ export class GatewayServer {
   /** sessionId → 持久 WS 下发（旁路通知用） */
   private readonly sessionEmitters = new Map<string, (env: WsEnvelope) => void>();
 
-  constructor(learnerRepo?: LearnerRepository) {
+  constructor(
+    learnerRepo?: LearnerRepository,
+    /** @internal 测试注入 mock adapter；产品调用走默认 CodexAdapter */
+    adapterOverride?: CodexAdapter
+  ) {
     this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
     const drizzle =
       this.learnerRepo instanceof DrizzleLearnerRepository
@@ -82,12 +89,16 @@ export class GatewayServer {
     this.toolRegistry.register(new LearningContentTool(this.learnerRepo));
     this.toolRegistry.register(new LearningAssessTool(this.learnerRepo));
     this.toolRegistry.register(new LearningProgressTool(this.learnerRepo));
+    this.toolRegistry.register(new LearningPlanTool(this.learnerRepo));
     this.toolRegistry.register(new LearningCurriculumTool(drizzle));
     this.toolRegistry.register(new LearningLibraryTool(drizzle));
+    this.toolRegistry.register(new DictionaryLookupTool(drizzle));
     this.toolRegistry.register(new UiNavigateTool());
     this.toolRegistry.register(new UiPresentTool());
 
-    this.agentAdapter = new CodexAdapter({
+    this.agentAdapter =
+      adapterOverride ??
+      new CodexAdapter({
       executeTool: async (toolName, input, ctx) => {
         const tool = this.toolRegistry.get(toolName);
         if (!tool) {
@@ -820,11 +831,16 @@ export class GatewayServer {
         this.activeStreamControllers.set(envelope.sessionId, abortController);
         this.activeTurnEmit = emit;
         this.activeTurnLane.set(envelope.sessionId, agentLane);
+        // P3-C：记录回合起始时间，供执行摘要计算耗时
+        const turnStartedAt = Date.now();
 
         let reply = '';
         let toolResults: any = undefined;
         let replySource: 'codex' | 'lite' | 'keyword' | 'local' = 'local';
         let codexThreadId: string | undefined;
+        let codexFailureMessage: string | undefined;
+        // P3-C：保留 Codex 失败的结构化业务错误，供执行摘要翻译为用户友好状态（不泄漏栈）
+        let codexFailureError: BusinessError | undefined;
 
         try {
           const track = normalizeTrackLanguage(snapshot.targetLanguage);
@@ -1004,10 +1020,10 @@ export class GatewayServer {
                 this.toolRegistry.get('learning.content'),
                 this.toolRegistry.get('learning.assess'),
                 this.toolRegistry.get('learning.progress'),
+                this.toolRegistry.get('learning.plan'),
                 this.toolRegistry.get('learning.curriculum'),
                 this.toolRegistry.get('learning.library'),
-                this.toolRegistry.get('quiz.generateAdaptive'),
-                this.toolRegistry.get('quiz.gradeSubjective'),
+                this.toolRegistry.get('dictionary.lookup'),
                 this.toolRegistry.get('ui.navigate'),
                 this.toolRegistry.get('ui.present'),
               ].filter(Boolean);
@@ -1057,7 +1073,13 @@ export class GatewayServer {
                   );
                   agentSession = sessionRes.value;
                 } else {
-                  codexFailHint = sessionRes.error.userMessage || sessionRes.error.message;
+                  codexFailHint =
+                    sessionRes.error.userMessage || 'Codex 服务暂时不可用，请稍后重试。';
+                  codexFailureMessage = codexFailHint;
+                  codexFailureError = sessionRes.error;
+                  console.warn(
+                    `[codex-session] ${sessionRes.error.code} ${codexFailHint}`
+                  );
                 }
               }
 
@@ -1163,7 +1185,13 @@ export class GatewayServer {
                   } else if (ev.type === 'ERROR') {
                     streamedFromCodex = false;
                     acc = '';
-                    codexFailHint = ev.error?.userMessage || ev.error?.message || '';
+                    codexFailHint =
+                      ev.error?.userMessage || 'Codex 服务暂时不可用，请稍后重试。';
+                    codexFailureMessage = codexFailHint || undefined;
+                    codexFailureError = ev.error;
+                    console.warn(
+                      `[codex-turn] ${ev.error?.code ?? 'E_CODEX_TURN'} ${codexFailHint}`
+                    );
                     // 出错时丢弃坏会话，下轮重建
                     void agentSession.close();
                     this.sessionManager.detachAgentSession(envelope.sessionId, agentLane);
@@ -1186,7 +1214,7 @@ export class GatewayServer {
               });
               replySource = 'local';
               if (codexFailHint) {
-                reply += `\n\n—\n（Codex 未接通：${codexFailHint}；已回落本地旁路。请确认本机已 \`codex login\` 且 Gateway 能启动 Codex CLI。）`;
+                reply += formatCodexLocalFallbackNote(codexFailHint, codexFailureError);
               }
             }
 
@@ -1243,20 +1271,39 @@ export class GatewayServer {
           const queued = await this.listCodexQueue({ threadId: codexThreadId, limit: 20 });
           if (isOk(queued)) queueRemaining = queued.value.items.length;
         }
+        // P3-C：统一执行摘要（普通回合）
+        const outcome: 'streamed' | 'fallback' | 'not_requested' =
+          replySource === 'codex'
+            ? 'streamed'
+            : codexFailureMessage
+              ? 'fallback'
+              : 'not_requested';
+        const summary = buildTurnExecutionSummary({
+          status: isInterrupted ? 'INTERRUPTED' : 'COMPLETED',
+          startedAt: turnStartedAt,
+          source: replySource,
+          outcome,
+          failureError: isInterrupted ? null : codexFailureError ?? null,
+          failureCategory: isInterrupted ? 'INTERRUPTED' : codexFailureError ? undefined : undefined,
+          queueRemaining,
+          lane: agentLane,
+          threadId: codexThreadId,
+          model: preferredModel,
+          legacyFailureMessage: codexFailureMessage,
+        });
         const completedEnvelope: WsEnvelope = {
           version: '1.0',
           id: generateId('done'),
           sessionId: envelope.sessionId,
           type: WsEventTypes.AGENT_TURN_COMPLETED,
           payload: {
-            status: isInterrupted ? 'INTERRUPTED' : 'COMPLETED',
             finalOutput: reply,
             toolResults,
-            source: replySource,
-            model: preferredModel,
-            queueRemaining,
-            lane: agentLane,
-            ...(codexThreadId ? { threadId: codexThreadId } : {}),
+            // P3-C 结构化执行摘要（含 status/source/outcome/failure/elapsedMs/queueRemaining/lane/threadId/model）
+            ...summary,
+            // 旧字段兼容（codexOutcome / codexFailureMessage）保留，便于过渡期前端旧逻辑
+            codexOutcome: outcome,
+            ...(codexFailureMessage ? { codexFailureMessage } : {}),
           },
           timestamp: Date.now(),
         };
@@ -1306,6 +1353,8 @@ export class GatewayServer {
         this.activeStreamControllers.set(envelope.sessionId, abortController);
         this.activeTurnEmit = emit;
         this.activeTurnLane.set(envelope.sessionId, lane);
+        // P3-C：队列回合起始时间
+        const turnStartedAt = Date.now();
 
         if (emit) {
           emit({
@@ -1321,6 +1370,8 @@ export class GatewayServer {
         let reply = '';
         let replySource: 'codex' | 'local' = 'codex';
         let streamed = false;
+        // P3-C：队列失败时保留结构化业务错误
+        let queueFailureError: BusinessError | undefined;
         const threadId = agentSession.threadId;
 
         try {
@@ -1412,6 +1463,7 @@ export class GatewayServer {
               streamed = false;
               reply = ev.error?.userMessage || ev.error?.message || '队列启动失败';
               replySource = 'local';
+              queueFailureError = ev.error;
               break;
             }
           }
@@ -1427,6 +1479,25 @@ export class GatewayServer {
           const queued = await this.listCodexQueue({ threadId, limit: 20 });
           if (isOk(queued)) queueRemaining = queued.value.items.length;
         }
+        // P3-C：统一执行摘要（队列回合）
+        const queueStatus: 'COMPLETED' | 'INTERRUPTED' | 'FAILED' = isInterrupted
+          ? 'INTERRUPTED'
+          : streamed
+            ? 'COMPLETED'
+            : 'FAILED';
+        const queueSummary = buildTurnExecutionSummary({
+          status: queueStatus,
+          startedAt: turnStartedAt,
+          source: replySource === 'codex' ? 'codex' : 'local',
+          outcome: streamed ? 'streamed' : queueFailureError ? 'fallback' : 'not_requested',
+          failureError: isInterrupted ? null : queueFailureError ?? null,
+          failureCategory: isInterrupted ? 'INTERRUPTED' : 'QUEUE',
+          queueRemaining,
+          lane,
+          threadId,
+          fromQueue: true,
+          legacyFailureMessage: queueFailureError?.userMessage,
+        });
 
         const completedEnvelope: WsEnvelope = {
           version: '1.0',
@@ -1434,13 +1505,11 @@ export class GatewayServer {
           sessionId: envelope.sessionId,
           type: WsEventTypes.AGENT_TURN_COMPLETED,
           payload: {
-            status: isInterrupted ? 'INTERRUPTED' : streamed ? 'COMPLETED' : 'FAILED',
             finalOutput: reply,
-            source: replySource,
+            // P3-C 结构化执行摘要（含 status/source/outcome/failure/elapsedMs/queueRemaining/lane/threadId/fromQueue/model）
+            ...queueSummary,
+            // 旧字段兼容保留
             fromQueue: true,
-            queueRemaining,
-            lane,
-            ...(threadId ? { threadId } : {}),
           },
           timestamp: Date.now(),
         };

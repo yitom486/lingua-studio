@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, primaryKey, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, primaryKey, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * 学习者档案表 (Learner Profiles)
@@ -68,6 +68,7 @@ export const studyActivityLogs = sqliteTable(
     cardsReviewedCount: integer('cards_reviewed_count').notNull().default(0),
     listeningMinutes: integer('listening_minutes').notNull().default(0),
     mistakesResolvedCount: integer('mistakes_resolved_count').notNull().default(0),
+    readingCount: integer('reading_count').notNull().default(0),
     isGoalCompleted: integer('is_goal_completed', { mode: 'boolean' }).notNull().default(false),
     intensityLevel: integer('intensity_level').notNull().default(0), // 0 ~ 4
     isOvertimeBurst: integer('is_overtime_burst', { mode: 'boolean' }).notNull().default(false),
@@ -363,6 +364,29 @@ export const learningContentTemplates = sqliteTable(
       table.action,
       table.language,
       table.sortOrder
+    ),
+  })
+);
+
+/**
+ * 当日学习计划：步骤顺序按日冻结，完成态由打卡日志实时叠加
+ */
+export const dailyStudyPlans = sqliteTable(
+  'daily_study_plans',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    language: text('language').notNull(),
+    planDate: text('plan_date').notNull(), // YYYY-MM-DD
+    stepsJson: text('steps_json').notNull(),
+    completedStepIdsJson: text('completed_step_ids_json').notNull().default('[]'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    userLangDateUniq: uniqueIndex('idx_daily_plans_user_lang_date').on(
+      table.userId,
+      table.language,
+      table.planDate
     ),
   })
 );

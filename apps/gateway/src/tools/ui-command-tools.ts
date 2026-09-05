@@ -20,6 +20,7 @@ export const UiNavigateInputSchema = z.object({
     'PITCH',
     'MISTAKES',
     'RADAR',
+    'TODAY',
     'TUTOR',
   ]),
   openTutor: z.boolean().optional(),
@@ -42,7 +43,7 @@ export type UiPresentInput = z.infer<typeof UiPresentInputSchema>;
  */
 export class UiNavigateTool implements ToolDefinition<UiNavigateInput, UiNavigateInput> {
   public readonly name = 'ui.navigate';
-  public readonly description = '切换学习工作台 Tab，或打开 AI 导师抽屉。';
+  public readonly description = '切换学习工作台 Tab（含今日学习计划），或打开 AI 导师抽屉。';
   public readonly location = ToolLocations.CLIENT;
   public readonly permission = ToolPermissions.WRITE;
   public readonly schema = UiNavigateInputSchema;

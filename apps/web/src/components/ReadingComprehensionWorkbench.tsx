@@ -52,6 +52,7 @@ import {
 } from '../queries/useLearnerQueries.js';
 import type { ReadingPassageSet } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
+import { PlanIntentBanner } from './PlanIntentBanner.js';
 
 interface ReadingComprehensionWorkbenchProps {
   onOpenTutor?: (ctx: AiTutorContext) => void;
@@ -67,20 +68,16 @@ export function ReadingComprehensionWorkbench({
   const toggleFurigana = usePreferencesStore((s) => s.toggleFurigana);
 
   const [origin, setOrigin] = useState<PassageOrigin>('ai');
-  const [langFilter, setLangFilter] = useState<'ALL' | 'JA' | 'EN' | 'KO'>(shell.defaultReadingLang);
+  // 阅读内容由当前学习轨道决定，不在工作台内提供跨语言切换。
+  const readingLanguage = shell.defaultReadingLang;
   const [aiDifficulty, setAiDifficulty] = useState('2');
   const [newsTopic, setNewsTopic] = useState('world');
-
-  // 当学习轨道切换时响应式同步阅读语言过滤器
-  useEffect(() => {
-    setLangFilter(shell.defaultReadingLang);
-  }, [shell.defaultReadingLang]);
 
   // TanStack Query 服务端状态对接
   const { data: newsTopics = NEWS_TOPIC_OPTIONS } = useNewsTopicsQuery();
   const { data: dbReadingSets = [], isLoading: isSetsLoading } = useReadingSetsQuery(
     origin,
-    langFilter === 'ALL' ? undefined : langFilter
+    readingLanguage
   );
   const generateMutation = useGenerateReadingSetMutation();
   const submitPracticeMutation = useSubmitReadingPracticeMutation();
@@ -92,10 +89,10 @@ export function ReadingComprehensionWorkbench({
     if (dbReadingSets.length > 0) return dbReadingSets;
     return DEMO_READING_SETS.filter((demo) => {
       if (origin && demo.origin !== origin) return false;
-      if (langFilter !== 'ALL' && demo.language !== langFilter) return false;
+      if (demo.language !== readingLanguage) return false;
       return true;
     });
-  }, [dbReadingSets, origin, langFilter]);
+  }, [dbReadingSets, origin, readingLanguage]);
 
   const [activeSetId, setActiveSetId] = useState<string>('');
   const [stepIndex, setStepIndex] = useState(0);
@@ -145,7 +142,7 @@ export function ReadingComprehensionWorkbench({
   const totalQuestions = activeSet?.questions?.length || 1;
   const progressPct = ((stepIndex + (submitted ? 1 : 0)) / totalQuestions) * 100;
 
-  // 切换分类或语言
+  // 切换篇目来源
   const switchOrigin = (next: PassageOrigin) => {
     sound.playClick();
     speechStudio.stop();
@@ -290,8 +287,7 @@ export function ReadingComprehensionWorkbench({
   const handleGenerateNewPassage = async () => {
     sound.playClick();
     try {
-      const genLanguage: 'JA' | 'EN' | 'KO' =
-        langFilter === 'JA' ? 'JA' : langFilter === 'KO' ? 'KO' : 'EN';
+      const genLanguage = readingLanguage;
       toast.loading(
         origin === 'ai'
           ? genLanguage === 'EN'
@@ -341,7 +337,7 @@ export function ReadingComprehensionWorkbench({
     }
   };
 
-  // 左侧文章区（无匹配语种篇目时展示空态，禁止回落到他语 DEMO）
+  // 左侧文章区（当前轨道无篇目时展示空态，禁止回落到其他轨道的 DEMO）
   const passagePanel = !activeSet ? (
     <div className="h-full rounded-2xl border border-dashed border-amber-900/20 dark:border-amber-500/20 bg-[#faf9f6] dark:bg-[#1a1816] flex flex-col items-center justify-center gap-2 p-8 text-center">
       <Newspaper className="w-8 h-8 text-amber-500/70" />
@@ -349,8 +345,7 @@ export function ReadingComprehensionWorkbench({
         {shell.copy.readingEmptyHint}
       </p>
       <p className="text-xs text-stone-500">
-        当前筛选无篇目 · 可点右上角「自适应生成」创建 {langFilter === 'ALL' ? '目标语' : langFilter}{' '}
-        阅读材料
+        当前学习轨道暂无篇目 · 可点右上角「自适应生成」创建阅读材料
       </p>
     </div>
   ) : (
@@ -692,6 +687,7 @@ export function ReadingComprehensionWorkbench({
       animate={{ opacity: 1, y: 0 }}
       className="flex flex-col gap-4 w-full max-w-6xl"
     >
+      <PlanIntentBanner />
       {/* 顶部控制栏与生成器 */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-4 rounded-2xl border border-amber-900/10 dark:border-amber-500/15 bg-[#faf9f6] dark:bg-[#1a1816] shadow-xs">
         <div className="flex items-start gap-3">
@@ -716,62 +712,6 @@ export function ReadingComprehensionWorkbench({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* 语种过滤切换 */}
-          <div className="flex items-center bg-stone-200/60 dark:bg-stone-800 rounded-xl p-0.5 text-xs">
-            <button
-              onClick={() => {
-                sound.playClick();
-                setLangFilter('ALL');
-              }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                langFilter === 'ALL'
-                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-500'
-              }`}
-            >
-              全部
-            </button>
-            <button
-              onClick={() => {
-                sound.playClick();
-                setLangFilter('JA');
-              }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                langFilter === 'JA'
-                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-500'
-              }`}
-            >
-              日文
-            </button>
-            <button
-              onClick={() => {
-                sound.playClick();
-                setLangFilter('EN');
-              }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                langFilter === 'EN'
-                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-500'
-              }`}
-            >
-              英文
-            </button>
-            <button
-              onClick={() => {
-                sound.playClick();
-                setLangFilter('KO');
-              }}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
-                langFilter === 'KO'
-                  ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs'
-                  : 'text-stone-500'
-              }`}
-            >
-              韩文
-            </button>
-          </div>
-
           {/* 篇目来源切换 */}
           <Tabs value={origin} onValueChange={(v) => v && switchOrigin(v as PassageOrigin)}>
             <TabsList className="bg-stone-200/60 dark:bg-stone-800">

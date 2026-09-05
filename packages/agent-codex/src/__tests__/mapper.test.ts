@@ -84,6 +84,81 @@ describe('Agent Codex - Mapper & Adapter', () => {
     expect(events).toEqual([{ type: 'REASONING_DELTA', delta: 'think…' }]);
   });
 
+  it('maps structured TurnError instead of swallowing it as unknown internal', () => {
+    const events = mapAppServerNotificationToEvents('error', {
+      threadId: 't1',
+      turnId: 'turn_1',
+      willRetry: false,
+      error: {
+        message: 'model stream aborted after retry',
+        codexErrorInfo: null,
+        additionalDetails: 'upstream reset',
+      },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.type).toBe('ERROR');
+    if (events[0]?.type === 'ERROR') {
+      expect(events[0].error.code).toBe('E_CODEX_TURN');
+      expect(events[0].error.userMessage).toContain('model stream aborted after retry');
+      expect(events[0].error.userMessage).toContain('upstream reset');
+      expect(events[0].error.userMessage).not.toContain('一点小问题');
+      expect(events[0].error.userMessage).not.toContain('[object Object]');
+    }
+  });
+
+  it('ignores Codex error notifications that will retry', () => {
+    const events = mapAppServerNotificationToEvents('error', {
+      threadId: 't1',
+      turnId: 'turn_1',
+      willRetry: true,
+      error: {
+        message: 'temporary overload',
+        codexErrorInfo: 'serverOverloaded',
+        additionalDetails: null,
+      },
+    });
+    expect(events).toEqual([]);
+  });
+
+  it('maps usageLimitExceeded to a specific quota message', () => {
+    const events = mapAppServerNotificationToEvents('error', {
+      threadId: 't1',
+      turnId: 'turn_1',
+      willRetry: false,
+      error: {
+        message: 'usage limit',
+        codexErrorInfo: 'usageLimitExceeded',
+        additionalDetails: null,
+      },
+    });
+    expect(events[0]?.type).toBe('ERROR');
+    if (events[0]?.type === 'ERROR') {
+      expect(events[0].error.code).toBe('E_CODEX_USAGE_LIMIT');
+      expect(events[0].error.userMessage).toContain('额度');
+      expect(events[0].error.userMessage).toContain('官方');
+    }
+  });
+
+  it('maps failed turn/completed to ERROR instead of success', () => {
+    const events = mapAppServerNotificationToEvents('turn/completed', {
+      threadId: 't1',
+      turn: {
+        id: 'turn_1',
+        status: 'failed',
+        error: {
+          message: 'active turn is not steerable',
+          codexErrorInfo: { activeTurnNotSteerable: { turnKind: 'compact' } },
+          additionalDetails: null,
+        },
+      },
+    });
+    expect(events[0]?.type).toBe('ERROR');
+    if (events[0]?.type === 'ERROR') {
+      expect(events[0].error.code).toBe('E_CODEX_NOT_STEERABLE');
+      expect(events[0].error.userMessage).toContain('追问');
+    }
+  });
+
   it('maps dynamicToolCall started to TOOL_CALL_REQUESTED', () => {
     const events = mapAppServerNotificationToEvents('item/started', {
       item: {

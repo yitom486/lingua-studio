@@ -68,6 +68,8 @@ export interface DailyTaskProgress {
   dailyGoalCards: number;
   listeningMinutes: number;
   mistakesResolvedCount: number;
+  /** 当日完成的阅读篇目数（与 quizzesCount 分离，避免精读把自适应做题步骤一并勾掉） */
+  readingCount: number;
   isGoalCompleted: boolean;
   streakDays: number;
   intensityLevel: number;          // 0~4

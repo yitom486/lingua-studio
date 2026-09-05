@@ -89,6 +89,7 @@ export const DailyTaskProgressSchema = z.object({
   dailyGoalCards: z.number().int().min(1),
   listeningMinutes: z.number().int().min(0),
   mistakesResolvedCount: z.number().int().min(0),
+  readingCount: z.number().int().min(0).default(0),
   isGoalCompleted: z.boolean(),
   streakDays: z.number().int().min(0),
   intensityLevel: z.number().int().min(0).max(4),
@@ -103,6 +104,7 @@ export const RecordDailyActivitySchema = z.object({
   cards: z.number().int().min(0).optional(),
   listeningMinutes: z.number().int().min(0).optional(),
   mistakesResolved: z.number().int().min(0).optional(),
+  reading: z.number().int().min(0).optional(),
   date: z.string().optional(),
   language: TargetLanguageSchema.optional(),
 });

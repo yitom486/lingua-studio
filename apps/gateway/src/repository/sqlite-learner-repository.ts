@@ -15,6 +15,11 @@ import type {
   LearnerProfile,
   DailyTaskProgress,
   MistakeEntry,
+  DailyStudyPlan,
+} from '@study-studio/learner-core';
+import {
+  buildDailyPlanStepTemplates,
+  summarizeDailyStudyPlan,
 } from '@study-studio/learner-core';
 import type { Flashcard } from '@study-studio/protocol';
 
@@ -444,6 +449,7 @@ export class SqliteLearnerRepository implements LearnerRepository {
       dailyGoalCards: 10,
       listeningMinutes: 0,
       mistakesResolvedCount: 0,
+      readingCount: 0,
       isGoalCompleted: false,
       streakDays: 0,
       intensityLevel: 0,
@@ -459,10 +465,51 @@ export class SqliteLearnerRepository implements LearnerRepository {
       cards?: number;
       listeningMinutes?: number;
       mistakesResolved?: number;
+      reading?: number;
       date?: string;
     }
   ): Promise<Result<DailyTaskProgress, BusinessError>> {
     return this.getDailyTaskProgress(userId, delta.date);
+  }
+
+  public async getOrCreateDailyStudyPlan(
+    userId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>> {
+    const planDate = date || new Date().toISOString().slice(0, 10);
+    const templates = buildDailyPlanStepTemplates({
+      track: 'en',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+    });
+    return ok(
+      summarizeDailyStudyPlan(
+        `plan_stub_${userId}_${planDate}`,
+        userId,
+        'en',
+        planDate,
+        nowIso(),
+        templates,
+        {
+          quizzesCount: 0,
+          cardsReviewedCount: 0,
+          readingCount: 0,
+          mistakesResolvedCount: 0,
+          unresolvedMistakesCount: 0,
+          completedStepIds: [],
+        }
+      )
+    );
+  }
+
+  public async completeDailyPlanStep(
+    userId: string,
+    _stepId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>> {
+    return this.getOrCreateDailyStudyPlan(userId, date);
   }
 
   public async resolveMistake(mistakeId: string): Promise<Result<void, BusinessError>> {

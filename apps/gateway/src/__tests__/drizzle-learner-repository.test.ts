@@ -241,7 +241,7 @@ describe('DrizzleLearnerRepository', () => {
     if (!isOk(qListRes)) return;
     expect(qListRes.value.some((q) => q.id === 'q_ai_dynamized_01')).toBe(true);
 
-    // 2. 保存错题并攻克，验证 isResolved 被持久化
+    // 2. 保存错题并连续订正两次，验证攻克状态完全由 SQLite 流转
     const saveMistakeRes = await repo.saveMistake({
       id: 'mst_01',
       userId: 'student_web_01',
@@ -272,8 +272,19 @@ describe('DrizzleLearnerRepository', () => {
       consecutiveCorrect: 0,
     });
     expect(isOk(saveMistakeRes)).toBe(true);
-    const resolveRes = await repo.resolveMistake('mst_01');
-    expect(isOk(resolveRes)).toBe(true);
+    const retryOneRes = await repo.retryMistake('student_web_01', 'mst_01', true);
+    expect(isOk(retryOneRes)).toBe(true);
+    if (isOk(retryOneRes)) {
+      expect(retryOneRes.value.consecutiveCorrect).toBe(1);
+      expect(retryOneRes.value.isResolved).toBe(false);
+    }
+
+    const retryTwoRes = await repo.retryMistake('student_web_01', 'mst_01', true);
+    expect(isOk(retryTwoRes)).toBe(true);
+    if (isOk(retryTwoRes)) {
+      expect(retryTwoRes.value.consecutiveCorrect).toBe(2);
+      expect(retryTwoRes.value.isResolved).toBe(true);
+    }
 
     const mistakesRes = await repo.getMistakes('student_web_01');
     expect(isOk(mistakesRes)).toBe(true);
@@ -281,7 +292,7 @@ describe('DrizzleLearnerRepository', () => {
 
     const resolvedMistake = mistakesRes.value.find((m) => m.id === 'mst_01');
     expect(resolvedMistake?.isResolved).toBe(true);
-    expect(resolvedMistake?.consecutiveCorrect).toBeGreaterThanOrEqual(1);
+    expect(resolvedMistake?.consecutiveCorrect).toBe(2);
   });
 
   it('isolates study goals and questions by target language track', async () => {
@@ -346,5 +357,35 @@ describe('DrizzleLearnerRepository', () => {
     if (!isOk(enQs)) return;
     expect(enQs.value.some((q) => q.id === 'q_en_only')).toBe(true);
     expect(enQs.value.some((q) => q.id === 'q_ja_only')).toBe(false);
+  });
+
+  it('creates a stable daily study plan and overlays live activity', async () => {
+    const userId = 'plan_user_01';
+    await repo.updateLearnerProfile(userId, { targetLanguage: 'en' });
+
+    const first = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(first)).toBe(true);
+    if (!isOk(first)) return;
+    expect(first.value.planDate).toBe('2026-09-05');
+    expect(first.value.steps[0]?.kind).toBe('NEW_WORDS');
+    expect(first.value.steps.some((s) => s.kind === 'READING')).toBe(true);
+    expect(first.value.steps.some((s) => s.kind === 'QUIZ')).toBe(true);
+
+    const second = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(second)).toBe(true);
+    if (!isOk(second)) return;
+    expect(second.value.id).toBe(first.value.id);
+    expect(second.value.steps.map((s) => s.kind)).toEqual(first.value.steps.map((s) => s.kind));
+
+    await repo.recordDailyActivity(userId, { cards: 1, date: '2026-09-05' });
+    const afterCards = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(afterCards)).toBe(true);
+    if (!isOk(afterCards)) return;
+    expect(afterCards.value.steps.find((s) => s.kind === 'NEW_WORDS')?.done).toBe(true);
+
+    const marked = await repo.completeDailyPlanStep(userId, 'step_quiz', '2026-09-05');
+    expect(isOk(marked)).toBe(true);
+    if (!isOk(marked)) return;
+    expect(marked.value.steps.find((s) => s.kind === 'QUIZ')?.done).toBe(true);
   });
 });

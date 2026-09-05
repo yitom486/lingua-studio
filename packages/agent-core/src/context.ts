@@ -22,6 +22,8 @@ export interface LearnerDigest {
   streakDays?: number | undefined;
   recentErrorTags?: string[] | undefined;
   kanaMastery?: { hiragana: number; katakana: number } | undefined;
+  /** 今日计划尚未完成的步骤标题，供教练按序引导 */
+  dailyPlanRemaining?: string[] | undefined;
 }
 
 export interface ContextSnapshot {

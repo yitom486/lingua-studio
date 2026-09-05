@@ -13,6 +13,7 @@ import {
   Sun,
   Newspaper,
   PenLine,
+  CalendarCheck,
 } from 'lucide-react';
 import { sound } from '../utils/audio.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
@@ -51,6 +52,15 @@ export function useCommandActions(unresolvedMistakeCount: number): CommandAction
 
   return useMemo(
     () => [
+      {
+        id: 'nav-today',
+        category: '导航',
+        title: '前往今日学习计划',
+        subtitle: '按输入 → 精读 → 练习的顺序串联现有模块',
+        icon: <CalendarCheck className="w-4 h-4" />,
+        shortcut: 'Tab 0',
+        onSelect: () => setActiveTab('TODAY'),
+      },
       {
         id: 'nav-quiz',
         category: '导航',

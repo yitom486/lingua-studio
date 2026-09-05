@@ -30,6 +30,11 @@ export interface StudyCardItem {
   note?: string;
   stability: number;
   reps: number;
+  /** 完整 FSRS 快照；用于下一次排程，不能在前端重置为默认值。 */
+  difficulty?: number;
+  lapses?: number;
+  state?: 'NEW' | 'LEARNING' | 'REVIEW' | 'RELEARNING';
+  lastReviewedAt?: string;
   /** FSRS 到期时间（ISO）；缺省视为待复习 */
   dueAt?: string;
 }

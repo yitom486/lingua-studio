@@ -8,6 +8,7 @@ import { SqliteLearnerRepository } from './repository/sqlite-learner-repository.
 import {
   type WsEnvelope,
   type LearnerProfile,
+  type ReadingPassageSet,
   WsEventTypes,
   listNewsTopics,
 } from '@study-studio/protocol';
@@ -20,7 +21,6 @@ import {
   normalizeContentLanguage,
   DEFAULT_CONTENT_LANGUAGE,
 } from './services/learning-language-policy.js';
-import { buildOjadSearchUrl } from './services/dictionary-external-links.js';
 import {
   installDictionaryPackage,
   listDictionaryPackages,
@@ -435,34 +435,18 @@ export const app = new Hono()
   })
   // 本地词典优先；仅在日语本地未命中时提供 OJAD 外链，不代理或抓取 OJAD。
   .get('/api/dictionary/:language', async (c) => {
-    const language = c.req.param('language');
-    const query = c.req.query('q')?.trim() ?? '';
-    if (language !== 'ja' && language !== 'en' && language !== 'ko') {
-      return formatBusinessErrorResponse(
-        c,
-        new BusinessError('E_INVALID_INPUT', '暂不支持该词典语种。', 'VALIDATION'),
-        'dictionaryLookup'
-      );
+    const result = await gatewayServer.toolRegistry.execute(
+      'dictionary.lookup',
+      {
+        language: c.req.param('language'),
+        query: c.req.query('q') ?? '',
+      },
+      { userId: 'dictionary_http', sessionId: 'dictionary_http' }
+    );
+    if (!isOk(result)) {
+      return formatBusinessErrorResponse(c, result.error, 'dictionaryLookup');
     }
-    if (!query) {
-      return formatBusinessErrorResponse(
-        c,
-        new BusinessError('E_INVALID_INPUT', '请输入要查询的词汇。', 'VALIDATION'),
-        'dictionaryLookup'
-      );
-    }
-
-    const result = await drizzleRepo.searchLocalDictionary(language, query);
-    if (!isOk(result)) return formatBusinessErrorResponse(c, result.error);
-    const externalUrl = result.value.length === 0 && language === 'ja'
-      ? buildOjadSearchUrl(query)
-      : undefined;
-    return c.json({
-      entries: result.value,
-      externalLookup: externalUrl
-        ? { provider: 'OJAD', url: externalUrl, opensExternally: true }
-        : undefined,
-    });
+    return c.json(result.value);
   })
   // 将公共词典资产收集为用户自己的 FSRS 生词卡；Web、桌面端与未来 Agent Tool 共用。
   .post('/api/vocabulary/:userId/entries/:entryId/collect', async (c) => {
@@ -520,6 +504,7 @@ export const app = new Hono()
       cards?: number;
       listeningMinutes?: number;
       mistakesResolved?: number;
+      reading?: number;
       date?: string;
     }),
     async (c) => {
@@ -531,6 +516,38 @@ export const app = new Hono()
         return formatBusinessErrorResponse(c, res.error);
       } catch (e: any) {
         return formatBusinessErrorResponse(c, e, 'recordDailyActivity');
+      }
+    }
+  )
+  .get('/api/learning/plan/:userId', async (c) => {
+    try {
+      const userId = c.req.param('userId');
+      const date = c.req.query('date') || undefined;
+      const res = await drizzleRepo.getOrCreateDailyStudyPlan(userId, date);
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'getDailyStudyPlan');
+    }
+  })
+  .post(
+    '/api/learning/plan/:userId/complete',
+    validator('json', (value) => value as { stepId?: string; date?: string }),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json');
+        if (!body.stepId) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '标记完成需要 stepId', 'VALIDATION')
+          );
+        }
+        const res = await drizzleRepo.completeDailyPlanStep(userId, body.stepId, body.date);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'completeDailyPlanStep');
       }
     }
   )
@@ -618,6 +635,25 @@ export const app = new Hono()
     if (isOk(res)) return c.json({ success: true, mistakeId });
     return formatBusinessErrorResponse(c, res.error);
   })
+  .post(
+    '/api/mistakes/:userId/retry/:mistakeId',
+    validator('json', (value) => value as { isCorrect?: boolean }),
+    async (c) => {
+      const userId = c.req.param('userId');
+      const mistakeId = c.req.param('mistakeId');
+      const { isCorrect } = c.req.valid('json');
+      if (typeof isCorrect !== 'boolean') {
+        return formatBusinessErrorResponse(
+          c,
+          new BusinessError('E_INVALID_INPUT', '请提供本次订正是否正确。', 'VALIDATION'),
+          'retryMistake'
+        );
+      }
+      const res = await drizzleRepo.retryMistake(userId, mistakeId, isCorrect);
+      if (isOk(res)) return c.json({ success: true, mistakeId, ...res.value });
+      return formatBusinessErrorResponse(c, res.error, 'retryMistake');
+    }
+  )
   // 5. AI 自适应靶向弱项出题与题库持久化
   .get('/api/questions/:userId', async (c) => {
     const userId = c.req.param('userId');

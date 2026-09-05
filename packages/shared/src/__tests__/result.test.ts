@@ -8,6 +8,7 @@ import {
   mapResult,
   mapErr,
   BusinessError,
+  extractErrorText,
   translateToBusinessError,
 } from '../index.js';
 
@@ -95,5 +96,33 @@ describe('Result<T, E> & Error Translation Chain', () => {
     const result = translateToBusinessError(original);
 
     expect(result).toBe(original);
+  });
+
+  it('extracts TurnError-shaped objects instead of [object Object]', () => {
+    const bizErr = translateToBusinessError(
+      {
+        message: 'model stream aborted after retry',
+        codexErrorInfo: null,
+        additionalDetails: null,
+      },
+      'CODEX_NOTIFY'
+    );
+
+    expect(bizErr.userMessage).toContain('model stream aborted after retry');
+    expect(bizErr.userMessage).not.toContain('一点小问题');
+    expect(bizErr.userMessage).not.toContain('[object Object]');
+  });
+
+  it('extractErrorText never falls back to [object Object]', () => {
+    expect(String({ message: 'hidden' })).toBe('[object Object]');
+    expect(extractErrorText({ message: 'hidden' })).toBe('hidden');
+    expect(extractErrorText({ error: { message: 'nested rpc' } })).toBe('nested rpc');
+    expect(
+      extractErrorText({
+        code: -32000,
+        data: { message: 'turn failed in data' },
+      })
+    ).toBe('turn failed in data');
+    expect(extractErrorText({ message: '  boom  ' })).toBe('boom');
   });
 });

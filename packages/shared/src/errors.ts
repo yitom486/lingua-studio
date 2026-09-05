@@ -27,6 +27,55 @@ export class BusinessError extends Error {
   }
 }
 
+const MAX_EXTRACTED_MESSAGE = 240;
+
+/**
+ * 从 Error / JSON-RPC / Codex TurnError 等异构载荷里抽出可读文案。
+ * 禁止把普通对象落到 `[object Object]`。
+ */
+export function extractErrorText(rawError: unknown, depth = 0): string {
+  if (rawError == null || depth > 4) return '';
+  if (typeof rawError === 'string') return rawError.trim();
+  if (rawError instanceof Error) {
+    return (rawError.message || rawError.name || '').trim();
+  }
+  if (typeof rawError !== 'object') {
+    const text = String(rawError);
+    return text === '[object Object]' ? '' : text.trim();
+  }
+
+  const rec = rawError as Record<string, unknown>;
+  const direct = [rec.message, rec.userMessage, rec.reason, rec.detail, rec.description].find(
+    (value) => typeof value === 'string' && value.trim()
+  );
+  if (typeof direct === 'string') return direct.trim();
+
+  if (rec.error != null && rec.error !== rawError) {
+    const nested = extractErrorText(rec.error, depth + 1);
+    if (nested) return nested;
+  }
+  if (rec.data != null && rec.data !== rawError) {
+    const nested = extractErrorText(rec.data, depth + 1);
+    if (nested) return nested;
+  }
+
+  try {
+    const json = JSON.stringify(rawError);
+    if (json && json !== '{}' && json !== '[]' && json !== 'null') {
+      return json.length > MAX_EXTRACTED_MESSAGE
+        ? `${json.slice(0, MAX_EXTRACTED_MESSAGE)}…`
+        : json;
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+function looksLikeStackTrace(text: string): boolean {
+  return /\n\s+at\s+\S/.test(text) || (text.length > 400 && text.includes('    at '));
+}
+
 /**
  * 将底层不可预期的异常（网络报错、进程崩溃、数据库异常、JSON解析错误等）
  * 统一翻译为用户友好的业务领域错误
@@ -39,7 +88,7 @@ export function translateToBusinessError(
     return rawError;
   }
 
-  const errMessage = rawError instanceof Error ? rawError.message : String(rawError);
+  const errMessage = extractErrorText(rawError);
   const errName = rawError instanceof Error ? rawError.name : '';
 
   // 1. 网络与连接拒绝翻译
@@ -118,23 +167,28 @@ export function translateToBusinessError(
     );
   }
 
-  // 6. 底层 Codex / AI 引擎异常翻译
-  if (errMessage.includes('codex') || errMessage.includes('app-server')) {
+  // 6. 底层 Codex / AI 引擎异常翻译：保留原文，避免把对象/具体原因吞掉
+  if (errMessage.toLowerCase().includes('codex') || errMessage.includes('app-server')) {
+    const clipped =
+      errMessage.length > MAX_EXTRACTED_MESSAGE
+        ? `${errMessage.slice(0, MAX_EXTRACTED_MESSAGE)}…`
+        : errMessage;
     return new BusinessError(
       'E_AGENT_ENGINE_ERROR',
-      'AI 辅导引擎遇到了一个临时故障，正在为您重新准备教学环境。',
+      `Codex 本轮未完成：${clipped}`,
       'AGENT_RUNTIME',
       true,
       { raw: errMessage, context: contextTag }
     );
   }
 
-  // 7. 兜底未知异常
-  return new BusinessError(
-    'E_UNKNOWN_INTERNAL',
-    '系统遇到了一点小问题，请稍后重试。',
-    'INTERNAL',
-    true,
-    { raw: errMessage, context: contextTag }
-  );
+  // 7. 兜底未知异常：有可读原文就带上，不再把对象吞成「一点小问题」
+  const friendlyFallback =
+    errMessage && !looksLikeStackTrace(errMessage)
+      ? `本轮未完成：${errMessage.length > MAX_EXTRACTED_MESSAGE ? `${errMessage.slice(0, MAX_EXTRACTED_MESSAGE)}…` : errMessage}`
+      : '系统遇到了一点小问题，请稍后重试。';
+  return new BusinessError('E_UNKNOWN_INTERNAL', friendlyFallback, 'INTERNAL', true, {
+    raw: errMessage,
+    context: contextTag,
+  });
 }

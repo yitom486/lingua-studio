@@ -1,0 +1,430 @@
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { GatewayServer } from '../server.js';
+import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { WsEventTypes, type WsEnvelope, type TurnExecutionSummary } from '@study-studio/protocol';
+import { isOk, BusinessError } from '@study-studio/shared';
+import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../services/turn-summary-builder.js';
+import type { AgentEvent, AgentSession } from '@study-studio/agent-core';
+import type { Result } from '@study-studio/shared';
+import { mapAppServerNotificationToEvents, type CodexAdapter } from '@study-studio/agent-codex';
+
+// ---------------------------------------------------------------------------
+// 纯函数 builder 单测：覆盖 4 种场景的结构化摘要构造
+// ---------------------------------------------------------------------------
+
+describe('buildTurnExecutionSummary (P3-C pure builder)', () => {
+  const startedAt = Date.now() - 1500;
+
+  it('建会话失败 → fallback + SESSION_CREATE 失败原因', () => {
+    const failureError = new BusinessError(
+      'E_CODEX_SESSION_CREATE',
+      'Codex 登录态失效，请重新 login。',
+      'AGENT_RUNTIME',
+      true
+    );
+    const summary = buildTurnExecutionSummary({
+      status: 'COMPLETED',
+      startedAt,
+      source: 'local',
+      outcome: 'fallback',
+      failureError,
+    });
+    expect(summary.status).toBe('COMPLETED');
+    expect(summary.outcome).toBe('fallback');
+    expect(summary.source).toBe('local');
+    expect(summary.failure).toBeDefined();
+    expect(summary.failure?.code).toBe('E_CODEX_SESSION_CREATE');
+    expect(summary.failure?.userMessage).toBe('Codex 登录态失效，请重新 login。');
+    expect(summary.failure?.category).toBe('SESSION_CREATE');
+    expect(summary.failure?.retryable).toBe(true);
+    expect(typeof summary.elapsedMs).toBe('number');
+    expect(summary.elapsedMs!).toBeGreaterThanOrEqual(1500);
+  });
+
+  it('流中失败 → fallback + STREAM 失败原因（不泄漏错误栈）', () => {
+    const failureError = new BusinessError('E_CODEX_STREAM', '流式中断，请重试。', 'AGENT_RUNTIME');
+    const summary = buildTurnExecutionSummary({
+      status: 'COMPLETED',
+      startedAt,
+      source: 'local',
+      outcome: 'fallback',
+      failureError,
+    });
+    expect(summary.outcome).toBe('fallback');
+    expect(summary.failure?.category).toBe('STREAM');
+    expect(summary.failure?.userMessage).toBe('流式中断，请重试。');
+    expect(summary.failure?.userMessage).not.toContain('Error');
+    expect(summary.failure?.code).toBe('E_CODEX_STREAM');
+  });
+
+  it('队列失败 → FAILED + QUEUE 失败原因', () => {
+    const failureError = new BusinessError('E_CODEX_QUEUE', '队列启动失败，请重试。', 'AGENT_RUNTIME', true);
+    const summary = buildTurnExecutionSummary({
+      status: 'FAILED',
+      startedAt,
+      source: 'local',
+      outcome: 'fallback',
+      failureError,
+      failureCategory: 'QUEUE',
+      fromQueue: true,
+      queueRemaining: 2,
+    });
+    expect(summary.status).toBe('FAILED');
+    expect(summary.failure?.category).toBe('QUEUE');
+    expect(summary.fromQueue).toBe(true);
+    expect(summary.queueRemaining).toBe(2);
+    expect(summary.failure?.retryable).toBe(true);
+  });
+
+  it('用户中断 → INTERRUPTED + INTERRUPTED 类别，无原始 error', () => {
+    const summary = buildTurnExecutionSummary({
+      status: 'INTERRUPTED',
+      startedAt,
+      source: 'local',
+      outcome: 'not_requested',
+      failureError: null,
+      failureCategory: 'INTERRUPTED',
+    });
+    expect(summary.status).toBe('INTERRUPTED');
+    expect(summary.failure?.category).toBe('INTERRUPTED');
+    expect(summary.failure?.code).toBe('E_TURN_INTERRUPTED');
+    expect(summary.failure?.userMessage).toBe('本轮已中断。');
+  });
+
+  it('Codex 真流式成功 → streamed，无 failure', () => {
+    const summary = buildTurnExecutionSummary({
+      status: 'COMPLETED',
+      startedAt,
+      source: 'codex',
+      outcome: 'streamed',
+      threadId: 'thread_abc',
+      lane: 'coach',
+      model: 'gpt-5',
+    });
+    expect(summary.outcome).toBe('streamed');
+    expect(summary.source).toBe('codex');
+    expect(summary.failure).toBeUndefined();
+    expect(summary.threadId).toBe('thread_abc');
+    expect(summary.model).toBe('gpt-5');
+  });
+
+  it('无结构化 error 时用 legacyFailureMessage 兜底', () => {
+    const summary = buildTurnExecutionSummary({
+      status: 'COMPLETED',
+      startedAt,
+      source: 'local',
+      outcome: 'fallback',
+      legacyFailureMessage: 'Codex 服务暂时不可用。',
+    });
+    expect(summary.failure?.userMessage).toBe('Codex 服务暂时不可用。');
+    expect(summary.failure?.category).toBe('UNKNOWN');
+  });
+
+  it('本地回退脚注带上真实原因，且默认不提 Gateway', () => {
+    const note = formatCodexLocalFallbackNote(
+      'Codex 本轮未完成：model stream aborted',
+      new BusinessError('E_CODEX_TURN', 'Codex 本轮未完成：model stream aborted', 'AGENT_RUNTIME', true)
+    );
+    expect(note).toContain('model stream aborted');
+    expect(note).toContain('重试 Codex');
+    expect(note).not.toContain('Gateway');
+    expect(note).not.toContain('一点小问题');
+    expect(note).not.toContain('codex login');
+  });
+
+  it('仅登录/断连类错误才提示本机 codex login', () => {
+    const loginNote = formatCodexLocalFallbackNote(
+      '本机 Codex 登录已失效。请在终端执行 codex login 后重试。',
+      new BusinessError('E_CODEX_UNAUTHORIZED', '本机 Codex 登录已失效。', 'SECURITY', false)
+    );
+    expect(loginNote).toContain('codex login');
+    expect(loginNote).not.toContain('Gateway');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 集成测试：通过可注入 mock adapter 模拟 4 种端到端场景
+// ---------------------------------------------------------------------------
+
+function makeMockAdapter(opts: {
+  scenario: 'session-create-fail' | 'stream-error' | 'queue-error' | 'success' | 'interruptible';
+  threadId?: string;
+  streamError?: BusinessError;
+}): CodexAdapter {
+  const threadId = opts.threadId ?? 'mock-thread-001';
+  const okResult = <T>(value: T): Result<T, BusinessError> => ({ ok: true, value } as any);
+
+  const session: AgentSession & {
+    sendQueued(opts?: { queuedSubmissionId?: string; approvalPolicy?: string }): AsyncIterable<AgentEvent>;
+  } = {
+    sessionId: 'mock-sess',
+    threadId,
+    async *send(_input): AsyncIterable<AgentEvent> {
+      if (opts.scenario === 'stream-error') {
+        yield { type: 'TEXT_DELTA', delta: '部分回复' };
+        yield {
+          type: 'ERROR',
+          error:
+            opts.streamError ??
+            new BusinessError('E_CODEX_STREAM', '流式中断，请重试。', 'AGENT_RUNTIME'),
+        };
+        return;
+      }
+      if (opts.scenario === 'interruptible') {
+        yield { type: 'TEXT_DELTA', delta: '第1段' };
+        yield { type: 'TEXT_DELTA', delta: '第2段' };
+        yield { type: 'TEXT_DELTA', delta: '第3段' };
+        yield { type: 'COMPLETED', finalOutput: '第1段第2段第3段' };
+        return;
+      }
+      yield { type: 'TEXT_DELTA', delta: '你好，这是 mock 回复。' };
+      yield { type: 'COMPLETED', finalOutput: '你好，这是 mock 回复。' };
+    },
+    async *sendQueued(_options: { queuedSubmissionId?: string; approvalPolicy?: string } = {}): AsyncIterable<AgentEvent> {
+      if (opts.scenario === 'queue-error') {
+        yield {
+          type: 'ERROR',
+          error: new BusinessError('E_CODEX_QUEUE', '队列启动失败，请重试。', 'AGENT_RUNTIME', true),
+        };
+        return;
+      }
+      yield { type: 'TEXT_DELTA', delta: '队列回复' };
+      yield { type: 'COMPLETED', finalOutput: '队列回复' };
+    },
+    async submitToolResult() {
+      return okResult(undefined);
+    },
+    async submitApproval() {
+      return okResult(undefined);
+    },
+    async steer() {
+      return okResult(undefined);
+    },
+    async interrupt() {
+      return okResult(undefined);
+    },
+    async close() {
+      return okResult(undefined);
+    },
+  };
+
+  const adapter = {
+    id: 'mock',
+    name: 'Mock',
+    async createSession(): Promise<Result<AgentSession, BusinessError>> {
+      if (opts.scenario === 'session-create-fail') {
+        return {
+          ok: false,
+          error: new BusinessError(
+            'E_CODEX_SESSION_CREATE',
+            'Codex 登录态失效，请重新 login。',
+            'AGENT_RUNTIME',
+            true
+          ),
+        } as any;
+      }
+      return okResult(session);
+    },
+    async resumeSession(): Promise<Result<AgentSession, BusinessError>> {
+      return okResult(session);
+    },
+    async queueList(): Promise<Result<{ items: unknown[] }, BusinessError>> {
+      return okResult({ items: [] });
+    },
+  };
+
+  return adapter as unknown as CodexAdapter;
+}
+
+function getSummary(envelopes: WsEnvelope[]): TurnExecutionSummary | undefined {
+  const done = envelopes.find((e) => e.type === WsEventTypes.AGENT_TURN_COMPLETED);
+  return done?.payload as TurnExecutionSummary | undefined;
+}
+
+function collectStreamedText(envelopes: WsEnvelope[]): string {
+  return envelopes
+    .filter((e) => e.type === WsEventTypes.AGENT_TEXT_DELTA)
+    .map((e) => {
+      const payload = e.payload as { delta?: string; textDelta?: string; finalOutput?: string };
+      return String(payload?.delta ?? payload?.textDelta ?? '');
+    })
+    .join('');
+}
+
+/** 创建 WS 学习会话，返回其 id（供后续 turn/queue 信封复用） */
+function createWsSession(server: GatewayServer): string {
+  const res = server.sessionManager.createSession('student_web_01', 'ja', 'N4');
+  if (!isOk(res)) throw new Error('createSession failed');
+  return res.value.id;
+}
+
+function makeTurnEnvelope(sessionId: string, input = '请帮我讲解这个语法点'): WsEnvelope {
+  return {
+    version: '1.0',
+    id: `env_${sessionId}`,
+    sessionId,
+    type: WsEventTypes.CLIENT_TURN_SEND,
+    payload: {
+      userId: 'student_web_01',
+      input,
+      intent: 'FREE_COACH',
+      contextSnapshot: { targetLanguage: 'ja' },
+      agentOptions: { preferCodex: true, lane: 'coach' },
+    },
+    timestamp: Date.now(),
+  };
+}
+
+function makeQueueStartEnvelope(sessionId: string): WsEnvelope {
+  return {
+    version: '1.0',
+    id: `env_q_${sessionId}`,
+    sessionId,
+    type: WsEventTypes.CLIENT_QUEUE_START,
+    payload: { lane: 'coach' },
+    timestamp: Date.now(),
+  };
+}
+
+describe('P3-C Gateway 回合执行摘要（4 场景端到端）', () => {
+  let repo: DrizzleLearnerRepository;
+
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  it('场景1 建会话失败：Codex createSession 失败 → fallback + 结构化 failure', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'session-create-fail' }));
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+    const res = await server.handleClientMessage(makeTurnEnvelope(sessionId), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(res)).toBe(true);
+
+    const summary = getSummary(envelopes);
+    expect(summary).toBeDefined();
+    expect(summary?.status).toBe('COMPLETED');
+    expect(summary?.outcome).toBe('fallback');
+    expect(summary?.source).toBe('local');
+    expect(summary?.failure).toBeDefined();
+    expect(summary?.failure?.category).toBe('SESSION_CREATE');
+    expect(summary?.failure?.code).toBe('E_CODEX_SESSION_CREATE');
+    expect(summary?.failure?.userMessage).toBe('Codex 登录态失效，请重新 login。');
+    expect(summary?.failure?.retryable).toBe(true);
+    expect((summary as any)?.codexOutcome).toBe('fallback');
+    expect(typeof summary?.elapsedMs).toBe('number');
+    expect(summary?.failure?.userMessage).not.toMatch(/ECONN|fetch failed|stack/i);
+  });
+
+  it('场景2 流中失败：Codex 流式 ERROR → fallback + STREAM failure', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'stream-error' }));
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+    const res = await server.handleClientMessage(makeTurnEnvelope(sessionId), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(res)).toBe(true);
+
+    const summary = getSummary(envelopes);
+    expect(summary?.status).toBe('COMPLETED');
+    expect(summary?.outcome).toBe('fallback');
+    expect(summary?.failure?.category).toBe('STREAM');
+    expect(summary?.failure?.code).toBe('E_CODEX_STREAM');
+    expect(summary?.failure?.userMessage).toBe('流式中断，请重试。');
+  });
+
+  it('对象 TurnError 经映射后回退文案带原文，且不误导检查 Gateway', async () => {
+    const mapped = mapAppServerNotificationToEvents('error', {
+      threadId: 't1',
+      turnId: 'turn_1',
+      willRetry: false,
+      error: {
+        message: 'model stream aborted after retry',
+        codexErrorInfo: null,
+        additionalDetails: 'upstream reset',
+      },
+    });
+    expect(mapped[0]?.type).toBe('ERROR');
+    if (mapped[0]?.type !== 'ERROR') throw new Error('expected ERROR event');
+
+    const server = new GatewayServer(
+      repo,
+      makeMockAdapter({ scenario: 'stream-error', streamError: mapped[0].error })
+    );
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+    const res = await server.handleClientMessage(makeTurnEnvelope(sessionId), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(res)).toBe(true);
+
+    const summary = getSummary(envelopes);
+    const reply = collectStreamedText(envelopes);
+    expect(summary?.outcome).toBe('fallback');
+    expect(summary?.failure?.code).toBe('E_CODEX_TURN');
+    expect(summary?.failure?.userMessage).toContain('model stream aborted after retry');
+    expect(reply).toContain('model stream aborted after retry');
+    expect(reply).toContain('重试 Codex');
+    expect(reply).not.toContain('Gateway');
+    expect(reply).not.toContain('一点小问题');
+    expect(reply).not.toContain('[object Object]');
+  });
+
+  it('场景3 队列失败：sendQueued ERROR → FAILED + QUEUE failure', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'queue-error' }));
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+    const turnRes = await server.handleClientMessage(makeTurnEnvelope(sessionId), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(turnRes)).toBe(true);
+    expect(getSummary(envelopes)?.outcome).toBe('streamed');
+
+    envelopes.length = 0;
+    const qRes = await server.handleClientMessage(makeQueueStartEnvelope(sessionId), (e) =>
+      envelopes.push(e)
+    );
+    expect(isOk(qRes)).toBe(true);
+
+    const summary = getSummary(envelopes);
+    expect(summary?.status).toBe('FAILED');
+    expect(summary?.outcome).toBe('fallback');
+    expect(summary?.fromQueue).toBe(true);
+    expect(summary?.failure?.category).toBe('QUEUE');
+    expect(summary?.failure?.code).toBe('E_CODEX_QUEUE');
+    expect(summary?.failure?.userMessage).toBe('队列启动失败，请重试。');
+    expect(summary?.failure?.retryable).toBe(true);
+  });
+
+  it('场景4 用户中断：CLIENT_TURN_INTERRUPT → INTERRUPTED + INTERRUPTED failure', async () => {
+    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'interruptible' }));
+    const sessionId = createWsSession(server);
+    const envelopes: WsEnvelope[] = [];
+
+    const handlePromise = server.handleClientMessage(makeTurnEnvelope(sessionId), (evt) => {
+      envelopes.push(evt);
+      if (evt.type === WsEventTypes.AGENT_TEXT_DELTA && envelopes.length === 2) {
+        void server.handleClientMessage({
+          version: '1.0',
+          id: 'env_interrupt_call',
+          sessionId,
+          type: WsEventTypes.CLIENT_TURN_INTERRUPT,
+          payload: { lane: 'coach' },
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    const res = await handlePromise;
+    expect(isOk(res)).toBe(true);
+
+    const summary = getSummary(envelopes);
+    expect(summary?.status).toBe('INTERRUPTED');
+    expect(summary?.failure?.category).toBe('INTERRUPTED');
+    expect(summary?.failure?.code).toBe('E_TURN_INTERRUPTED');
+    expect(summary?.failure?.userMessage).toBe('本轮已中断。');
+    expect(summary?.failure?.userMessage).not.toMatch(/ECONN|stack|fetch failed/i);
+  });
+});
+

@@ -5,6 +5,7 @@ import type {
   LearnerProfile,
   DailyTaskProgress,
 } from './types.js';
+import type { DailyStudyPlan } from './daily-plan.js';
 import type { Flashcard } from '@study-studio/protocol';
 import type { MistakeEntry } from './mistake.js';
 
@@ -38,9 +39,21 @@ export interface LearnerRepository {
       cards?: number;
       listeningMinutes?: number;
       mistakesResolved?: number;
+      reading?: number;
       date?: string;
     }
   ): Promise<Result<DailyTaskProgress, BusinessError>>;
+
+  /** 获取或生成当日学习计划（步骤顺序稳定，done 由实时学情叠加） */
+  getOrCreateDailyStudyPlan(
+    userId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>>;
+  completeDailyPlanStep(
+    userId: string,
+    stepId: string,
+    date?: string
+  ): Promise<Result<DailyStudyPlan, BusinessError>>;
 
   // 技能雷达
   saveSkillMetric(userId: string, metric: SkillMetric): Promise<Result<void, BusinessError>>;

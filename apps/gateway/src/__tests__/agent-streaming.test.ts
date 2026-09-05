@@ -61,6 +61,7 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
     expect(completeEvt).toBeDefined();
     expect((completeEvt?.payload as any).status).toBe('COMPLETED');
     expect((completeEvt?.payload as any).finalOutput).toBe(accumulatedText);
+    expect((completeEvt?.payload as any).codexOutcome).toBe('not_requested');
   });
 
   it('should allow CLIENT_TURN_INTERRUPT to halt streaming generation', async () => {
