@@ -843,6 +843,22 @@ export class GatewayServer {
                         timestamp: Date.now(),
                       });
                     }
+                  } else if (ev.type === 'APPROVAL_REQUESTED') {
+                    if (emit) {
+                      emit({
+                        version: '1.0',
+                        id: generateId('appr'),
+                        sessionId: envelope.sessionId,
+                        type: WsEventTypes.AGENT_APPROVAL_REQUEST,
+                        payload: {
+                          approvalId: ev.approvalId,
+                          action: ev.action,
+                          description: ev.description,
+                          riskLevel: ev.riskLevel,
+                        },
+                        timestamp: Date.now(),
+                      });
+                    }
                   } else if (ev.type === 'COMPLETED' && ev.finalOutput) {
                     if (!acc) acc = String(ev.finalOutput);
                   } else if (ev.type === 'ERROR') {
@@ -942,6 +958,51 @@ export class GatewayServer {
         if (emit) emit(completedEnvelope);
 
         return ok(completedEnvelope);
+      }
+
+      case WsEventTypes.CLIENT_APPROVAL_RESPOND: {
+        const payload = (envelope.payload ?? {}) as {
+          approvalId?: string;
+          approved?: boolean;
+          decision?: string;
+        };
+        const approvalId = String(payload.approvalId || '');
+        if (!approvalId) {
+          return err(
+            new BusinessError('E_INVALID_INPUT', '缺少 approvalId', 'VALIDATION')
+          );
+        }
+        const approved =
+          typeof payload.approved === 'boolean'
+            ? payload.approved
+            : payload.decision === 'accept' ||
+              payload.decision === 'acceptForSession' ||
+              payload.decision === 'approved';
+
+        const sess = this.sessionManager.getSession(envelope.sessionId);
+        if (!isOk(sess) || !sess.value.agentSession) {
+          return err(
+            new BusinessError(
+              'E_SESSION_NOT_FOUND',
+              '当前没有可响应的 Agent 会话。',
+              'VALIDATION'
+            )
+          );
+        }
+        const res = await sess.value.agentSession.submitApproval(approvalId, approved);
+        if (!isOk(res)) return err(res.error);
+        return ok({
+          version: '1.0',
+          id: generateId('appr_ack'),
+          sessionId: envelope.sessionId,
+          type: WsEventTypes.AGENT_TURN_COMPLETED,
+          payload: {
+            status: 'APPROVAL_ACK',
+            approvalId,
+            approved,
+          },
+          timestamp: Date.now(),
+        });
       }
 
       case WsEventTypes.CLIENT_TURN_INTERRUPT: {

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronRight,
   Plus,
+  ShieldAlert,
   Square,
   Trash2,
   Wrench,
@@ -39,12 +40,19 @@ import {
 
 interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'approval';
   text: string;
   reasoning?: string;
   streaming?: boolean;
   source?: string;
   toolHints?: string[];
+  approval?: {
+    approvalId: string;
+    action: string;
+    description: string;
+    riskLevel: string;
+    status: 'pending' | 'accepted' | 'declined';
+  };
 }
 
 interface AgentChatPanelProps {
@@ -221,6 +229,23 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
             })
           );
         },
+        onApprovalRequest: (info) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `appr_${info.approvalId}`,
+              role: 'approval',
+              text: info.description,
+              approval: {
+                approvalId: info.approvalId,
+                action: info.action,
+                description: info.description,
+                riskLevel: info.riskLevel,
+                status: 'pending',
+              },
+            },
+          ]);
+        },
         onComplete: (data) => {
           setMessages((prev) =>
             prev.map((m) => {
@@ -256,6 +281,24 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
       coachApprovalPolicy,
     ]
   );
+
+  const respondApproval = (approvalId: string, approved: boolean) => {
+    sound.playClick();
+    gateway?.respondApproval?.(approvalId, approved);
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.approval?.approvalId === approvalId && m.approval
+          ? {
+              ...m,
+              approval: {
+                ...m.approval,
+                status: approved ? 'accepted' : 'declined',
+              },
+            }
+          : m
+      )
+    );
+  };
 
   const interrupt = () => {
     sound.playClick();
@@ -359,6 +402,49 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
             key={m.id}
             className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
+            {m.role === 'approval' && m.approval ? (
+              <div className="w-full max-w-[95%] rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div>
+                      <p className="text-[11px] font-medium text-amber-100/90">
+                        需要批准 · {m.approval.action}
+                      </p>
+                      <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-stone-400">
+                        {m.approval.description}
+                      </p>
+                    </div>
+                    {m.approval.status === 'pending' ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 px-2.5 text-[11px] bg-emerald-700 hover:bg-emerald-600"
+                          onClick={() => respondApproval(m.approval!.approvalId, true)}
+                        >
+                          允许
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-[11px] border-stone-600"
+                          onClick={() => respondApproval(m.approval!.approvalId, false)}
+                        >
+                          拒绝
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-stone-500">
+                        已{m.approval.status === 'accepted' ? '允许' : '拒绝'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
             {m.role !== 'user' && (
               <div className="mt-0.5 w-7 h-7 rounded-full bg-stone-800 flex items-center justify-center shrink-0">
                 <Bot className="w-3.5 h-3.5 text-emerald-400" />
@@ -415,6 +501,8 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
                 </div>
               ) : null}
             </div>
+              </>
+            )}
           </div>
         ))}
         <div ref={endRef} />

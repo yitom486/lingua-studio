@@ -82,6 +82,24 @@ export interface CodexModelInfo {
   defaultReasoningEffort?: string;
 }
 
+export type CodexApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
+
+export interface CodexApprovalRequest {
+  method: string;
+  approvalId: string;
+  threadId?: string;
+  turnId?: string;
+  itemId?: string;
+  action: string;
+  description: string;
+  riskLevel: string;
+  availableDecisions?: string[];
+}
+
+export type CodexApprovalHandler = (
+  request: CodexApprovalRequest
+) => Promise<CodexApprovalDecision>;
+
 export interface CodexAccountStatus {
   linked: boolean;
   requiresOpenaiAuth: boolean;

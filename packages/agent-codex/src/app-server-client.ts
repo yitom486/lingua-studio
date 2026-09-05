@@ -24,6 +24,9 @@ import {
   resolveCodexBinary,
   type CodexAccountStatus,
   type CodexModelInfo,
+  type CodexApprovalHandler,
+  type CodexApprovalRequest,
+  type CodexApprovalDecision,
   normalizeSandboxMode,
   normalizeApprovalPolicy,
 } from './app-server-protocol.js';
@@ -43,13 +46,27 @@ export class CodexAppServerConnection {
   private initialized = false;
   private readonly config: CodexAppServerConfig;
   private toolCallHandler: ToolCallHandler | null = null;
+  private approvalHandler: CodexApprovalHandler | null = null;
+  /** 当前 turn 的审批策略覆盖（never 则自动 accept） */
+  private activeApprovalPolicy: string;
 
   constructor(config?: CodexAppServerConfig) {
     this.config = { ...loadCodexConfigFromEnv(), ...config };
+    this.activeApprovalPolicy = normalizeApprovalPolicy(this.config.approvalPolicy);
   }
 
   public setToolCallHandler(handler: ToolCallHandler | null): void {
     this.toolCallHandler = handler;
+  }
+
+  public setApprovalHandler(handler: CodexApprovalHandler | null): void {
+    this.approvalHandler = handler;
+  }
+
+  public setActiveApprovalPolicy(policy?: string | null): void {
+    this.activeApprovalPolicy = normalizeApprovalPolicy(
+      policy ?? this.config.approvalPolicy
+    );
   }
 
   public async connect(): Promise<Result<void, BusinessError>> {
@@ -95,7 +112,7 @@ export class CodexAppServerConnection {
         return await this.toolCallHandler(params);
       }
 
-      // 学习教练默认自动放行常见审批，避免卡死（sandbox=readOnly）
+      // 审批：never 自动放行；on-request / untrusted 交给 Gateway→前端
       if (
         req.method === 'item/commandExecution/requestApproval' ||
         req.method === 'item/fileChange/requestApproval' ||
@@ -103,11 +120,17 @@ export class CodexAppServerConnection {
         req.method === 'applyPatchApproval' ||
         req.method === 'execCommandApproval'
       ) {
-        if (this.config.approvalPolicy === 'never') {
-          return { decision: 'approved' };
+        const policy = this.activeApprovalPolicy;
+        if (policy === 'never') {
+          return { decision: 'accept' satisfies CodexApprovalDecision };
         }
-        // 交由上层可扩展；默认拒绝破坏性操作
-        return { decision: 'declined' };
+        if (!this.approvalHandler) {
+          return { decision: 'decline' satisfies CodexApprovalDecision };
+        }
+        const params = (req.params ?? {}) as Record<string, unknown>;
+        const approvalReq = buildApprovalRequest(req.method, params);
+        const decision = await this.approvalHandler(approvalReq);
+        return { decision };
       }
 
       if (req.method === 'currentTime/read') {
@@ -250,6 +273,7 @@ export class CodexAppServerConnection {
     params.signal?.addEventListener('abort', onAbort, { once: true });
 
     try {
+      this.setActiveApprovalPolicy(params.approvalPolicy ?? this.config.approvalPolicy);
       const turnBody: TurnStartParams = {
         threadId: params.threadId,
         input: [{ type: 'text', text: params.message }],
@@ -258,8 +282,6 @@ export class CodexAppServerConnection {
       if (params.effort) turnBody.effort = params.effort;
       if (params.approvalPolicy) {
         turnBody.approvalPolicy = normalizeApprovalPolicy(params.approvalPolicy);
-      } else if (this.config.effort && !params.effort) {
-        // no-op; effort only when explicitly set
       }
       if (!params.effort && this.config.effort) {
         turnBody.effort = this.config.effort;
@@ -412,4 +434,47 @@ export class CodexAppServerConnection {
     this.initialized = false;
     return this.rpc.close();
   }
+}
+
+function buildApprovalRequest(
+  method: string,
+  params: Record<string, unknown>
+): CodexApprovalRequest {
+  const itemId = params.itemId != null ? String(params.itemId) : '';
+  const approvalId = String(params.approvalId || itemId || `appr_${Date.now()}`);
+  const command = params.command != null ? String(params.command) : '';
+  const reason = params.reason != null ? String(params.reason) : '';
+  const cwd = params.cwd != null ? String(params.cwd) : '';
+
+  let action = method;
+  if (method.includes('commandExecution') || method.includes('execCommand')) {
+    action = 'exec';
+  } else if (method.includes('fileChange') || method.includes('applyPatch')) {
+    action = 'file_change';
+  } else if (method.includes('permissions')) {
+    action = 'permissions';
+  }
+
+  const description =
+    reason ||
+    command ||
+    (typeof params.summary === 'string' ? params.summary : '') ||
+    `Codex 请求批准：${method}`;
+
+  const available = Array.isArray(params.availableDecisions)
+    ? params.availableDecisions.map((d) => String(d))
+    : undefined;
+
+  const req: CodexApprovalRequest = {
+    method,
+    approvalId,
+    action,
+    description: [description, cwd ? `cwd: ${cwd}` : ''].filter(Boolean).join('\n'),
+    riskLevel: action === 'exec' ? 'high' : 'medium',
+  };
+  if (params.threadId != null) req.threadId = String(params.threadId);
+  if (params.turnId != null) req.turnId = String(params.turnId);
+  if (itemId) req.itemId = itemId;
+  if (available?.length) req.availableDecisions = available;
+  return req;
 }

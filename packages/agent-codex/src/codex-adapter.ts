@@ -47,6 +47,11 @@ export interface CodexAdapterOptions {
 export class CodexSession implements AgentSession {
   private activeTurnId: string | null = null;
   private abort: AbortController | null = null;
+  private readonly pendingApprovals = new Map<
+    string,
+    (decision: 'accept' | 'decline' | 'cancel' | 'acceptForSession') => void
+  >();
+  private eventSink: ((ev: AgentEvent) => void) | null = null;
 
   constructor(
     public readonly sessionId: string,
@@ -88,38 +93,98 @@ export class CodexSession implements AgentSession {
         return failTool(e instanceof Error ? e.message : String(e));
       }
     });
+
+    this.connection.setApprovalHandler(async (req) => {
+      this.eventSink?.({
+        type: 'APPROVAL_REQUESTED',
+        approvalId: req.approvalId,
+        action: req.action,
+        description: req.description,
+        riskLevel: req.riskLevel,
+      });
+      return await new Promise<'accept' | 'decline' | 'cancel' | 'acceptForSession'>(
+        (resolve) => {
+          const timer = setTimeout(() => {
+            this.pendingApprovals.delete(req.approvalId);
+            resolve('decline');
+          }, 120_000);
+          this.pendingApprovals.set(req.approvalId, (decision) => {
+            clearTimeout(timer);
+            resolve(decision);
+          });
+        }
+      );
+    });
   }
 
   public async *send(input: AgentInput): AsyncIterable<AgentEvent> {
     this.abort = new AbortController();
+    const queue: AgentEvent[] = [];
+    const waiter: { fn: (() => void) | null } = { fn: null };
+    let turnDone = false;
+
+    const ping = () => {
+      const fn = waiter.fn;
+      if (fn) fn();
+    };
+
+    this.eventSink = (ev) => {
+      queue.push(ev);
+      ping();
+    };
+
+    const turnOpts: {
+      threadId: string;
+      message: string;
+      signal: AbortSignal;
+      model?: string;
+      effort?: string;
+      approvalPolicy?: string;
+    } = {
+      threadId: this.threadId,
+      message: buildTurnMessage(input),
+      signal: this.abort.signal,
+    };
+    if (input.turnOptions?.model) turnOpts.model = input.turnOptions.model;
+    if (input.turnOptions?.effort) turnOpts.effort = input.turnOptions.effort;
+    if (input.turnOptions?.approvalPolicy) {
+      turnOpts.approvalPolicy = input.turnOptions.approvalPolicy;
+    }
+
+    const turnTask = (async () => {
+      try {
+        for await (const ev of this.connection.runTurn(turnOpts)) {
+          queue.push(ev);
+          ping();
+        }
+      } catch (rawError) {
+        queue.push({
+          type: 'ERROR',
+          error: translateToBusinessError(rawError, 'CODEX_SESSION:send'),
+        });
+        ping();
+      } finally {
+        turnDone = true;
+        ping();
+      }
+    })();
+
     try {
-      const message = buildTurnMessage(input);
-      const turnOpts: {
-        threadId: string;
-        message: string;
-        signal: AbortSignal;
-        model?: string;
-        effort?: string;
-        approvalPolicy?: string;
-      } = {
-        threadId: this.threadId,
-        message,
-        signal: this.abort.signal,
-      };
-      if (input.turnOptions?.model) turnOpts.model = input.turnOptions.model;
-      if (input.turnOptions?.effort) turnOpts.effort = input.turnOptions.effort;
-      if (input.turnOptions?.approvalPolicy) {
-        turnOpts.approvalPolicy = input.turnOptions.approvalPolicy;
+      while (!turnDone || queue.length > 0) {
+        if (this.abort.signal.aborted) break;
+        if (queue.length === 0) {
+          await new Promise<void>((resolve) => {
+            waiter.fn = () => resolve();
+            setTimeout(() => resolve(), 40);
+          });
+          waiter.fn = null;
+          continue;
+        }
+        yield queue.shift()!;
       }
-      for await (const ev of this.connection.runTurn(turnOpts)) {
-        yield ev;
-      }
-    } catch (rawError) {
-      yield {
-        type: 'ERROR',
-        error: translateToBusinessError(rawError, 'CODEX_SESSION:send'),
-      };
+      await turnTask;
     } finally {
+      this.eventSink = null;
       this.abort = null;
     }
   }
@@ -128,19 +193,34 @@ export class CodexSession implements AgentSession {
     _callId: string,
     _result: unknown
   ): Promise<Result<void, BusinessError>> {
-    // App Server 的 dynamic tool 走 server-request 同步响应，已在 handler 内完成
     return ok(undefined);
   }
 
   public async submitApproval(
-    _approvalId: string,
-    _approved: boolean
+    approvalId: string,
+    approved: boolean
   ): Promise<Result<void, BusinessError>> {
+    const resolve = this.pendingApprovals.get(approvalId);
+    if (!resolve) {
+      return err(
+        new BusinessError(
+          'E_APPROVAL_NOT_FOUND',
+          '找不到对应的审批请求，可能已超时或已处理。',
+          'VALIDATION'
+        )
+      );
+    }
+    this.pendingApprovals.delete(approvalId);
+    resolve(approved ? 'accept' : 'decline');
     return ok(undefined);
   }
 
   public async interrupt(): Promise<Result<void, BusinessError>> {
     this.abort?.abort();
+    for (const [id, resolve] of this.pendingApprovals) {
+      resolve('cancel');
+      this.pendingApprovals.delete(id);
+    }
     if (this.activeTurnId) {
       return this.connection.interrupt(this.threadId, this.activeTurnId);
     }
@@ -149,6 +229,10 @@ export class CodexSession implements AgentSession {
 
   public async close(): Promise<Result<void, BusinessError>> {
     this.abort?.abort();
+    for (const [id, resolve] of this.pendingApprovals) {
+      resolve('cancel');
+      this.pendingApprovals.delete(id);
+    }
     return ok(undefined);
   }
 }

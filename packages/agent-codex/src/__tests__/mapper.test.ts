@@ -17,6 +17,11 @@ describe('Agent Codex - Mapper & Adapter', () => {
     expect(normalizeApprovalPolicy('onRequest')).toBe('on-request');
     expect(normalizeApprovalPolicy('never')).toBe('never');
   });
+
+  it('maps approval policy never vs on-request intent', () => {
+    expect(normalizeApprovalPolicy('Ask for approval')).toBe('Ask for approval');
+    expect(normalizeApprovalPolicy('on-request')).toBe('on-request');
+  });
   it('should map message_delta correctly', () => {
     const event = mapCodexItemToAgentEvent({
       type: 'message_delta',

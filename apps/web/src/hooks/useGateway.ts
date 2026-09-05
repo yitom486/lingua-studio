@@ -29,6 +29,12 @@ export interface StreamTurnOptions {
     toolName: string;
     arguments?: Record<string, unknown>;
   }) => void;
+  onApprovalRequest?: (info: {
+    approvalId: string;
+    action: string;
+    description: string;
+    riskLevel: string;
+  }) => void;
   onComplete: (data: {
     status: 'COMPLETED' | 'INTERRUPTED';
     finalOutput: string;
@@ -69,6 +75,12 @@ export function useGateway({
       callId?: string;
       toolName: string;
       arguments?: Record<string, unknown>;
+    }) => void) | undefined;
+    onApprovalRequest?: ((info: {
+      approvalId: string;
+      action: string;
+      description: string;
+      riskLevel: string;
     }) => void) | undefined;
     onComplete: (data: any) => void;
     onError?: ((err: any) => void) | undefined;
@@ -151,6 +163,10 @@ export function useGateway({
               );
             }
           } else if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
+            if ((envelope.payload as any)?.status === 'APPROVAL_ACK') {
+              // 审批回执不结束当前 Turn 流
+              return;
+            }
             if (activeStreamRef.current) {
               const listener = activeStreamRef.current;
               activeStreamRef.current = null;
@@ -171,6 +187,21 @@ export function useGateway({
                 pendingResolversRef.current.delete(WsEventTypes.CLIENT_QUIZ_GRADE_SUBJECTIVE);
                 resolver(envelope.payload);
               }
+            }
+          } else if (envelope.type === WsEventTypes.AGENT_APPROVAL_REQUEST) {
+            const p = envelope.payload as {
+              approvalId?: string;
+              action?: string;
+              description?: string;
+              riskLevel?: string;
+            };
+            if (p?.approvalId) {
+              activeStreamRef.current?.onApprovalRequest?.({
+                approvalId: p.approvalId,
+                action: String(p.action || 'action'),
+                description: String(p.description || ''),
+                riskLevel: String(p.riskLevel || 'medium'),
+              });
             }
           } else if (envelope.type === WsEventTypes.AGENT_TOOL_CALL) {
             const p = envelope.payload as {
@@ -446,6 +477,7 @@ export function useGateway({
         onDelta: options.onDelta,
         onReasoningDelta: options.onReasoningDelta,
         onToolCall: options.onToolCall,
+        onApprovalRequest: options.onApprovalRequest,
         onComplete: options.onComplete,
         onError: options.onError,
         accumulatedText: '',
@@ -489,6 +521,27 @@ export function useGateway({
     return true;
   }, []);
 
+  const respondApproval = useCallback(
+    (approvalId: string, approved: boolean) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return false;
+      const envelope: WsEnvelope = {
+        version: '1.0',
+        id: generateId('appr_req'),
+        sessionId: sessionIdRef.current ?? 'active_session',
+        type: WsEventTypes.CLIENT_APPROVAL_RESPOND,
+        payload: {
+          approvalId,
+          approved,
+          decision: approved ? 'accept' : 'decline',
+        },
+        timestamp: Date.now(),
+      };
+      wsRef.current.send(JSON.stringify(envelope));
+      return true;
+    },
+    []
+  );
+
   return {
     isConnected,
     isConnecting,
@@ -502,5 +555,6 @@ export function useGateway({
     gradeSubjectiveQuiz,
     sendTurnStream,
     interruptTurn,
+    respondApproval,
   };
 }
