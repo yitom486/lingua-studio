@@ -149,7 +149,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const { data: collabModes = [] } = useCodexCollaborationModesQuery(
     Boolean(gateway.isConnected)
   );
-  const { data: threadItems = [] } = useCodexThreadItemsQuery(
+  const { data: threadItems = [], isFetched: threadItemsFetched } = useCodexThreadItemsQuery(
     coachThreadId || null,
     Boolean(coachThreadId) && Boolean(gateway.isConnected)
   );
@@ -185,16 +185,36 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, busy]);
 
+  // 偏好水合后再决定问候语 / 恢复提示，避免先闪 greeting 再被 thread items 覆盖
   useEffect(() => {
     if (bootedRef.current) return;
-    bootedRef.current = true;
-    setMessages([
-      {
-        id: 'open',
-        role: 'assistant',
-        text: buildTutorFreeGreeting(track),
-      },
-    ]);
+    const boot = () => {
+      if (bootedRef.current) return;
+      bootedRef.current = true;
+      const threadId = usePreferencesStore.getState().coachThreadId;
+      if (threadId) {
+        setMessages([
+          {
+            id: 'resume',
+            role: 'system',
+            text: '正在恢复上次 Codex 会话…',
+          },
+        ]);
+      } else {
+        setMessages([
+          {
+            id: 'open',
+            role: 'assistant',
+            text: buildTutorFreeGreeting(track),
+          },
+        ]);
+      }
+    };
+    if (usePreferencesStore.persist.hasHydrated()) {
+      boot();
+      return;
+    }
+    return usePreferencesStore.persist.onFinishHydration(boot);
   }, [track]);
 
   useEffect(() => {
@@ -222,7 +242,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     };
   }, [track, profile.overallLevel, activeTab]);
 
-  const clearChat = () => {
+  /** 显式新建会话（清空 thread，下次 turn 会 start 新 thread） */
+  const startNewChat = () => {
     sound.playClick();
     setCoachThreadId('');
     setMessages([
@@ -230,6 +251,20 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         id: `open_${Date.now()}`,
         role: 'assistant',
         text: buildTutorFreeGreeting(track),
+      },
+    ]);
+  };
+
+  /** 仅清屏，保留 coachThreadId，便于继续 resume */
+  const clearDisplay = () => {
+    sound.playClick();
+    setMessages([
+      {
+        id: `wipe_${Date.now()}`,
+        role: 'system',
+        text: coachThreadId
+          ? '已清屏（会话仍保留，发送消息将续写当前 thread）'
+          : '已清屏',
       },
     ]);
   };
@@ -262,33 +297,50 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     );
   };
 
-  // 选中历史 thread 后，把 items 映射成聊天气泡
+  // 选中 / 恢复历史 thread：把 items 映射成聊天气泡
   useEffect(() => {
-    if (!coachThreadId || !threadItems.length) return;
-    const mapped: ChatMessage[] = [];
-    for (const item of threadItems) {
-      if (item.type === 'userMessage' && item.text) {
-        mapped.push({
-          id: item.id || `u_${item.turnId}_${mapped.length}`,
-          role: 'user',
-          text: item.text,
-        });
-      } else if (item.type === 'agentMessage' && item.text) {
-        mapped.push({
-          id: item.id || `a_${item.turnId}_${mapped.length}`,
-          role: 'assistant',
-          text: item.text,
-          source: 'codex',
-        });
-      } else if (item.type === 'reasoning' && item.text) {
-        const last = mapped[mapped.length - 1];
-        if (last?.role === 'assistant') {
-          last.reasoning = item.text;
+    if (!coachThreadId) return;
+    if (threadItems.length) {
+      const mapped: ChatMessage[] = [];
+      for (const item of threadItems) {
+        if (item.type === 'userMessage' && item.text) {
+          mapped.push({
+            id: item.id || `u_${item.turnId}_${mapped.length}`,
+            role: 'user',
+            text: item.text,
+          });
+        } else if (item.type === 'agentMessage' && item.text) {
+          mapped.push({
+            id: item.id || `a_${item.turnId}_${mapped.length}`,
+            role: 'assistant',
+            text: item.text,
+            source: 'codex',
+          });
+        } else if (item.type === 'reasoning' && item.text) {
+          const last = mapped[mapped.length - 1];
+          if (last?.role === 'assistant') {
+            last.reasoning = item.text;
+          }
         }
       }
+      if (mapped.length) setMessages(mapped);
+      return;
     }
-    if (mapped.length) setMessages(mapped);
-  }, [coachThreadId, threadItems]);
+    if (threadItemsFetched) {
+      setMessages((prev) => {
+        if (prev.length === 1 && prev[0]?.id === 'resume') {
+          return [
+            {
+              id: `open_${Date.now()}`,
+              role: 'assistant',
+              text: buildTutorFreeGreeting(track),
+            },
+          ];
+        }
+        return prev;
+      });
+    }
+  }, [coachThreadId, threadItems, threadItemsFetched, track]);
 
   const startQueuedTurn = useCallback(
     (queuedSubmissionId?: string) => {
@@ -728,7 +780,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                   type="button"
                   className="text-[10px] text-sky-400 hover:text-sky-300"
                   onClick={() => {
-                    clearChat();
+                    startNewChat();
                     setHistoryOpen(false);
                   }}
                 >
@@ -813,7 +865,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                           sound.playClick();
                           archiveThread.mutate(t.id, {
                             onSuccess: () => {
-                              if (coachThreadId === t.id) clearChat();
+                              if (coachThreadId === t.id) startNewChat();
                             },
                           });
                         }}
@@ -906,8 +958,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             variant="ghost"
             size="icon"
             className="size-7 text-stone-400 hover:text-stone-100"
-            title="新对话"
-            onClick={clearChat}
+            title="新对话（新开 thread）"
+            onClick={startNewChat}
           >
             <Plus className="size-3.5" />
           </Button>
@@ -916,8 +968,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             variant="ghost"
             size="icon"
             className="size-7 text-stone-400 hover:text-stone-100"
-            title="清空"
-            onClick={clearChat}
+            title="清屏（保留当前会话）"
+            onClick={clearDisplay}
           >
             <Trash2 className="size-3.5" />
           </Button>
@@ -927,7 +979,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
               variant="ghost"
               size="icon"
               className="size-7 text-stone-400 hover:text-stone-100"
-              title="关闭"
+              title="关闭面板（会话不断开）"
               onClick={onClose}
             >
               <X className="size-3.5" />

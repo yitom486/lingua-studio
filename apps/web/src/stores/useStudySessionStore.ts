@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { GeneratedQuestion } from '@study-studio/protocol';
 import type { AiTutorContext } from '../components/AiTutorDrawer.js';
+import { usePreferencesStore } from './usePreferencesStore.js';
 
 export type NavigationTab =
   | 'QUIZ'
@@ -61,7 +62,7 @@ const TAB_SET = new Set<string>([
   'STATS',
 ]);
 
-export const useStudySessionStore = create<StudySessionState>((set) => ({
+export const useStudySessionStore = create<StudySessionState>((set, get) => ({
   activeTab: 'SHADOWING',
   isCommandOpen: false,
   cardFilter: 'ALL',
@@ -75,8 +76,21 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   toggleCommandOpen: () => set((state) => ({ isCommandOpen: !state.isCommandOpen })),
   setCardFilter: (cardFilter) => set({ cardFilter }),
   setQuestionIndex: (questionIndex) => set({ questionIndex }),
-  openTutor: (tutorContext = null) => set({ isTutorOpen: true, tutorContext: tutorContext ?? null }),
-  closeTutor: () => set({ isTutorOpen: false, tutorContext: null }),
+  openTutor: (tutorContext = null) => {
+    const ctx = tutorContext ?? null;
+    set({ isTutorOpen: true, tutorContext: ctx });
+    // 自由教练：持久化「面板打开」，便于刷新后恢复；关闭时不清 thread
+    if (!ctx) {
+      usePreferencesStore.getState().setCoachPanelOpen(true);
+    }
+  },
+  closeTutor: () => {
+    const wasFreeCoach = !get().tutorContext;
+    set({ isTutorOpen: false, tutorContext: null });
+    if (wasFreeCoach) {
+      usePreferencesStore.getState().setCoachPanelOpen(false);
+    }
+  },
   presentQuiz: (pkg) =>
     set({
       presentedQuiz: {
@@ -98,6 +112,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   applyUiNavigate: (target, openTutor) => {
     if (target === 'TUTOR' || openTutor) {
       set({ isTutorOpen: true, tutorContext: null });
+      usePreferencesStore.getState().setCoachPanelOpen(true);
       return;
     }
     if (TAB_SET.has(target)) {

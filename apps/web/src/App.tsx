@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
@@ -33,10 +33,18 @@ import {
   vocabToStudyCard,
 } from './queries/useLearnerQueries.js';
 import { sound } from './utils/audio.js';
+import { cn } from './lib/utils.js';
+
+const COACH_WIDTH_MIN = 320;
+const COACH_WIDTH_MAX = 960;
 
 export function App() {
   useEnsureGateway();
   const theme = usePreferencesStore((s) => s.theme);
+  const coachPanelWidthPx = usePreferencesStore((s) => s.coachPanelWidthPx);
+  const setCoachPanelWidthPx = usePreferencesStore((s) => s.setCoachPanelWidthPx);
+  const coachPanelOpen = usePreferencesStore((s) => s.coachPanelOpen);
+  const coachThreadId = usePreferencesStore((s) => s.coachThreadId);
   const shell = useLearningShell();
   const activeTab = useStudySessionStore((s) => s.activeTab);
   const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
@@ -47,6 +55,22 @@ export function App() {
   const openTutor = useStudySessionStore((s) => s.openTutor);
   const closeTutor = useStudySessionStore((s) => s.closeTutor);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const coachResizeRef = useRef(false);
+
+  // 偏好水合后：恢复自由教练面板显隐（thread 由 coachThreadId persist）
+  useEffect(() => {
+    const restore = () => {
+      const prefs = usePreferencesStore.getState();
+      if (prefs.coachPanelOpen) {
+        useStudySessionStore.getState().openTutor(null);
+      }
+    };
+    if (usePreferencesStore.persist.hasHydrated()) {
+      restore();
+      return;
+    }
+    return usePreferencesStore.persist.onFinishHydration(restore);
+  }, []);
 
   // Tab 路由守卫：当目标语种切换后当前活跃 Tab 若不合法，自动降级跳回 fallbackTab
   useEffect(() => {
@@ -75,6 +99,34 @@ export function App() {
     return useUserProfileStore.persist.onFinishHydration(run);
   }, [fetchProfile]);
 
+  const onCoachResizePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      coachResizeRef.current = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    []
+  );
+
+  const onCoachResizePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!coachResizeRef.current) return;
+      const next = window.innerWidth - e.clientX - 12;
+      const max = Math.min(COACH_WIDTH_MAX, window.innerWidth - 24);
+      setCoachPanelWidthPx(Math.min(max, Math.max(COACH_WIDTH_MIN, next)));
+    },
+    [setCoachPanelWidthPx]
+  );
+
+  const onCoachResizePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    coachResizeRef.current = false;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const { data: cards = [] } = useCardsQuery();
   const { data: mistakes = [] } = useMistakesQuery();
   const { data: metrics = [] } = useLearnerProfileQuery();
@@ -84,6 +136,11 @@ export function App() {
 
   const unresolvedMistakesCount = mistakes.filter((m) => !m.isResolved).length;
   const commandActions = useCommandActions(unresolvedMistakesCount);
+
+  const freeCoachVisible = isTutorOpen && !tutorContext;
+  // 关闭仅隐藏；有 thread / 曾打开偏好时 keep-alive，避免丢本地气泡与断会话感知
+  const freeCoachMounted =
+    freeCoachVisible || coachPanelOpen || Boolean(coachThreadId);
 
   return (
     <div
@@ -112,12 +169,43 @@ export function App() {
         context={tutorContext}
       />
 
-      {/* Codex 风格自由教练窗：无题目上下文时 / 或可并行打开 */}
-      {isTutorOpen && !tutorContext && (
-        <div className="fixed inset-y-3 right-3 z-50 w-[min(100vw-1.5rem,420px)] shadow-2xl">
-          <AgentChatPanel className="h-full" onClose={closeTutor} />
+      {/* 自由教练：关闭=隐藏不卸载；宽度可拖；Gateway 不断连 */}
+      {freeCoachMounted ? (
+        <div
+          className={cn(
+            'fixed inset-y-3 right-3 z-50 flex shadow-2xl',
+            !freeCoachVisible && 'invisible pointer-events-none'
+          )}
+          style={{
+            width: `min(100vw - 1.5rem, ${coachPanelWidthPx}px)`,
+          }}
+          aria-hidden={!freeCoachVisible}
+        >
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整导师面板宽度"
+            tabIndex={freeCoachVisible ? 0 : -1}
+            className="w-1.5 shrink-0 cursor-ew-resize rounded-l-xl bg-stone-800/40 hover:bg-sky-500/40 active:bg-sky-500/60"
+            onPointerDown={onCoachResizePointerDown}
+            onPointerMove={onCoachResizePointerMove}
+            onPointerUp={onCoachResizePointerUp}
+            onPointerCancel={onCoachResizePointerUp}
+            onKeyDown={(e) => {
+              if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                setCoachPanelWidthPx(coachPanelWidthPx + 24);
+              } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                setCoachPanelWidthPx(coachPanelWidthPx - 24);
+              }
+            }}
+          />
+          <div className="min-w-0 flex-1 overflow-hidden rounded-r-xl">
+            <AgentChatPanel className="h-full" onClose={closeTutor} />
+          </div>
         </div>
-      )}
+      ) : null}
 
       <AppSidebar
         mobileOpen={mobileNavOpen}
