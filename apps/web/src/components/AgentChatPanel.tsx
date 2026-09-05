@@ -20,6 +20,7 @@ import {
   WifiOff,
   KeyRound,
   Gauge,
+  Settings2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAgentGateway } from '../hooks/useAgentGateway.js';
@@ -168,6 +169,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const { data: mcpServers = [] } = useCodexMcpServersQuery(Boolean(gateway.isConnected));
   const [historyOpen, setHistoryOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [composerSettingsOpen, setComposerSettingsOpen] = useState(false);
   const queueDrainRef = useRef(false);
 
   const selectedModel = useMemo(
@@ -697,7 +699,11 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     selectedModel?.displayName || coachModelId || (modelsLoading ? '加载中…' : '本机默认');
 
   const compactSelect =
-    'h-7 min-w-0 max-w-[9.5rem] gap-1 rounded-md border border-stone-700/80 bg-transparent px-2 text-[11px] text-stone-300 hover:border-stone-500 hover:bg-stone-800/60 focus:ring-0 shadow-none';
+    'h-7 min-w-0 w-full gap-1 overflow-hidden rounded-md border border-stone-700/80 bg-transparent px-2 text-[11px] text-stone-300 hover:border-stone-500 hover:bg-stone-800/60 focus:ring-0 shadow-none';
+  const composerSettingsNonDefault =
+    Boolean(coachCollaborationMode) ||
+    (coachApprovalPolicy && coachApprovalPolicy !== 'never') ||
+    (coachEffort && coachEffort !== 'medium');
 
   /** Agent 面板恒为深色底，不依赖 html.dark；高亮项强制浅色字 */
   const darkMenuItem =
@@ -1203,70 +1209,121 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
             }
             className="w-full resize-none bg-transparent px-3 py-2.5 text-[13px] text-stone-100 placeholder:text-stone-600 outline-none min-h-[72px]"
           />
-          <div className="flex items-center gap-0.5 border-t border-stone-800/80 px-1.5 py-1">
-            <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-              <Select
-                value={coachCollaborationMode || '__none__'}
-                onValueChange={(v) =>
-                  setCoachCollaborationMode(v === '__none__' ? '' : String(v ?? ''))
-                }
-                disabled={busy}
-              >
-                <SelectTrigger className={compactSelect}>
-                  <SelectValue>
-                    {coachCollaborationMode || 'Mode'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                  <SelectItem value="__none__" className={darkMenuItem}>
-                    Mode（默认）
-                  </SelectItem>
-                  <SelectItem value="default" className={darkMenuItem}>
-                    default
-                  </SelectItem>
-                  <SelectItem value="plan" className={darkMenuItem}>
-                    plan
-                  </SelectItem>
-                  {collabModes
-                    .filter((m) => m.mode && m.mode !== 'default' && m.mode !== 'plan')
-                    .map((m) => (
-                      <SelectItem
-                        key={m.name}
-                        value={m.mode || m.name}
-                        className={darkMenuItem}
-                      >
-                        {m.name}
+          {composerSettingsOpen ? (
+            <div className="grid grid-cols-3 gap-1.5 border-t border-stone-800/80 px-2 py-1.5">
+              <div className="min-w-0 space-y-0.5">
+                <span className="block px-0.5 text-[10px] text-stone-500">Mode</span>
+                <Select
+                  value={coachCollaborationMode || '__none__'}
+                  onValueChange={(v) =>
+                    setCoachCollaborationMode(v === '__none__' ? '' : String(v ?? ''))
+                  }
+                  disabled={busy}
+                >
+                  <SelectTrigger className={compactSelect}>
+                    <SelectValue>
+                      {coachCollaborationMode || '默认'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                    <SelectItem value="__none__" className={darkMenuItem}>
+                      Mode（默认）
+                    </SelectItem>
+                    <SelectItem value="default" className={darkMenuItem}>
+                      default
+                    </SelectItem>
+                    <SelectItem value="plan" className={darkMenuItem}>
+                      plan
+                    </SelectItem>
+                    {collabModes
+                      .filter((m) => m.mode && m.mode !== 'default' && m.mode !== 'plan')
+                      .map((m) => (
+                        <SelectItem
+                          key={m.name}
+                          value={m.mode || m.name}
+                          className={darkMenuItem}
+                        >
+                          {m.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="min-w-0 space-y-0.5">
+                <span className="block px-0.5 text-[10px] text-stone-500">审批</span>
+                <Select
+                  value={coachApprovalPolicy || 'never'}
+                  onValueChange={(v) => v && setCoachApprovalPolicy(String(v))}
+                  disabled={busy}
+                >
+                  <SelectTrigger className={compactSelect}>
+                    <SelectValue>
+                      {APPROVAL_OPTIONS.find((o) => o.value === coachApprovalPolicy)?.label ||
+                        'Approve for me'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                    {APPROVAL_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value} className={darkMenuItem}>
+                        {o.label}
                       </SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
+                  </SelectContent>
+                </Select>
+              </div>
 
-              <Select
-                value={coachApprovalPolicy || 'never'}
-                onValueChange={(v) => v && setCoachApprovalPolicy(String(v))}
-                disabled={busy}
-              >
-                <SelectTrigger className={compactSelect}>
-                  <SelectValue>
-                    {APPROVAL_OPTIONS.find((o) => o.value === coachApprovalPolicy)?.label ||
-                      'Approve for me'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                  {APPROVAL_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value} className={darkMenuItem}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="min-w-0 space-y-0.5">
+                <span className="block px-0.5 text-[10px] text-stone-500">思考</span>
+                <Select
+                  value={coachEffort || 'medium'}
+                  onValueChange={(v) => v && setCoachEffort(String(v))}
+                  disabled={busy}
+                >
+                  <SelectTrigger className={compactSelect}>
+                    <SelectValue>{effortLabel(coachEffort || 'medium')}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
+                    {effortOptions.map((e) => (
+                      <SelectItem key={e} value={e} className={darkMenuItem}>
+                        {effortLabel(e)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : null}
 
+          <div className="flex items-center gap-0.5 border-t border-stone-800/80 px-1.5 py-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={`relative size-7 shrink-0 rounded-md text-stone-400 hover:bg-stone-800/80 hover:text-stone-100 ${
+                composerSettingsOpen ? 'bg-stone-800 text-stone-100' : ''
+              }`}
+              title={composerSettingsOpen ? '收起 Mode / 审批 / 思考' : 'Mode / 审批 / 思考'}
+              aria-expanded={composerSettingsOpen}
+              aria-label="会话设置"
+              onClick={() => {
+                sound.playClick();
+                setComposerSettingsOpen((open) => !open);
+              }}
+            >
+              <Settings2 className="size-3.5" />
+              {composerSettingsNonDefault && !composerSettingsOpen ? (
+                <span className="absolute top-1 right-1 size-1.5 rounded-full bg-sky-400" />
+              ) : null}
+            </Button>
+
+            <div className="min-w-0 flex-1">
               <Select
                 value={coachModelId || '__default__'}
                 onValueChange={(v) => setCoachModelId(v === '__default__' ? '' : String(v ?? ''))}
                 disabled={busy}
               >
-                <SelectTrigger className={`${compactSelect} max-w-[11rem]`}>
+                <SelectTrigger className={`${compactSelect} max-w-[14rem]`}>
                   <SelectValue placeholder="Model">{modelLabel}</SelectValue>
                 </SelectTrigger>
                 <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
@@ -1280,23 +1337,6 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                       className={darkMenuItem}
                     >
                       {m.displayName || m.model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select
-                value={coachEffort || 'medium'}
-                onValueChange={(v) => v && setCoachEffort(String(v))}
-                disabled={busy}
-              >
-                <SelectTrigger className={compactSelect}>
-                  <SelectValue>{effortLabel(coachEffort || 'medium')}</SelectValue>
-                </SelectTrigger>
-                <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                  {effortOptions.map((e) => (
-                    <SelectItem key={e} value={e} className={darkMenuItem}>
-                      {effortLabel(e)}
                     </SelectItem>
                   ))}
                 </SelectContent>
