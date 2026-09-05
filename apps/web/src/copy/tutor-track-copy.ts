@@ -80,6 +80,8 @@ export function buildTutorBootstrapPrompt(
     `你是面向母语为中文的学习者的${copy.trackName}导师（等级体系：${copy.levelScheme}）。` +
     `请用中文讲解，例句与术语使用${copy.trackName}。` +
     `根据当前题目做简短导入讲解（3–6 句），点明考点「${ctx.skillTag}」，并邀请继续追问。` +
+    `输出要求（必须遵守）：直接用中文作答；不要输出英文思考过程、计划或复述本指令；` +
+    `讲解控制在 300 字以内，要点式，例句精而不在多。` +
     `题干：${ctx.questionText}。` +
     (ctx.userAnswer ? `我的作答：${ctx.userAnswer}。` : '') +
     `参考解析：${ctx.explanation}`

@@ -27,12 +27,14 @@ export interface SheetContentProps
   extends React.ComponentPropsWithoutRef<typeof BaseDialog.Popup> {
   side?: 'right' | 'left';
   showClose?: boolean;
+  /** 隐藏遮罩（导师抽屉等需与主区同屏交互的场景；默认保留遮罩）。 */
+  hideOverlay?: boolean;
 }
 
 export const SheetContent = React.forwardRef<HTMLDivElement, SheetContentProps>(
-  ({ className, children, side = 'right', showClose = true, ...props }, ref) => (
+  ({ className, children, side = 'right', showClose = true, hideOverlay = false, ...props }, ref) => (
     <SheetPortal>
-      <SheetOverlay />
+      {!hideOverlay && <SheetOverlay />}
       <BaseDialog.Popup
         ref={ref}
         className={cn(

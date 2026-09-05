@@ -12,6 +12,17 @@ import type { ChatMessage, CodexTurnHealth } from './chat-shared.js';
 
 /** P2-1 拆分：AgentChatPanel 的轮次执行逻辑（发送/steer/队列消费/重试/审批/中断），纯搬运。 */
 
+/** 传输层英文错误转中文安抚（原文落气泡会吓到用户；右上重试入口保持可用）。 */
+function friendlyTurnError(err: unknown, fallback: string): string {
+  const e = err as { userMessage?: string; message?: string } | undefined;
+  const raw = e?.userMessage || e?.message || '';
+  if (!raw) return fallback;
+  if (raw === 'Gateway is not connected' || /gateway.*not connected/i.test(raw)) {
+    return '网关未连通，消息未发出：请确认网关已启动（默认 localhost:8080），然后点右上“重试 Codex”。';
+  }
+  return raw;
+}
+
 type Gateway = ReturnType<typeof useAgentGateway>;
 type QueryClient = ReturnType<typeof useQueryClient>;
 
@@ -245,8 +256,7 @@ export function useChatTurn(deps: ChatTurnDeps) {
         onComplete: (data) => finish(data),
         onError: (err) => {
           queueDrainRef.current = false;
-          const e = err as { userMessage?: string; message?: string } | undefined;
-          const msg = e?.userMessage || e?.message || '队列消费失败';
+          const msg = friendlyTurnError(err, '队列消费失败');
           setCodexTurnHealth({ state: 'failed', message: msg });
           void refetchCodexStatus();
           setMessages((prev) =>
@@ -420,9 +430,7 @@ export function useChatTurn(deps: ChatTurnDeps) {
           }
         },
         onError: (err) => {
-          const e = err as { userMessage?: string; message?: string } | undefined;
-          const msg =
-            e?.userMessage || e?.message || '导师服务暂时不可用，请稍后重试。';
+          const msg = friendlyTurnError(err, '导师服务暂时不可用，请稍后重试。');
           setCodexTurnHealth({ state: 'failed', message: msg });
           void refetchCodexStatus();
           setMessages((prev) =>

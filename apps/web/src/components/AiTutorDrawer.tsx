@@ -41,6 +41,8 @@ interface MessageItem {
   /** 离线兜底内容：网关恢复后可一键重发转真 AI */
   offline?: boolean;
   retryInput?: string;
+  /** 本轮模型调用过的工具（调用即记名，完成即标 done，过程透明）。 */
+  toolCalls?: Array<{ callId?: string; toolName: string; done?: boolean }>;
 }
 
 interface AiTutorDrawerProps {
@@ -142,6 +144,25 @@ export function AiTutorDrawer({
             )
           );
         },
+        onToolCall: (info) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId
+                ? {
+                    ...m,
+                    toolCalls: [
+                      ...(m.toolCalls ?? []),
+                      {
+                        ...(info.callId ? { callId: info.callId } : {}),
+                        toolName: info.toolName,
+                        done: false,
+                      },
+                    ],
+                  }
+                : m
+            )
+          );
+        },
         onComplete: (data) => {
           sound.playCorrect();
           setIsTyping(false);
@@ -162,6 +183,7 @@ export function AiTutorDrawer({
                     text: data.finalOutput || m.text,
                     isStreaming: false,
                     source,
+                    toolCalls: (m.toolCalls ?? []).map((t) => ({ ...t, done: true })),
                   }
                 : m
             )
@@ -366,10 +388,11 @@ export function AiTutorDrawer({
   }
 
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()} modal={false}>
       <SheetContent
         side="right"
         showClose
+        hideOverlay
         className="relative p-0 flex flex-col h-full w-full max-w-none sm:max-w-none"
         style={{ width: `min(100vw, ${widthPx}px)` }}
       >
@@ -481,6 +504,20 @@ export function AiTutorDrawer({
                       {msg.text}
                       {msg.isStreaming && (
                         <span className="inline-block w-1.5 h-4 ml-1 bg-amber-500 animate-pulse align-middle" />
+                      )}
+                      {isAi && (msg.toolCalls?.length ?? 0) > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {(msg.toolCalls ?? []).map((t, i) => (
+                            <span
+                              key={t.callId ?? `${t.toolName}-${i}`}
+                              className="inline-block text-[10px] px-1.5 py-0.5 rounded-md border border-sky-500/30 text-sky-700 dark:text-sky-300"
+                              title={t.done ? '工具调用完成' : '工具调用中…'}
+                            >
+                              🔧 {t.toolName}
+                              {t.done ? '' : '…'}
+                            </span>
+                          ))}
+                        </div>
                       )}
                       {isAi && !msg.isStreaming && msg.offline && (
                         <div className="mt-2">
