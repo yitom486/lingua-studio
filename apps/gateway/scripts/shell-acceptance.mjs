@@ -86,6 +86,15 @@ async function main() {
       pass('EN 下非法 Tab KANA → fallback QUIZ');
     } else fail('EN Tab 守卫', wouldGuardTab('en', 'KANA'));
 
+    const ko = getLearningShellConfig('ko');
+    if (ko.allowedTabs.includes('HANGUL') && ko.featureFlags.hangulStudio) {
+      pass('KO 壳层开放谚文工作室');
+    } else fail('KO 壳层开放谚文工作室', ko.allowedTabs.join(','));
+
+    if (wouldGuardTab('en', 'HANGUL') === 'QUIZ' && wouldGuardTab('ko', 'HANGUL') === 'HANGUL') {
+      pass('HANGUL 守卫：EN→QUIZ，KO 保留');
+    } else fail('HANGUL Tab 守卫', `${wouldGuardTab('en', 'HANGUL')}/${wouldGuardTab('ko', 'HANGUL')}`);
+
     if (wouldGuardTab('ko', 'WRITING') === 'READING') {
       pass('KO 下非法 Tab WRITING → fallback READING');
     } else fail('KO Tab 守卫', wouldGuardTab('ko', 'WRITING'));

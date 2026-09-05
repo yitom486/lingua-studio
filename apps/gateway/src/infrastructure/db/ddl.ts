@@ -174,6 +174,21 @@ export function initSchema(sqlite: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_kana_type ON curriculum_kana(type, sort_order);
 
+    CREATE TABLE IF NOT EXISTS curriculum_hangul (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      jamo TEXT NOT NULL,
+      name TEXT NOT NULL,
+      romanization TEXT NOT NULL,
+      row TEXT NOT NULL,
+      col TEXT NOT NULL,
+      mnemonic TEXT,
+      audio_text TEXT NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hangul_type ON curriculum_hangul(type, sort_order);
+
     CREATE TABLE IF NOT EXISTS quiz_questions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT 'default_user',

@@ -16,6 +16,7 @@ import type {
   DocumentItem,
   AnnotationItem,
   KanaItem,
+  HangulItem,
   ReadingPassageSet,
   SubmitReadingPractice,
   PracticeCollection,
@@ -91,12 +92,14 @@ import {
 } from '../modules/library/persistence/documents-annotations.js';
 import {
   getCurriculumKana as getCurriculumKanaDomain,
+  getCurriculumHangul as getCurriculumHangulDomain,
   listContentTemplates as listContentTemplatesDomain,
   listReadingSets as listReadingSetsDomain,
   saveReadingSet as saveReadingSetDomain,
 } from '../modules/curriculum/persistence/curriculum-content.js';
 import {
   recordKanaPractice as recordKanaPracticeDomain,
+  recordHangulPractice as recordHangulPracticeDomain,
   recordReadingPractice as recordReadingPracticeDomain,
 } from '../modules/learning-progress/persistence/learning-records.js';
 import {
@@ -536,6 +539,29 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     type?: string
   ): Promise<Result<KanaItem[], BusinessError>> {
     return getCurriculumKanaDomain(this.deps, type);
+  }
+
+  // ==================== 谚文字母课程底座 (Curriculum Hangul) ====================
+
+  /**
+   * 实现已下沉 curriculum 域，此处仅委托。
+   */
+  public async getCurriculumHangul(
+    type?: string
+  ): Promise<Result<HangulItem[], BusinessError>> {
+    return getCurriculumHangulDomain(this.deps, type);
+  }
+
+  /**
+   * 实现已下沉 learning-progress 域，此处仅委托。
+   */
+  public async recordHangulPractice(
+    userId: string,
+    hangulId: string,
+    isCorrect: boolean,
+    scriptType: 'CONSONANT' | 'VOWEL' | 'ROMANIZATION' = 'CONSONANT'
+  ): Promise<Result<{ proficiency: number }, BusinessError>> {
+    return recordHangulPracticeDomain(this.deps, userId, hangulId, isCorrect, scriptType);
   }
 
   /**

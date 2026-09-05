@@ -1,5 +1,6 @@
 import type { Database } from 'bun:sqlite';
 import { KANA_SEEDS } from './seeds/kana-seed.js';
+import { HANGUL_SEEDS } from './seeds/hangul-seed.js';
 import { INITIAL_READING_SEEDS } from './seeds/reading-seed.js';
 import {
   INITIAL_CARD_SEEDS,
@@ -85,6 +86,35 @@ export function seedInitialData(sqlite: Database): void {
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed curriculum_kana:', e);
+    }
+
+    // 1b. 自动填充谚文字母权威种子数据（若空）
+    try {
+      const hangulCountRow = sqlite
+        .query<{ count: number }, []>('SELECT COUNT(*) as count FROM curriculum_hangul')
+        .get();
+      if (!hangulCountRow || hangulCountRow.count === 0) {
+        const insertHangulStmt = sqlite.prepare(`
+          INSERT INTO curriculum_hangul (id, type, jamo, name, romanization, row, col, mnemonic, audio_text, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const h of HANGUL_SEEDS) {
+          insertHangulStmt.run(
+            h.id,
+            h.type,
+            h.jamo,
+            h.name,
+            h.romanization,
+            h.row,
+            h.col,
+            h.mnemonic ?? null,
+            h.audioText,
+            h.sortOrder
+          );
+        }
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed curriculum_hangul:', e);
     }
 
     // 2. 自动填充双源阅读篇目（若空）

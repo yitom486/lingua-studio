@@ -21,6 +21,7 @@ export interface LearningShellConfig {
   /** 语种特性与扩展开关 */
   featureFlags: {
     kanaStudio: boolean;
+    hangulStudio: boolean;
     pitchAccent: boolean;
     furiganaToggle: boolean;
     englishNewsMultiSource: boolean;
@@ -54,6 +55,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
     allowedTabs: ['TODAY', 'PRACTICE_PLAN', 'QUIZ', 'CARDS', 'READING', 'WRITING', 'MISTAKES', 'RADAR'],
     featureFlags: {
       kanaStudio: false,
+      hangulStudio: false,
       pitchAccent: false,
       furiganaToggle: false,
       englishNewsMultiSource: true,
@@ -89,6 +91,7 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
     ],
     featureFlags: {
       kanaStudio: true,
+      hangulStudio: false,
       pitchAccent: true,
       furiganaToggle: true,
       englishNewsMultiSource: false,
@@ -108,9 +111,10 @@ export const LEARNING_SHELL_CONFIGS: Record<TrackLanguage, LearningShellConfig> 
   ko: {
     track: 'ko',
     trackName: '韩语',
-    allowedTabs: ['TODAY', 'PRACTICE_PLAN', 'QUIZ', 'CARDS', 'READING', 'MISTAKES', 'RADAR'],
+    allowedTabs: ['TODAY', 'PRACTICE_PLAN', 'QUIZ', 'CARDS', 'READING', 'HANGUL', 'MISTAKES', 'RADAR'],
     featureFlags: {
       kanaStudio: false,
+      hangulStudio: true,
       pitchAccent: false,
       furiganaToggle: false,
       englishNewsMultiSource: false,
@@ -158,14 +162,14 @@ export function getLearningShellConfig(track: string | undefined | null): Learni
 
 /**
  * 语境化 Tab 守卫：非法 Tab 不一律跳 fallbackTab，而是按模块语义跳最近的合法工作台。
- * - JA 专属页（KANA/PITCH/TEXTBOOK/SHADOWING）在 EN/KO 轨道 → 跳回做题；
+ * - JA/KO 专属页（KANA/PITCH/TEXTBOOK/SHADOWING/HANGUL）在异轨道 → 跳回做题；
  * - KO 未开放的写作/跟读 → 跳回阅读；
  * - 其余非法 Tab → 轨道 fallbackTab。
  */
 export function resolveGuardTab(track: TrackLanguage, activeTab: NavigationTab): NavigationTab {
   const config = LEARNING_SHELL_CONFIGS[track];
   if (config.allowedTabs.includes(activeTab)) return activeTab;
-  if (activeTab === 'KANA' || activeTab === 'PITCH' || activeTab === 'TEXTBOOK' || activeTab === 'SHADOWING') {
+  if (activeTab === 'KANA' || activeTab === 'HANGUL' || activeTab === 'PITCH' || activeTab === 'TEXTBOOK' || activeTab === 'SHADOWING') {
     return 'QUIZ';
   }
   if (activeTab === 'WRITING') {

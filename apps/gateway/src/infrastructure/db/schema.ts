@@ -240,6 +240,22 @@ export const curriculumKana = sqliteTable('curriculum_kana', {
 });
 
 /**
+ * 谚文字母课程底座表 (Curriculum Hangul) — 韩语专属（v1：14 子音 + 10 母音）
+ */
+export const curriculumHangul = sqliteTable('curriculum_hangul', {
+  id: text('id').primaryKey(),
+  type: text('type').notNull(), // 'CONSONANT' | 'VOWEL'
+  jamo: text('jamo').notNull(),
+  name: text('name').notNull(),
+  romanization: text('romanization').notNull(),
+  row: text('row').notNull(),
+  col: text('col').notNull(),
+  mnemonic: text('mnemonic'),
+  audioText: text('audio_text').notNull(),
+  sortOrder: integer('sort_order').notNull(),
+});
+
+/**
  * 自适应题库表 (Quiz Questions)
  */
 export const quizQuestions = sqliteTable(

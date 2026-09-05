@@ -9,8 +9,11 @@ import {
 } from '@study-studio/shared';
 import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
 import { KanaTypeSchema, type KanaType } from '@study-studio/protocol';
+import type { HangulItem } from '@study-studio/protocol';
+import { HangulTypeSchema, type HangulType } from '@study-studio/protocol';
 import {
   curriculumKana,
+  curriculumHangul,
   learningContentTemplates,
   documents,
 } from '../../../infrastructure/db/index.js';
@@ -73,6 +76,59 @@ export async function getCurriculumKana(
       translateToBusinessError(error, {
         category: 'DATABASE',
         action: 'getCurriculumKana',
+        entityId: type ?? 'ALL',
+      })
+    );
+  }
+}
+
+/** DB TEXT 列 → HangulType；损坏值回退 CONSONANT（读侧永不抛，种子/正常写入不受影响）。 */
+function coerceHangulType(value: unknown): HangulType {
+  const parsed = HangulTypeSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'CONSONANT';
+}
+
+/**
+ * 获取谚文字母课程底座数据，支持按类型过滤
+ */
+export async function getCurriculumHangul(
+  deps: RepoDeps,
+  type?: string
+): Promise<Result<HangulItem[], BusinessError>> {
+  try {
+    let rows;
+    if (type) {
+      rows = await deps.db
+        .select()
+        .from(curriculumHangul)
+        .where(eq(curriculumHangul.type, type))
+        .orderBy(asc(curriculumHangul.sortOrder));
+    } else {
+      rows = await deps.db
+        .select()
+        .from(curriculumHangul)
+        .orderBy(asc(curriculumHangul.sortOrder));
+    }
+
+    const items: HangulItem[] = rows.map((r) => ({
+      id: r.id,
+      type: coerceHangulType(r.type),
+      jamo: r.jamo,
+      name: r.name,
+      romanization: r.romanization,
+      row: r.row,
+      col: r.col,
+      mnemonic: r.mnemonic ?? undefined,
+      audioText: r.audioText,
+      sortOrder: r.sortOrder,
+    }));
+
+    return ok(items);
+  } catch (error) {
+    return err(
+      translateToBusinessError(error, {
+        category: 'DATABASE',
+        action: 'getCurriculumHangul',
         entityId: type ?? 'ALL',
       })
     );

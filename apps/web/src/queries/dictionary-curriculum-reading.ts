@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
+import type { HangulItem, KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
 import { logger } from '@study-studio/shared';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
@@ -54,6 +54,63 @@ export function useKanaPracticeMutation(userId = DEFAULT_USER_ID) {
         }
       } catch (e) {
         logger.debug('[useKanaPracticeMutation] Failed to post kana practice', e);
+      }
+      return { success: true };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+    },
+  });
+}
+
+/** 谚文字母全表查询 (Hono RPC，课程底座长效缓存 30 分钟) */
+export function useCurriculumHangulQuery(type?: string) {
+  return useQuery<HangulItem[]>({
+    queryKey: [...QUERY_KEYS.HANGUL, type ?? 'ALL'],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.api.curriculum.hangul.$get({
+          query: type ? { type } : {},
+        });
+        if (res.ok) {
+          const list = await res.json();
+          if (Array.isArray(list) && list.length > 0) {
+            return list as HangulItem[];
+          }
+        }
+      } catch (e) {
+        logger.debug('[useCurriculumHangulQuery] Hono RPC fallback to local memory', e);
+      }
+      return [];
+    },
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
+/** 提交谚文练习结果并回写画像 (Hono RPC) */
+export function useHangulPracticeMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      hangulId: string;
+      isCorrect: boolean;
+      scriptType?: 'CONSONANT' | 'VOWEL' | 'ROMANIZATION';
+    }) => {
+      try {
+        const res = await apiClient.api.curriculum.hangul.practice[':userId'].$post({
+          param: { userId },
+          json: {
+            hangulId: payload.hangulId,
+            isCorrect: payload.isCorrect,
+            scriptType: payload.scriptType || 'CONSONANT',
+          },
+        });
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        logger.debug('[useHangulPracticeMutation] Failed to post hangul practice', e);
       }
       return { success: true };
     },

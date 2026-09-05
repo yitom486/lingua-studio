@@ -10,6 +10,7 @@ export type NavigationTab =
   | 'QUIZ'
   | 'CARDS'
   | 'KANA'
+  | 'HANGUL'
   | 'TEXTBOOK'
   | 'READING'
   | 'WRITING'
@@ -72,6 +73,7 @@ const TAB_SET = new Set<string>([
   'QUIZ',
   'CARDS',
   'KANA',
+  'HANGUL',
   'TEXTBOOK',
   'READING',
   'WRITING',

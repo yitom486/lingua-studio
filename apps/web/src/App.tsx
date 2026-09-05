@@ -18,6 +18,7 @@ import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
 import { ReadingComprehensionWorkbench } from './components/ReadingComprehensionWorkbench.js';
 import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
 import { KanaStudioWorkbench } from './components/KanaStudioWorkbench.js';
+import { HangulStudioWorkbench } from './components/HangulStudioWorkbench.js';
 import { PracticePlanPanel } from './components/practice/PracticePlanPanel.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useEnsureGateway } from './hooks/useAgentGateway.js';
@@ -85,7 +86,7 @@ export function App() {
     return usePreferencesStore.persist.onFinishHydration(restore);
   }, []);
 
-  // Tab 路由守卫：目标语种切换后当前活跃 Tab 若不合法，按模块语境降级（KANA→QUIZ、WRITING→READING 等）
+  // Tab 路由守卫：目标语种切换后当前活跃 Tab 若不合法，按模块语境降级（KANA/HANGUL→QUIZ、WRITING→READING 等）
   useEffect(() => {
     const guarded = resolveGuardTab(shell.track, activeTab);
     if (guarded !== activeTab) {
@@ -386,6 +387,21 @@ export function App() {
                 transition={{ duration: 0.25 }}
               >
                 <KanaStudioWorkbench
+                  onOpenTutor={(ctx) => {
+                    sound.playClick();
+                    openTutor(ctx);
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === 'HANGUL' && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <HangulStudioWorkbench
                   onOpenTutor={(ctx) => {
                     sound.playClick();
                     openTutor(ctx);

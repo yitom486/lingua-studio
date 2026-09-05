@@ -9,6 +9,7 @@ export const QUERY_KEYS = {
   DOCUMENTS: ['learner', 'documents'] as const,
   ANNOTATIONS: ['learner', 'annotations'] as const,
   KANA: ['curriculum', 'kana'] as const,
+  HANGUL: ['curriculum', 'hangul'] as const,
   READING: ['learner', 'reading'] as const,
   NEWS_TOPICS: ['learner', 'newsTopics'] as const,
   PITCH: ['curriculum', 'pitch'] as const,

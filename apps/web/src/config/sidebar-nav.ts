@@ -99,6 +99,7 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroupDef[] = [
     defaultOpen: true,
     items: [
       { id: 'KANA', label: '五十音工作室', icon: 'Sparkles', badge: { kind: 'static', value: '假名' }, tracks: ['ja'] },
+      { id: 'HANGUL', label: '谚文工作室', icon: 'Sparkles', badge: { kind: 'static', value: '谚文' }, tracks: ['ko'] },
       { id: 'CARDS', label: 'FSRS 闪卡', icon: 'Layers', badge: { kind: 'cardCount' } },
       { id: 'TEXTBOOK', label: '教材精读', icon: 'BookOpen', badge: { kind: 'static', value: 'AST' }, tracks: ['ja'] },
     ],

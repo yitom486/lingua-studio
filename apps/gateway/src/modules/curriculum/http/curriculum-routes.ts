@@ -45,6 +45,31 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
       }
     }
   )
+  // 8b. 谚文字母课程底座 (Curriculum Hangul)
+  .get('/api/curriculum/hangul', async (c) => {
+    const type = c.req.query('type');
+    const res = await deps.repo.getCurriculumHangul(type);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .post(
+    '/api/curriculum/hangul/practice/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json');
+        const hangulId = String(body.hangulId || '');
+        const isCorrect = Boolean(body.isCorrect);
+        const scriptType = (body.scriptType || 'CONSONANT') as 'CONSONANT' | 'VOWEL' | 'ROMANIZATION';
+        const res = await deps.repo.recordHangulPractice(userId, hangulId, isCorrect, scriptType);
+        if (isOk(res)) return c.json({ success: true, ...res.value });
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e) {
+        return formatBusinessErrorResponse(c, e, 'recordHangulPractice');
+      }
+    }
+  )
   // 9. 阅读理解工作室 (Reading Comprehension)
   .get(
     '/api/reading/sets/:userId',

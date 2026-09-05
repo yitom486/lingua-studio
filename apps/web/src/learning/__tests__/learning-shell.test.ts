@@ -18,6 +18,12 @@ describe('resolveGuardTab (P5-E6)', () => {
     expect(resolveGuardTab('ko', 'KANA')).toBe('QUIZ');
   });
 
+  it('keeps HANGUL on ko track; sends it back to QUIZ on en/ja tracks', () => {
+    expect(resolveGuardTab('ko', 'HANGUL')).toBe('HANGUL');
+    expect(resolveGuardTab('en', 'HANGUL')).toBe('QUIZ');
+    expect(resolveGuardTab('ja', 'HANGUL')).toBe('QUIZ');
+  });
+
   it('sends writing back to READING on ko track; shadowing follows JA-only rule', () => {
     expect(resolveGuardTab('ko', 'WRITING')).toBe('READING');
     expect(resolveGuardTab('ko', 'SHADOWING')).toBe('QUIZ');
