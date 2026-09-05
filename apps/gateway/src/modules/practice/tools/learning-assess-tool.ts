@@ -11,6 +11,7 @@ import {
   isOk,
   type Result,
   BusinessError,
+  extractErrorText,
   generateId,
   translateToBusinessError,
 } from '@study-studio/shared';
@@ -129,11 +130,11 @@ export class LearningAssessTool
         return await this.gradeOneWithAiFallback(params, context);
       }
       return ok({ ...this.gradeOne(params), source: 'rule' as const });
-    } catch (e: any) {
+    } catch (e) {
       return err(
         new BusinessError(
           'E_TOOL_EXECUTION',
-          `评测诊断失败: ${e?.message || '未知错误'}`,
+          `评测诊断失败: ${extractErrorText(e) || '未知错误'}`,
           'TOOL_EXECUTION'
         )
       );

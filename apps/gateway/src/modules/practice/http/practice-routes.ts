@@ -7,6 +7,7 @@ import { assemblePracticeRun } from '../application/practice-assembly.js';
 import { gradeObjectiveAnswer } from '../application/practice-grading.js';
 import { createProposal, consumeProposal } from '../application/practice-proposal.js';
 import { summarizePracticeRun } from '../application/practice-summary.js';
+import type { PersistableQuestion } from '../persistence/questions.js';
 import { buildAnalysisSnapshot } from '../../learning-progress/application/learning-analysis.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
@@ -409,7 +410,7 @@ export function createPracticeRoutes(deps: GatewayDeps) {
         const res = await deps.repo.convertPracticeItemsToCards(userId, itemIds);
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'convertPracticeItemsToCards');
       }
     }
@@ -433,7 +434,9 @@ export function createPracticeRoutes(deps: GatewayDeps) {
         { userId, sessionId: 'http_req' }
       );
       if (isOk(toolRes)) {
-        const generated = ((toolRes.value as { questions?: unknown[] }).questions ?? []) as any[];
+        // Tool 输出为信任边界：此处不断言内容合法性，仓储写入侧做中性回填。
+        const generated = ((toolRes.value as { questions?: unknown }).questions ??
+          []) as PersistableQuestion[];
         await deps.repo.saveQuestions(generated);
         return c.json(generated);
       }
@@ -446,7 +449,8 @@ export function createPracticeRoutes(deps: GatewayDeps) {
         { userId, sessionId: 'http_req' }
       );
       if (isOk(toolRes)) {
-        const generated = ((toolRes.value as any).questions ?? []) as any[];
+        const generated = ((toolRes.value as { questions?: unknown }).questions ??
+          []) as PersistableQuestion[];
         await deps.repo.saveQuestions(generated);
         return c.json(generated);
       }
@@ -464,7 +468,7 @@ export function createPracticeRoutes(deps: GatewayDeps) {
         const res = await deps.repo.saveQuestions(questionsToSave);
         if (isOk(res)) return c.json({ success: true, count: questionsToSave.length });
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'saveQuestions');
       }
     }
