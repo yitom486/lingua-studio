@@ -111,6 +111,14 @@ import {
   completeDailyPlanStep as completeDailyPlanStepDomain,
 } from './domains/activity-plan.js';
 import {
+  getDueCards as getDueCardsDomain,
+  saveCard as saveCardDomain,
+  getQuestions as getQuestionsDomain,
+  saveQuestion as saveQuestionDomain,
+  saveQuestions as saveQuestionsDomain,
+  recordQuizAttempt as recordQuizAttemptDomain,
+} from './domains/cards-questions.js';
+import {
   getTodayString,
   getYesterdayString,
   safeJsonParse,
@@ -334,97 +342,19 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     return saveSkillMetricDomain(this.deps, userId, metric);
   }
 
+  /**
+   * 实现已下沉 domains/cards-questions.ts，此处仅委托。
+   */
   public async getDueCards(
     userId: string,
     limit: number = 500,
     options?: { dueOnly?: boolean; language?: string }
   ): Promise<Result<Flashcard[], BusinessError>> {
-    try {
-      const now = nowIso();
-      const language = options?.language
-        ? normalizeTrackLanguage(options.language)
-        : await this.resolveActiveLanguage(userId);
-      let rows = await this.db
-        .select()
-        .from(flashcards)
-        .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
-        .limit(limit);
-
-      const demoUser = userId === 'student_web_01' || userId === 'default_user';
-      if (rows.length === 0 && demoUser && (language === 'ja' || language === 'en')) {
-        const seeds = language === 'en' ? INITIAL_EN_CARD_SEEDS : INITIAL_CARD_SEEDS;
-        for (const c of seeds) {
-          const fsrsObj = {
-            stability: c.stability,
-            difficulty: 5.0,
-            reps: c.reps,
-            lapses: 0,
-            dueAt: nowIso(),
-            state: c.reps > 0 ? 'REVIEW' : 'NEW',
-          };
-          const tags = [...c.tags];
-          if (c.exampleJp) tags.push(c.exampleJp);
-          if (c.exampleZh) tags.push(c.exampleZh);
-
-          await this.db.insert(flashcards).values({
-            id: c.id,
-            userId,
-            language,
-            type: c.type,
-            front: c.front,
-            back: c.back,
-            phonetic: c.phonetic ?? null,
-            audioUrl: c.audioUrl ?? null,
-            tags: JSON.stringify(tags),
-            fsrs: JSON.stringify(fsrsObj),
-          });
-        }
-        rows = await this.db
-          .select()
-          .from(flashcards)
-          .where(and(eq(flashcards.userId, userId), eq(flashcards.language, language)))
-          .limit(limit);
-      }
-
-      const cards: Flashcard[] = rows.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        type: r.type as any,
-        front: r.front,
-        back: r.back,
-        phonetic: r.phonetic ?? undefined,
-        audioUrl: r.audioUrl ?? undefined,
-        tags: JSON.parse(r.tags),
-        fsrs: JSON.parse(r.fsrs),
-      }));
-
-      // 如果显式要求仅待复习，则过滤到期卡片；否则返回全量卡片（优先展示待复习）
-      if (options?.dueOnly) {
-        return ok(cards.filter((c) => !c.fsrs.dueAt || c.fsrs.dueAt <= now));
-      }
-
-      cards.sort((a, b) => {
-        const aDue = !a.fsrs.dueAt || a.fsrs.dueAt <= now;
-        const bDue = !b.fsrs.dueAt || b.fsrs.dueAt <= now;
-        if (aDue && !bDue) return -1;
-        if (!aDue && bDue) return 1;
-        return a.id.localeCompare(b.id);
-      });
-
-      return ok(cards);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'getDueCards',
-          entityId: userId,
-        })
-      );
-    }
+    return getDueCardsDomain(this.deps, userId, limit, options);
   }
 
   /**
-   * 获取题库题目列表 (从 SQLite quiz_questions 表读取)
+   * 实现已下沉 domains/cards-questions.ts，此处仅委托。
    */
   public async getQuestions(
     userId: string,
@@ -436,237 +366,37 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       skillIds?: string[] | undefined;
     }
   ): Promise<Result<any[], BusinessError>> {
-    try {
-      const language = langOverride
-        ? normalizeTrackLanguage(langOverride)
-        : await this.resolveActiveLanguage(userId);
-      const conds = [
-        or(eq(quizQuestions.userId, userId), eq(quizQuestions.userId, 'default_user')),
-        eq(quizQuestions.language, language),
-      ];
-      // P5-E4：装配按块选题——题型 / 难度 / 技能过滤
-      if (filter?.types && filter.types.length > 0) {
-        conds.push(inArray(quizQuestions.type, filter.types));
-      }
-      if (typeof filter?.difficulty === 'number') {
-        conds.push(eq(quizQuestions.difficulty, filter.difficulty));
-      }
-      if (filter?.skillIds && filter.skillIds.length > 0) {
-        conds.push(inArray(quizQuestions.testedSkillId, filter.skillIds));
-      }
-      let rows = await this.db
-        .select()
-        .from(quizQuestions)
-        .where(and(...conds))
-        .orderBy(desc(quizQuestions.createdAt))
-        .limit(limit);
-
-      let mapped = rows.map((r) => ({
-        id: r.id,
-        userId: r.userId,
-        type: r.type,
-        category: r.category,
-        prompt: r.prompt,
-        content: r.content,
-        options: r.options ? JSON.parse(r.options) : undefined,
-        chunks: r.chunks ? JSON.parse(r.chunks) : undefined,
-        correctAnswer: r.correctAnswer,
-        explanation: r.explanation,
-        testedSkill: r.testedSkillId,
-        testedSkillId: r.testedSkillId,
-        difficulty: r.difficulty,
-        createdAt: r.createdAt,
-      }));
-
-      // 防串语：历史上曾把 EN 题误写入 ko 分区；按 skillId 前缀再过滤一次
-      mapped = mapped.filter((q) => {
-        const skill = String(q.testedSkillId || q.testedSkill || '');
-        if (!skill) return true;
-        return inferLanguageFromSkillId(skill) === language;
-      });
-
-      return ok(mapped);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'getQuestions',
-          entityId: userId,
-        })
-      );
-    }
+    return getQuestionsDomain(this.deps, userId, limit, langOverride, filter);
   }
 
   /**
-   * 保存或更新单道题目至 SQLite quiz_questions
+   * 实现已下沉 domains/cards-questions.ts，此处仅委托。
    */
   public async saveQuestion(question: any): Promise<Result<void, BusinessError>> {
-    try {
-      const skillId = question.testedSkill || question.testedSkillId || '';
-      const ownerId = question.userId || 'default_user';
-      const language = normalizeTrackLanguage(
-        question.language ?? (await this.resolveActiveLanguage(ownerId))
-      );
-      const existing = await this.db
-        .select()
-        .from(quizQuestions)
-        .where(eq(quizQuestions.id, question.id))
-        .limit(1);
-
-      const optionsStr = question.options
-        ? typeof question.options === 'string'
-          ? question.options
-          : JSON.stringify(question.options)
-        : null;
-      const chunksStr = question.chunks
-        ? typeof question.chunks === 'string'
-          ? question.chunks
-          : JSON.stringify(question.chunks)
-        : null;
-
-      if (existing.length > 0) {
-        await this.db
-          .update(quizQuestions)
-          .set({
-            language,
-            type: question.type,
-            category: question.category,
-            prompt: question.prompt,
-            content: question.content,
-            options: optionsStr,
-            chunks: chunksStr,
-            correctAnswer: question.correctAnswer,
-            explanation: question.explanation,
-            testedSkillId: skillId,
-            difficulty: question.difficulty ?? 3,
-          })
-          .where(eq(quizQuestions.id, question.id));
-      } else {
-        await this.db.insert(quizQuestions).values({
-          id: question.id,
-          userId: question.userId || 'default_user',
-          language,
-          type: question.type,
-          category: question.category,
-          prompt: question.prompt,
-          content: question.content,
-          options: optionsStr,
-          chunks: chunksStr,
-          correctAnswer: question.correctAnswer,
-          explanation: question.explanation,
-          testedSkillId: skillId,
-          difficulty: question.difficulty ?? 3,
-          createdAt: question.createdAt || nowIso(),
-        });
-      }
-
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'saveQuestion',
-          entityId: question.id,
-        })
-      );
-    }
+    return saveQuestionDomain(this.deps, question);
   }
 
   /**
-   * 批量保存题目至 SQLite
+   * 实现已下沉 domains/cards-questions.ts，此处仅委托。
    */
   public async saveQuestions(questions: any[]): Promise<Result<void, BusinessError>> {
-    for (const q of questions) {
-      const res = await this.saveQuestion(q);
-      if (!isOk(res)) return res;
-    }
-    return ok(undefined);
+    return saveQuestionsDomain(this.deps, questions);
   }
 
+  /**
+   * 实现已下沉 domains/cards-questions.ts，此处仅委托。
+   */
   public async saveCard(card: Flashcard): Promise<Result<void, BusinessError>> {
-    try {
-      const existing = await this.db
-        .select()
-        .from(flashcards)
-        .where(eq(flashcards.id, card.id))
-        .limit(1);
-
-      if (existing.length > 0) {
-        await this.db
-          .update(flashcards)
-          .set({
-            language: normalizeTrackLanguage(
-              (card as any).language ?? (await this.resolveActiveLanguage(card.userId))
-            ),
-            type: card.type,
-            front: card.front,
-            back: card.back,
-            phonetic: card.phonetic ?? null,
-            audioUrl: card.audioUrl ?? null,
-            tags: JSON.stringify(card.tags),
-            fsrs: JSON.stringify(card.fsrs),
-          })
-          .where(eq(flashcards.id, card.id));
-      } else {
-        const language = normalizeTrackLanguage(
-          (card as any).language ?? (await this.resolveActiveLanguage(card.userId))
-        );
-        await this.db.insert(flashcards).values({
-          id: card.id,
-          userId: card.userId,
-          language,
-          type: card.type,
-          front: card.front,
-          back: card.back,
-          phonetic: card.phonetic ?? null,
-          audioUrl: card.audioUrl ?? null,
-          tags: JSON.stringify(card.tags),
-          fsrs: JSON.stringify(card.fsrs),
-        });
-      }
-
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'saveCard',
-          entityId: card.id,
-        })
-      );
-    }
+    return saveCardDomain(this.deps, card);
   }
 
+  /**
+   * 实现已下沉 domains/cards-questions.ts，此处仅委托。
+   */
   public async recordQuizAttempt(
     attempt: QuizAttemptRecord
   ): Promise<Result<void, BusinessError>> {
-    try {
-      await this.db.insert(quizAttempts).values({
-        id: attempt.id,
-        userId: attempt.userId,
-        language: inferLanguageFromSkillId(attempt.testedSkillId),
-        questionId: attempt.questionId,
-        userAnswer: attempt.userAnswer,
-        isCorrect: attempt.isCorrect,
-        score: attempt.score,
-        timeSpentMs: attempt.timeSpentMs,
-        testedSkillId: attempt.testedSkillId,
-        createdAt: attempt.createdAt,
-      });
-
-      // 自动累计每日做题任务足迹
-      await this.recordDailyActivity(attempt.userId, { quizzes: 1 });
-
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'recordQuizAttempt',
-          entityId: attempt.id,
-        })
-      );
-    }
+    return recordQuizAttemptDomain(this.deps, attempt);
   }
 
   public async saveMistake(mistake: MistakeEntry): Promise<Result<void, BusinessError>> {
