@@ -26,7 +26,7 @@ const MIN_FULLTEXT_CHARS = 180;
  */
 export async function fetchNewsArticleFullText(
   url: string,
-  options?: { timeoutMs?: number; maxChars?: number }
+  options?: { timeoutMs?: number; maxChars?: number; fetcher?: typeof fetch }
 ): Promise<Result<NewsArticleFullText, BusinessError>> {
   const trimmed = (url || '').trim();
   if (!/^https?:\/\//i.test(trimmed)) {
@@ -37,11 +37,12 @@ export async function fetchNewsArticleFullText(
 
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxChars = options?.maxChars ?? MAX_CHARS;
+  const fetcher = options?.fetcher ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(trimmed, {
+    const res = await fetcher(trimmed, {
       signal: controller.signal,
       redirect: 'follow',
       headers: {

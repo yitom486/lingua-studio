@@ -404,7 +404,38 @@ export function ReadingComprehensionWorkbench({
               {activeSet.origin === 'ai' ? 'AI 自适应篇目' : '真实精选新闻'}
             </Badge>
             {activeSet.origin === 'news' &&
-              (activeSet.sourceLabel.includes('原文摘录') ? (
+              // P3-B：优先读结构化 sourceKind；旧数据无该字段时回退到 sourceLabel 字符串推断
+              (activeSet.sourceKind === 'full_text' ? (
+                <Badge variant="outline" className="text-[10px] border-emerald-600/40 text-emerald-800 dark:text-emerald-300">
+                  原文摘录
+                </Badge>
+              ) : activeSet.sourceKind === 'rss_summary' ? (
+                <Badge variant="outline" className="text-[10px]">
+                  RSS 摘要
+                </Badge>
+              ) : activeSet.sourceKind === 'offline_template' ? (
+                <Badge
+                  variant="outline"
+                  className="text-[10px] border-amber-600/50 text-amber-800 dark:text-amber-300"
+                  title={
+                    activeSet.fetchStatus === 'timeout'
+                      ? '抓取超时，已用合规模板兜底'
+                      : activeSet.fetchStatus === 'empty'
+                        ? '新闻源返回为空，已用合规模板兜底'
+                        : activeSet.fetchStatus === 'network_failed'
+                          ? '新闻源网络失败，已用合规模板兜底'
+                          : '新闻源暂不可用，已用合规模板兜底'
+                  }
+                >
+                  {activeSet.fetchStatus === 'timeout'
+                    ? '超时·模板兜底'
+                    : activeSet.fetchStatus === 'empty'
+                      ? '空源·模板兜底'
+                      : activeSet.fetchStatus === 'network_failed'
+                        ? '网络失败·模板兜底'
+                        : '模板兜底'}
+                </Badge>
+              ) : activeSet.sourceLabel.includes('原文摘录') ? (
                 <Badge variant="outline" className="text-[10px] border-emerald-600/40 text-emerald-800 dark:text-emerald-300">
                   原文摘录
                 </Badge>

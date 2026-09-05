@@ -906,6 +906,12 @@ export const app = new Hono()
         let questions: any[] = [];
 
         let sourceUrl: string | undefined;
+        // P3-B 版权与可观测性：结构化来源元数据
+        let sourceKind: ReadingPassageSet['sourceKind'] = undefined;
+        let fetchStatus: ReadingPassageSet['fetchStatus'] = undefined;
+        let newsPublisher: string | undefined;
+        // 当前会话返回给客户端的正文（可能含原文摘录）；与持久化正文分离
+        let displayBody = '';
         if (origin === 'news') {
           const news = await generateNewsPassage({
             setId: newSetId,
@@ -913,10 +919,15 @@ export const app = new Hono()
             language,
           });
           title = news.title;
-          bodyText = news.body;
+          // 版权收口：DB 只存公开 RSS 摘要（persistBody），不长期保存无授权的第三方整篇正文
+          bodyText = news.persistBody;
+          displayBody = news.body;
           sourceLabel = news.sourceLabel;
           sourceUrl = news.sourceUrl;
           questions = news.questions;
+          sourceKind = news.sourceKind;
+          fetchStatus = news.fetchStatus;
+          newsPublisher = news.publisher;
         } else if (isJa) {
           sourceLabel = `AI 自适应生成 · 难度 Lv.${difficulty} / 主题: ${topic}`;
           title = `${topic}に関する日々の観察と学び`;
@@ -1030,7 +1041,7 @@ export const app = new Hono()
           ];
         }
 
-        const newSet = {
+        const newSet: ReadingPassageSet = {
           id: newSetId,
           origin,
           title,
@@ -1042,10 +1053,20 @@ export const app = new Hono()
           body: bodyText,
           questions,
           createdAt: new Date().toISOString(),
+          // P3-B 结构化来源元数据；AI 分支显式标记为 ai
+          sourceKind: sourceKind ?? (origin === 'ai' ? 'ai' : undefined),
+          ...(fetchStatus ? { fetchStatus } : {}),
+          ...(newsPublisher ? { publisher: newsPublisher } : {}),
         };
 
         const res = await drizzleRepo.saveReadingSet(userId, newSet);
-        if (isOk(res)) return c.json(res.value);
+        if (isOk(res)) {
+          // 版权收口：DB 已存 RSS 摘要；当前会话仍把原文摘录正文返回给客户端即时阅读
+          if (origin === 'news' && displayBody && displayBody !== bodyText) {
+            return c.json({ ...res.value, body: displayBody });
+          }
+          return c.json(res.value);
+        }
         return formatBusinessErrorResponse(c, res.error);
       } catch (e: any) {
         return formatBusinessErrorResponse(c, e, 'generateReadingSet');

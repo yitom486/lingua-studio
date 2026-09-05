@@ -2126,6 +2126,14 @@ export class DrizzleLearnerRepository implements LearnerRepository {
             body: row.content,
             questions,
             createdAt: row.createdAt,
+            // P3-B 回填结构化来源元数据
+            sourceKind:
+              (row.sourceKindDetail as ReadingPassageSet['sourceKind']) ??
+              (itemOrigin === 'ai' ? 'ai' : itemOrigin === 'user_import' ? 'user_import' : undefined),
+            ...(row.fetchStatus
+              ? { fetchStatus: row.fetchStatus as ReadingPassageSet['fetchStatus'] }
+              : {}),
+            ...(row.newsPublisher ? { publisher: row.newsPublisher } : {}),
           };
         })
         .filter((set) => {
@@ -2175,6 +2183,9 @@ export class DrizzleLearnerRepository implements LearnerRepository {
             difficulty: set.difficulty,
             sourceUrl: set.sourceUrl ?? null,
             sourcePublisher: set.sourceLabel,
+            sourceKindDetail: set.sourceKind ?? null,
+            fetchStatus: set.fetchStatus ?? null,
+            newsPublisher: set.publisher ?? null,
             updatedAt: now,
           })
           .where(eq(documents.id, set.id));
@@ -2191,6 +2202,9 @@ export class DrizzleLearnerRepository implements LearnerRepository {
           difficulty: set.difficulty,
           sourceUrl: set.sourceUrl ?? null,
           sourcePublisher: set.sourceLabel,
+          sourceKindDetail: set.sourceKind ?? null,
+          fetchStatus: set.fetchStatus ?? null,
+          newsPublisher: set.publisher ?? null,
           createdAt: set.createdAt || now,
           updatedAt: now,
         });

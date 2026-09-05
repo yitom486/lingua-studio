@@ -190,6 +190,9 @@ export function initSchema(sqlite: Database): void {
       source_url TEXT,
       source_publisher TEXT,
       exam_tag TEXT,
+      source_kind_detail TEXT,
+      fetch_status TEXT,
+      news_publisher TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -338,6 +341,9 @@ export function initSchema(sqlite: Database): void {
     "ALTER TABLE practice_collections ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE practice_items ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     'ALTER TABLE local_dictionary_entries ADD COLUMN source_id TEXT',
+    'ALTER TABLE documents ADD COLUMN source_kind_detail TEXT',
+    'ALTER TABLE documents ADD COLUMN fetch_status TEXT',
+    'ALTER TABLE documents ADD COLUMN news_publisher TEXT',
   ];
   for (const sql of alterStatements) {
     try {

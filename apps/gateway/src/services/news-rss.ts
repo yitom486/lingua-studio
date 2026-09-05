@@ -180,12 +180,15 @@ export function resolveNewsFeed(
   return resolveNewsFeedCandidates(topicId, language)[0]!;
 }
 
+type Fetcher = typeof fetch;
+
 /**
  * 按候选列表依次拉取 RSS，首个成功即返回（带实际命中的 feed）。
+ * @internal 暴露 fetcher 仅为确定性单测使用，产品调用走全局 fetch。
  */
 export async function fetchRssItemsWithFallback(
   feeds: NewsFeedRef[],
-  options?: { timeoutMs?: number; limit?: number }
+  options?: { timeoutMs?: number; limit?: number; fetcher?: Fetcher }
 ): Promise<Result<{ items: RssItem[]; feed: NewsFeedRef }, BusinessError>> {
   if (feeds.length === 0) {
     return err(
@@ -194,7 +197,11 @@ export async function fetchRssItemsWithFallback(
   }
   let lastErr: BusinessError | null = null;
   for (const feed of feeds) {
-    const res = await fetchRssItems(feed.url, options);
+    const fetchOpts: { timeoutMs?: number; limit?: number; fetcher?: typeof fetch } = {};
+    if (options?.timeoutMs !== undefined) fetchOpts.timeoutMs = options.timeoutMs;
+    if (options?.limit !== undefined) fetchOpts.limit = options.limit;
+    if (options?.fetcher) fetchOpts.fetcher = options.fetcher;
+    const res = await fetchRssItems(feed.url, fetchOpts);
     if (isOk(res) && res.value.length > 0) {
       return ok({ items: res.value, feed });
     }
@@ -213,15 +220,16 @@ export async function fetchRssItemsWithFallback(
 
 export async function fetchRssItems(
   feedUrl: string,
-  options?: { timeoutMs?: number; limit?: number }
+  options?: { timeoutMs?: number; limit?: number; fetcher?: Fetcher }
 ): Promise<Result<RssItem[], BusinessError>> {
   const timeoutMs = options?.timeoutMs ?? 10_000;
   const limit = options?.limit ?? 8;
+  const fetcher = options?.fetcher ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch(feedUrl, {
+    const res = await fetcher(feedUrl, {
       signal: controller.signal,
       redirect: 'follow',
       headers: {

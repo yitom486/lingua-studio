@@ -193,6 +193,12 @@ export const documents = sqliteTable('documents', {
   sourceUrl: text('source_url'),
   sourcePublisher: text('source_publisher'),
   examTag: text('exam_tag'),
+  /** P3-B 细粒度来源类型：full_text | rss_summary | offline_template | ai | user_import */
+  sourceKindDetail: text('source_kind_detail'),
+  /** P3-B 抓取状态：ok | network_failed | empty | timeout（仅 news 有意义） */
+  fetchStatus: text('fetch_status'),
+  /** P3-B 命中的 RSS 发布方（BBC News / NHK ONE / 연합뉴스 等） */
+  newsPublisher: text('news_publisher'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });
