@@ -1,15 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { eq, and, desc, asc, lte, gte, or, inArray, like } from 'drizzle-orm';
-import {
-  ok,
-  err,
-  type Result,
-  BusinessError,
-  translateToBusinessError,
-  generateId,
-  nowIso,
-  isOk,
-} from '@study-studio/shared';
+import type { Result, BusinessError } from '@study-studio/shared';
 import type {
   LearnerRepository,
   QuizAttemptRecord,
@@ -20,14 +10,6 @@ import type {
   MistakeEntry,
   DailyStudyPlan,
   DailyPlanStepTemplate,
-} from '@study-studio/learner-core';
-import {
-  buildDailyPlanStepTemplates,
-  parseCompletedStepIds,
-  parseDailyPlanStepTemplates,
-  summarizeDailyStudyPlan,
-  appendPracticePlanStep,
-  PRACTICE_PLAN_STEP_ID,
 } from '@study-studio/learner-core';
 import type {
   Flashcard,
@@ -40,32 +22,7 @@ import type {
   PracticeItem,
   GeneratedQuestion,
 } from '@study-studio/protocol';
-import {
-  createDrizzleDb,
-  type DrizzleDb,
-  learnerProfiles,
-  learnerLanguageProfiles,
-  studyActivityLogs,
-  skillMetrics,
-  flashcards,
-  quizAttempts,
-  mistakes,
-  documents,
-  annotations,
-  practiceCollections,
-  practiceItems,
-  curriculumKana,
-  quizQuestions,
-  INITIAL_CARD_SEEDS,
-  INITIAL_EN_CARD_SEEDS,
-  INITIAL_SKILL_METRIC_SEEDS,
-  learningContentTemplates,
-  localDictionaryEntries,
-  dailyStudyPlans,
-  practicePlanTemplates,
-  practicePlanRuns,
-  practiceItemAttempts,
-} from '../db/index.js';
+import { createDrizzleDb, type DrizzleDb, learnerLanguageProfiles } from '../db/index.js';
 import type {
   PracticePlanTemplate,
   PracticePlanRun,
@@ -73,12 +30,6 @@ import type {
   PracticeBlockSpec,
   PracticeRunStatus,
 } from '@study-studio/protocol';
-import {
-  validatePracticePlanTemplate,
-  freezeRunFromTemplate,
-  parsePracticeBlockSpecs,
-  isRunComplete,
-} from '@study-studio/learner-core';
 
 // P0-1 拆分：语种 / 词典 / 通用工具已下沉 domains；本地 import 供剩余方法使用，
 // 底部 export 保持对外契约不变（index.ts 经 export * 转出）。
