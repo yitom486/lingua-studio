@@ -1,0 +1,154 @@
+﻿import { Hono } from 'hono';
+import { validator } from 'hono/validator';
+import { isOk, BusinessError, generateId } from '@study-studio/shared';
+import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
+import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
+
+/** 文库域路由：文档与批注（G2 迁移，行为不变）。 */
+export function createLibraryRoutes(deps: GatewayDeps) {
+  return new Hono()
+  // 6. 文档与教材 (Documents)
+  .get('/api/documents/:userId', async (c) => {
+    const userId = c.req.param('userId');
+    const sourceKind = c.req.query('sourceKind');
+    const res = await deps.repo.listDocuments(userId, sourceKind);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .get('/api/documents/:userId/:documentId', async (c) => {
+    const documentId = c.req.param('documentId');
+    const res = await deps.repo.getDocumentById(documentId);
+    if (isOk(res)) {
+      if (!res.value) {
+        return formatBusinessErrorResponse(
+          c,
+          new BusinessError('E_NOT_FOUND', '未找到指定的教材或文档', 'LEARNER_STATE')
+        );
+      }
+      return c.json(res.value);
+    }
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .post(
+    '/api/documents/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as any;
+        const now = new Date().toISOString();
+        const docItem = {
+          id: body.id || generateId('doc'),
+          userId,
+          title: String(body.title || '未命名教材/文档'),
+          sourceKind: body.sourceKind || 'user_import',
+          language: body.language || 'ja',
+          content: body.content || '',
+          astJson: body.astJson
+            ? typeof body.astJson === 'string'
+              ? body.astJson
+              : JSON.stringify(body.astJson)
+            : undefined,
+          topic: body.topic,
+          difficulty: body.difficulty ? Number(body.difficulty) : undefined,
+          sourceUrl: body.sourceUrl,
+          sourcePublisher: body.sourcePublisher,
+          examTag: body.examTag,
+          createdAt: body.createdAt || now,
+          updatedAt: now,
+        };
+        const res = await deps.repo.saveDocument(docItem);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'saveDocument');
+      }
+    }
+  )
+  .delete('/api/documents/:userId/:documentId', async (c) => {
+    const userId = c.req.param('userId');
+    const documentId = c.req.param('documentId');
+    const res = await deps.repo.deleteDocument(documentId, userId);
+    if (isOk(res)) return c.json({ success: true, documentId });
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  // 7. 课文批注与重点 (Annotations)
+  .get('/api/annotations/:userId/:documentId', async (c) => {
+    const userId = c.req.param('userId');
+    const documentId = c.req.param('documentId');
+    const res = await deps.repo.listAnnotations(documentId, userId);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .post(
+    '/api/annotations/:userId',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const body = c.req.valid('json') as any;
+        if (!body.documentId || !body.quote) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '批注必须包含所属文档与划线摘录', 'VALIDATION')
+          );
+        }
+        const annItem = {
+          id: body.id || generateId('ann'),
+          documentId: String(body.documentId),
+          userId,
+          kind: body.kind || 'KEY_POINT',
+          quote: String(body.quote),
+          note: body.note ? String(body.note) : undefined,
+          startOffset: Number(body.startOffset || 0),
+          endOffset: Number(body.endOffset || 0),
+          pageNumber: body.pageNumber ? Number(body.pageNumber) : undefined,
+          createdBy: body.createdBy || 'USER',
+          flashcardId: body.flashcardId,
+          createdAt: body.createdAt || new Date().toISOString(),
+        };
+        const res = await deps.repo.saveAnnotation(annItem as any);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'saveAnnotation');
+      }
+    }
+  )
+  .delete('/api/annotations/:userId/:annotationId', async (c) => {
+    const userId = c.req.param('userId');
+    const annotationId = c.req.param('annotationId');
+    const res = await deps.repo.deleteAnnotation(annotationId, userId);
+    if (isOk(res)) return c.json({ success: true, annotationId });
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  .post(
+    '/api/annotations/:userId/:annotationId/to-card',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const annotationId = c.req.param('annotationId');
+        const body = c.req.valid('json') as any;
+        if (!body.front || !body.back) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '转为生词卡必须提供正面词句与背面释义', 'VALIDATION')
+          );
+        }
+        const res = await deps.repo.convertAnnotationToCard(annotationId, userId, {
+          front: String(body.front),
+          back: String(body.back),
+          tag: body.tag ? String(body.tag) : '课文批注',
+          pos: body.pos ? String(body.pos) : '重点词句',
+          phonetic: body.phonetic ? String(body.phonetic) : undefined,
+        });
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: any) {
+        return formatBusinessErrorResponse(c, e, 'convertAnnotationToCard');
+      }
+    }
+  )
+;
+}

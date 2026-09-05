@@ -10,7 +10,7 @@ import type { DailyStudyPlan, LearnerRepository } from '@study-studio/learner-co
 import type { PracticeBlockSpec } from '@study-studio/protocol';
 import { PracticeBlockSpecSchema } from '@study-studio/protocol';
 import { buildAnalysisSnapshot } from '../services/learning-analysis.js';
-import { createProposal, type PracticeProposal } from '../services/practice-proposal.js';
+import { createProposal, type PracticeProposal } from '../modules/practice/application/practice-proposal.js';
 
 export const LearningPlanInputSchema = z.object({
   action: z.enum([

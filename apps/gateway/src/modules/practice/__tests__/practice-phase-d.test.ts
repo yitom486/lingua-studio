@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { isOk, isErr } from '@study-studio/shared';
-import type { AnalysisSnapshot } from '../services/learning-analysis.js';
+import type { AnalysisSnapshot } from '../../../services/learning-analysis.js';
 import {
   proposeTemplateFromSnapshot,
   createProposal,
   consumeProposal,
   _clearProposalsForTest,
-} from '../services/practice-proposal.js';
-import { buildLocalRunSummary, summarizePracticeRun, type RunSummaryReport } from '../services/practice-summary.js';
+} from '../application/practice-proposal.js';
+import { buildLocalRunSummary, summarizePracticeRun, type RunSummaryReport } from '../application/practice-summary.js';
 import type { PracticePlanRun, PracticeItemAttempt, PracticeBlockSpec } from '@study-studio/protocol';
 
 /* ------------------------------------------------------------------ *

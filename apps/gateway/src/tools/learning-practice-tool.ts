@@ -13,7 +13,7 @@ import type {
   PracticeBlockSpec,
 } from '@study-studio/protocol';
 import { PracticeBlockSpecSchema } from '@study-studio/protocol';
-import { summarizePracticeRun, type RunSummaryReport } from '../services/practice-summary.js';
+import { summarizePracticeRun, type RunSummaryReport } from '../modules/practice/application/practice-summary.js';
 
 /**
  * P5：练习计划执行会话的受控写入工具。

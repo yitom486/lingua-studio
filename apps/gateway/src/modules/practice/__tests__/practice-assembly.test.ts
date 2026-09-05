@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { isOk } from '@study-studio/shared';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../../../repository/drizzle-learner-repository.js';
 import {
   assemblePracticeRun,
   acceptedDbTypesForBlock,
   buildVocabQuestionsFromCards,
-} from '../services/practice-assembly.js';
-import { LearningContentTool } from '../tools/learning-content-tool.js';
+} from '../application/practice-assembly.js';
+import { LearningContentTool } from '../../../tools/learning-content-tool.js';
 import type { Flashcard, PracticeBlockSpec } from '@study-studio/protocol';
 
 describe('practice assembly by block spec (P5-E4)', () => {
@@ -280,7 +280,9 @@ describe('practice assembly by block spec (P5-E4)', () => {
           explanation: 'Every morning。',
         },
       ],
-      createdAt: new Date().toISOString(),
+      // 固定未来时间戳：种子篇目在 initSchema 时以当前时间写入，
+      // 同毫秒并列会导致 ORDER BY createdAt DESC 顺序不定而 flaky。
+      createdAt: new Date(Date.now() + 60_000).toISOString(),
     });
     expect(isOk(saveRes)).toBe(true);
 
