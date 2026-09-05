@@ -15,8 +15,17 @@ import {
   translateToBusinessError,
 } from '@study-studio/shared';
 import { CodexAppServerConnection } from './app-server-client.js';
-import { toolsToDynamicSpecs, sanitizeToolName } from './tools-bridge.js';
-import type { CodexAppServerConfig, DynamicToolCallResponse } from './app-server-protocol.js';
+import {
+  toolsToDynamicSpecs,
+  resolveToolName,
+  sanitizeToolName,
+} from './tools-bridge.js';
+import type {
+  CodexAppServerConfig,
+  CodexAccountStatus,
+  CodexModelInfo,
+  DynamicToolCallResponse,
+} from './app-server-protocol.js';
 
 export type ExternalToolExecutor = (
   toolName: string,
@@ -26,13 +35,14 @@ export type ExternalToolExecutor = (
 
 export interface CodexAdapterOptions {
   config?: CodexAppServerConfig;
-  /** Gateway 注入：执行 Server Tools 并把结果回填 App Server */
+  /** Gateway 注入：执行 Server/Client Tools 并把结果回填 App Server */
   executeTool?: ExternalToolExecutor;
 }
 
 /**
  * 真实 Codex App Server 适配器（stdio JSON-RPC）。
  * 无 CLI / 未登录时 createSession 失败，由 Gateway 回落本地旁路。
+ * 认证：复用本机 CODEX_HOME / ~/.codex（与 VS Code Codex 插件同源）。
  */
 export class CodexSession implements AgentSession {
   private activeTurnId: string | null = null;
@@ -43,7 +53,8 @@ export class CodexSession implements AgentSession {
     public readonly threadId: string,
     public readonly userId: string,
     private readonly connection: CodexAppServerConnection,
-    private readonly executeTool?: ExternalToolExecutor
+    private readonly executeTool?: ExternalToolExecutor,
+    private readonly toolNameMap?: Map<string, string>
   ) {
     this.connection.setToolCallHandler(async (params) => {
       this.activeTurnId = params.turnId;
@@ -56,8 +67,7 @@ export class CodexSession implements AgentSession {
         if (!this.executeTool) {
           return failTool('Gateway 未注入工具执行器');
         }
-        // 还原可能被 sanitize 的名字：优先原样，再尝试把 _ 还原为 .
-        const candidates = [toolName, toolName.replace(/_/g, '.')];
+        const candidates = resolveToolName(toolName, this.toolNameMap);
         let lastErr = 'tool not found';
         for (const name of candidates) {
           try {
@@ -84,11 +94,24 @@ export class CodexSession implements AgentSession {
     this.abort = new AbortController();
     try {
       const message = buildTurnMessage(input);
-      for await (const ev of this.connection.runTurn({
+      const turnOpts: {
+        threadId: string;
+        message: string;
+        signal: AbortSignal;
+        model?: string;
+        effort?: string;
+        approvalPolicy?: string;
+      } = {
         threadId: this.threadId,
         message,
         signal: this.abort.signal,
-      })) {
+      };
+      if (input.turnOptions?.model) turnOpts.model = input.turnOptions.model;
+      if (input.turnOptions?.effort) turnOpts.effort = input.turnOptions.effort;
+      if (input.turnOptions?.approvalPolicy) {
+        turnOpts.approvalPolicy = input.turnOptions.approvalPolicy;
+      }
+      for await (const ev of this.connection.runTurn(turnOpts)) {
         yield ev;
       }
     } catch (rawError) {
@@ -125,7 +148,6 @@ export class CodexSession implements AgentSession {
   }
 
   public async close(): Promise<Result<void, BusinessError>> {
-    // 连接由 Adapter 复用；会话级仅中断
     this.abort?.abort();
     return ok(undefined);
   }
@@ -137,7 +159,10 @@ export class CodexAdapter implements AgentAdapter {
 
   private connection: CodexAppServerConnection | null = null;
   private readonly options: CodexAdapterOptions;
-  private readonly threadBySession = new Map<string, { threadId: string; userId: string }>();
+  private readonly threadBySession = new Map<
+    string,
+    { threadId: string; userId: string; toolNameMap?: Map<string, string> }
+  >();
 
   constructor(options: CodexAdapterOptions = {}) {
     this.options = options;
@@ -150,18 +175,25 @@ export class CodexAdapter implements AgentAdapter {
       const conn = await this.ensureConnection();
       if (!isOk(conn)) return conn;
 
-      const dynamicTools = options.tools?.length
+      const bridge = options.tools?.length
         ? toolsToDynamicSpecs(options.tools as ToolDefinition[])
-        : [];
+        : { specs: [], nameMap: new Map<string, string>() };
 
-      const threadRes = await conn.value.startThread({
-        dynamicTools,
-      });
+      const threadParams: {
+        dynamicTools: typeof bridge.specs;
+        model?: string;
+      } = {
+        dynamicTools: bridge.specs,
+      };
+      if (options.model) threadParams.model = options.model;
+
+      const threadRes = await conn.value.startThread(threadParams);
       if (!isOk(threadRes)) return threadRes;
 
       this.threadBySession.set(options.sessionId, {
         threadId: threadRes.value.threadId,
         userId: options.userId,
+        toolNameMap: bridge.nameMap,
       });
 
       return ok(
@@ -170,7 +202,8 @@ export class CodexAdapter implements AgentAdapter {
           threadRes.value.threadId,
           options.userId,
           conn.value,
-          this.options.executeTool
+          this.options.executeTool,
+          bridge.nameMap
         )
       );
     } catch (raw) {
@@ -202,12 +235,29 @@ export class CodexAdapter implements AgentAdapter {
           meta.threadId,
           meta.userId,
           conn.value,
-          this.options.executeTool
+          this.options.executeTool,
+          meta.toolNameMap
         )
       );
     } catch (raw) {
       return err(translateToBusinessError(raw, 'CODEX:resumeSession'));
     }
+  }
+
+  public async listModels(includeHidden = false): Promise<Result<CodexModelInfo[], BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listModels({ includeHidden });
+  }
+
+  public async getAccountStatus(): Promise<Result<CodexAccountStatus, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) {
+      // connect 失败也尽量返回结构化状态
+      const fallback = new CodexAppServerConnection(this.options.config);
+      return fallback.readAccountStatus();
+    }
+    return conn.value.readAccountStatus();
   }
 
   public async shutdown(): Promise<Result<void, BusinessError>> {
@@ -246,7 +296,7 @@ function buildTurnMessage(input: AgentInput): string {
               .map((w) => w.skillId)
               .join(', ')}\n`
           : '') +
-        `- instruction: Prefer calling registered learning.* tools for quiz/explain/examples when helpful. Reply in zh-CN coaching tone unless the learner writes in the target language.`
+        `- instruction: Prefer calling registered learning.* / quiz.* / ui.* tools when helpful. Reply in zh-CN coaching tone unless the learner writes in the target language.`
     );
   }
   parts.push(input.message || '');

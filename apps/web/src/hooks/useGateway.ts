@@ -15,10 +15,27 @@ export interface StreamTurnOptions {
   input: string;
   intent?: 'EXPLAIN' | 'GENERATE_QUIZ' | 'GRADE' | 'DRILL_KANA' | 'REVIEW_MISTAKES' | 'FREE_COACH' | undefined;
   contextSnapshot?: any;
+  agentOptions?: {
+    model?: string;
+    preferCodex?: boolean;
+    effort?: string;
+    approvalPolicy?: string;
+  };
   onStart?: () => void;
   onDelta: (delta: string, accumulated: string) => void;
   onReasoningDelta?: (delta: string, accumulated: string) => void;
-  onComplete: (data: { status: 'COMPLETED' | 'INTERRUPTED'; finalOutput: string; toolResults?: any }) => void;
+  onToolCall?: (info: {
+    callId?: string;
+    toolName: string;
+    arguments?: Record<string, unknown>;
+  }) => void;
+  onComplete: (data: {
+    status: 'COMPLETED' | 'INTERRUPTED';
+    finalOutput: string;
+    toolResults?: any;
+    source?: string;
+    model?: string;
+  }) => void;
   onError?: (err: any) => void;
 }
 
@@ -48,6 +65,11 @@ export function useGateway({
     onStart?: (() => void) | undefined;
     onDelta: (delta: string, accumulated: string) => void;
     onReasoningDelta?: ((delta: string, accumulated: string) => void) | undefined;
+    onToolCall?: ((info: {
+      callId?: string;
+      toolName: string;
+      arguments?: Record<string, unknown>;
+    }) => void) | undefined;
     onComplete: (data: any) => void;
     onError?: ((err: any) => void) | undefined;
     accumulatedText: string;
@@ -155,9 +177,20 @@ export function useGateway({
               callId?: string;
               toolName?: string;
               args?: Record<string, unknown>;
+              arguments?: Record<string, unknown>;
             };
             const toolName = p?.toolName;
-            const args = p?.args ?? {};
+            const args = p?.args ?? p?.arguments ?? {};
+            if (toolName) {
+              const toolInfo: {
+                toolName: string;
+                callId?: string;
+                arguments?: Record<string, unknown>;
+              } = { toolName };
+              if (p.callId) toolInfo.callId = p.callId;
+              if (Object.keys(args).length) toolInfo.arguments = args;
+              activeStreamRef.current?.onToolCall?.(toolInfo);
+            }
             const session = useStudySessionStore.getState();
 
             if (toolName === 'ui.navigate') {
@@ -412,6 +445,7 @@ export function useGateway({
         onStart: options.onStart,
         onDelta: options.onDelta,
         onReasoningDelta: options.onReasoningDelta,
+        onToolCall: options.onToolCall,
         onComplete: options.onComplete,
         onError: options.onError,
         accumulatedText: '',
@@ -428,6 +462,7 @@ export function useGateway({
           input: options.input,
           intent: options.intent ?? 'EXPLAIN',
           contextSnapshot: options.contextSnapshot,
+          agentOptions: options.agentOptions,
         },
         timestamp: Date.now(),
       };

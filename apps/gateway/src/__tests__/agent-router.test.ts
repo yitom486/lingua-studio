@@ -10,6 +10,15 @@ describe('selectAgentRoute', () => {
     expect(selectAgentRoute({ userPrompt: '讲透这个考点' }).reason).toBe('content_or_quiz_intent');
   });
 
+  it('routes FREE_COACH to Codex learning-loop', () => {
+    expect(
+      selectAgentRoute({ userPrompt: '你好，请问你是谁呢', intent: 'FREE_COACH' }).route
+    ).toBe('learning-loop');
+    expect(
+      selectAgentRoute({ userPrompt: '你好，请问你是谁呢', intent: 'FREE_COACH' }).reason
+    ).toBe('free_coach_codex');
+  });
+
   it('routes pitch / particle hints to responses-lite', () => {
     expect(selectAgentRoute({ userPrompt: '「橋」的声调怎么读？' }).route).toBe('responses-lite');
     expect(selectAgentRoute({ userPrompt: '助词で怎么用' }).route).toBe('responses-lite');
@@ -18,10 +27,7 @@ describe('selectAgentRoute', () => {
     );
   });
 
-  it('routes short EXPLAIN and track-aware lite hints', () => {
-    expect(
-      selectAgentRoute({ userPrompt: 'に vs で', intent: 'EXPLAIN', targetLanguage: 'ja' }).route
-    ).toBe('responses-lite');
+  it('routes track-aware lite hints', () => {
     expect(
       selectAgentRoute({
         userPrompt: 'How do you pronounce thorough?',
@@ -33,8 +39,9 @@ describe('selectAgentRoute', () => {
     ).toBe('responses-lite');
   });
 
-  it('routes short factual questions to responses-lite', () => {
-    expect(selectAgentRoute({ userPrompt: '这是什么意思？' }).route).toBe('responses-lite');
+  it('routes open chat / short greetings to learning-loop (Codex)', () => {
+    expect(selectAgentRoute({ userPrompt: '这是什么意思？' }).route).toBe('learning-loop');
+    expect(selectAgentRoute({ userPrompt: '你好' }).route).toBe('learning-loop');
   });
 
   it('defaults free coaching to learning-loop', () => {

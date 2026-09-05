@@ -8,6 +8,12 @@ export interface PreferencesState {
   sidebarCollapsed: boolean;
   /** 阅读双栏左侧（文章）宽度占比 0.28–0.72 */
   readingSplitRatio: number;
+  /** Study Coach 选用的 Codex 模型 id；空=本机默认 */
+  coachModelId: string;
+  /** 思考等级（turn/start.effort） */
+  coachEffort: string;
+  /** 审批策略：never | on-request | untrusted */
+  coachApprovalPolicy: string;
 
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
@@ -17,6 +23,9 @@ export interface PreferencesState {
   toggleMaskText: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setReadingSplitRatio: (ratio: number) => void;
+  setCoachModelId: (modelId: string) => void;
+  setCoachEffort: (effort: string) => void;
+  setCoachApprovalPolicy: (policy: string) => void;
 }
 
 const applyThemeToDom = (theme: 'light' | 'dark') => {
@@ -38,6 +47,9 @@ export const usePreferencesStore = create<PreferencesState>()(
       maskTextEnabled: false,
       sidebarCollapsed: false,
       readingSplitRatio: 0.58,
+      coachModelId: '',
+      coachEffort: 'medium',
+      coachApprovalPolicy: 'never',
 
       setTheme: (theme: 'light' | 'dark') => {
         applyThemeToDom(theme);
@@ -60,6 +72,10 @@ export const usePreferencesStore = create<PreferencesState>()(
 
       setReadingSplitRatio: (ratio: number) =>
         set({ readingSplitRatio: Math.min(0.72, Math.max(0.28, ratio)) }),
+
+      setCoachModelId: (coachModelId: string) => set({ coachModelId }),
+      setCoachEffort: (coachEffort: string) => set({ coachEffort }),
+      setCoachApprovalPolicy: (coachApprovalPolicy: string) => set({ coachApprovalPolicy }),
     }),
     {
       name: 'study_studio_user_preferences',

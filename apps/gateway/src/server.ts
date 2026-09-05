@@ -1,7 +1,7 @@
 import { SessionManager } from './session/session-manager.js';
 import { ContextBuilder } from './context/context-builder.js';
 import { ToolRouter } from './router/tool-router.js';
-import { ToolRegistry } from '@study-studio/tool-core';
+import { ToolRegistry, ToolLocations } from '@study-studio/tool-core';
 import { CodexAdapter } from '@study-studio/agent-codex';
 import { ResponsesAdapter } from '@study-studio/agent-responses';
 import {
@@ -53,6 +53,8 @@ export class GatewayServer {
   public readonly responsesAdapter = new ResponsesAdapter();
   public readonly learnerRepo: LearnerRepository;
   private readonly activeStreamControllers = new Map<string, AbortController>();
+  /** 当前 Turn 的 WS 下发器：供 Codex dynamic tool 触发 Client Tools */
+  private activeTurnEmit: ((env: WsEnvelope) => void) | undefined;
 
   constructor(learnerRepo?: LearnerRepository) {
     this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
@@ -88,9 +90,33 @@ export class GatewayServer {
         if (!isOk(res)) {
           throw res.error;
         }
+        // Client Tools：进程内校验参数后，经 WS 下发前端执行
+        if (tool.location === ToolLocations.CLIENT && this.activeTurnEmit) {
+          this.activeTurnEmit({
+            version: '1.0',
+            id: generateId('tool'),
+            sessionId: ctx.sessionId,
+            type: WsEventTypes.AGENT_TOOL_CALL,
+            payload: {
+              callId: generateId('call'),
+              toolName: tool.name,
+              args: res.value,
+            },
+            timestamp: Date.now(),
+          });
+        }
         return res.value;
       },
     });
+  }
+
+  /** 本机 Codex 登录态 / 模型清单（HTTP 探测用） */
+  public async getCodexAccountStatus() {
+    return this.agentAdapter.getAccountStatus();
+  }
+
+  public async listCodexModels(includeHidden = false) {
+    return this.agentAdapter.listModels(includeHidden);
   }
 
   /** 下发 Client Tool 调用（前端执行，Gateway 只做参数校验） */
@@ -493,9 +519,28 @@ export class GatewayServer {
           userId?: string;
           intent?: string;
           contextSnapshot?: any;
+          agentOptions?: {
+            model?: string;
+            preferCodex?: boolean;
+            effort?: string;
+            approvalPolicy?: string;
+          };
         };
         const userId = payload.userId || 'student_web_01';
         const userPrompt = String(payload.input || '').trim();
+        const preferredModel =
+          typeof payload.agentOptions?.model === 'string' && payload.agentOptions.model.trim()
+            ? payload.agentOptions.model.trim()
+            : undefined;
+        const preferredEffort =
+          typeof payload.agentOptions?.effort === 'string' && payload.agentOptions.effort.trim()
+            ? payload.agentOptions.effort.trim()
+            : undefined;
+        const preferredApproval =
+          typeof payload.agentOptions?.approvalPolicy === 'string' &&
+          payload.agentOptions.approvalPolicy.trim()
+            ? payload.agentOptions.approvalPolicy.trim()
+            : undefined;
 
         // 1. 组装不可变学情快照
         const snapshot = await this.contextBuilder.buildTurnSnapshot(
@@ -519,14 +564,19 @@ export class GatewayServer {
         // 3. 建立打断控制器
         const abortController = new AbortController();
         this.activeStreamControllers.set(envelope.sessionId, abortController);
+        this.activeTurnEmit = emit;
 
         let reply = '';
         let toolResults: any = undefined;
+        let replySource: 'codex' | 'lite' | 'keyword' | 'local' = 'local';
 
         try {
           const track = normalizeTrackLanguage(snapshot.targetLanguage);
+          // FREE_COACH：跳过关键词模板，直接交给 Codex 主通路
+          const skipKeywordTemplates = intent === 'FREE_COACH';
+
           // 根据意图或用户自然语言分发到参数化工具或专家教学大纲
-          if (userPrompt.includes('例句') || userPrompt.includes('造句')) {
+          if (!skipKeywordTemplates && (userPrompt.includes('例句') || userPrompt.includes('造句'))) {
             const tool = this.toolRegistry.get('learning.content');
             if (tool) {
               const res = await tool.execute(
@@ -554,11 +604,14 @@ export class GatewayServer {
               }
             }
           } else if (
+            !skipKeywordTemplates &&
+            (
             userPrompt.includes('为什么') ||
             userPrompt.includes('讲透') ||
             userPrompt.includes('辨析') ||
             userPrompt.includes('区分') ||
             userPrompt.includes('考点')
+            )
           ) {
             const tool = this.toolRegistry.get('learning.content');
             if (tool) {
@@ -585,10 +638,13 @@ export class GatewayServer {
               }
             }
           } else if (
+            !skipKeywordTemplates &&
+            (
             userPrompt.includes('考我') ||
             userPrompt.includes('出题') ||
             userPrompt.includes('练一练') ||
             intent === 'GENERATE_QUIZ'
+            )
           ) {
             const tool = this.toolRegistry.get('learning.content');
             if (tool) {
@@ -653,6 +709,7 @@ export class GatewayServer {
               });
               if (coach) {
                 reply = coach.reply;
+                replySource = 'lite';
               }
 
               if (!reply) {
@@ -677,36 +734,73 @@ export class GatewayServer {
                   }
                   if (liteOut) {
                     reply = liteOut;
+                    replySource = 'lite';
                   }
                 }
               }
             }
 
-            // learning-loop：优先真实 Codex App Server 流式
+            // learning-loop：优先真实 Codex App Server 流式（复用本机 login）
             let streamedFromCodex = false;
+            let codexFailHint = '';
             if (!reply && decision.route === 'learning-loop') {
               const learningTools = [
                 this.toolRegistry.get('learning.content'),
                 this.toolRegistry.get('learning.assess'),
+                this.toolRegistry.get('learning.progress'),
                 this.toolRegistry.get('learning.curriculum'),
                 this.toolRegistry.get('learning.library'),
+                this.toolRegistry.get('quiz.generateAdaptive'),
+                this.toolRegistry.get('quiz.gradeSubjective'),
+                this.toolRegistry.get('ui.navigate'),
+                this.toolRegistry.get('ui.present'),
               ].filter(Boolean);
 
-              const sessionRes = await this.agentAdapter.createSession({
-                sessionId: envelope.sessionId,
-                userId,
-                tools: learningTools as any,
-              });
+              // 同 Gateway session 复用 Codex thread，避免每轮 thread/start
+              const existingGw = this.sessionManager.getSession(envelope.sessionId);
+              let agentSession =
+                isOk(existingGw) && existingGw.value.agentSession
+                  ? existingGw.value.agentSession
+                  : null;
 
-              if (isOk(sessionRes)) {
-                this.sessionManager.attachAgentSession(envelope.sessionId, sessionRes.value);
+              if (!agentSession) {
+                const sessionOpts: {
+                  sessionId: string;
+                  userId: string;
+                  tools: any;
+                  model?: string;
+                } = {
+                  sessionId: envelope.sessionId,
+                  userId,
+                  tools: learningTools as any,
+                };
+                if (preferredModel) sessionOpts.model = preferredModel;
+
+                const sessionRes = await this.agentAdapter.createSession(sessionOpts);
+                if (isOk(sessionRes)) {
+                  this.sessionManager.attachAgentSession(
+                    envelope.sessionId,
+                    sessionRes.value
+                  );
+                  agentSession = sessionRes.value;
+                } else {
+                  codexFailHint = sessionRes.error.userMessage || sessionRes.error.message;
+                }
+              }
+
+              if (agentSession) {
                 let acc = '';
-                for await (const ev of sessionRes.value.send({
+                for await (const ev of agentSession.send({
                   message: userPrompt,
                   contextSnapshot: snapshot,
+                  turnOptions: {
+                    ...(preferredModel ? { model: preferredModel } : {}),
+                    ...(preferredEffort ? { effort: preferredEffort } : {}),
+                    ...(preferredApproval ? { approvalPolicy: preferredApproval } : {}),
+                  },
                 })) {
                   if (abortController.signal.aborted) {
-                    await sessionRes.value.interrupt();
+                    await agentSession.interrupt();
                     break;
                   }
                   if (ev.type === 'TEXT_DELTA' && ev.delta) {
@@ -744,6 +838,7 @@ export class GatewayServer {
                           callId: ev.callId,
                           toolName: ev.toolName,
                           arguments: ev.input,
+                          args: ev.input,
                         },
                         timestamp: Date.now(),
                       });
@@ -751,15 +846,22 @@ export class GatewayServer {
                   } else if (ev.type === 'COMPLETED' && ev.finalOutput) {
                     if (!acc) acc = String(ev.finalOutput);
                   } else if (ev.type === 'ERROR') {
-                    // Codex 失败则回落本地教练，不中断整轮
                     streamedFromCodex = false;
                     acc = '';
+                    codexFailHint = ev.error?.userMessage || ev.error?.message || '';
+                    // 出错时丢弃坏会话，下轮重建
+                    void agentSession.close();
+                    const broken = this.sessionManager.getSession(envelope.sessionId);
+                    if (isOk(broken)) {
+                      delete broken.value.agentSession;
+                    }
                     break;
                   }
                 }
                 if (acc) {
                   reply = acc;
                   streamedFromCodex = true;
+                  replySource = 'codex';
                 }
               }
             }
@@ -770,6 +872,10 @@ export class GatewayServer {
                 userPrompt,
                 focusLabel: snapshot.focus?.skillTag || snapshot.focus?.surface,
               });
+              replySource = 'local';
+              if (codexFailHint) {
+                reply += `\n\n—\n（Codex 未接通：${codexFailHint}；已回落本地旁路。请确认本机已 \`codex login\` 且 Gateway 能启动 Codex CLI。）`;
+              }
             }
 
             // 非 Codex 真流式时：本地文案假分块推流
@@ -785,7 +891,7 @@ export class GatewayServer {
                   id: generateId('delta'),
                   sessionId: envelope.sessionId,
                   type: WsEventTypes.AGENT_TEXT_DELTA,
-                  payload: { delta: chunk, textDelta: chunk },
+                  payload: { delta: chunk, textDelta: chunk, source: replySource },
                   timestamp: Date.now(),
                 };
                 if (emit) emit(deltaEnvelope);
@@ -793,6 +899,7 @@ export class GatewayServer {
               }
             }
           } else {
+            replySource = 'keyword';
             // 关键词工具已生成整段 reply：假分块推流
             const chunkSize = 6;
             for (let i = 0; i < reply.length; i += chunkSize) {
@@ -805,7 +912,7 @@ export class GatewayServer {
                 id: generateId('delta'),
                 sessionId: envelope.sessionId,
                 type: WsEventTypes.AGENT_TEXT_DELTA,
-                payload: { delta: chunk, textDelta: chunk },
+                payload: { delta: chunk, textDelta: chunk, source: replySource },
                 timestamp: Date.now(),
               };
               if (emit) emit(deltaEnvelope);
@@ -814,6 +921,7 @@ export class GatewayServer {
           }
         } finally {
           this.activeStreamControllers.delete(envelope.sessionId);
+          this.activeTurnEmit = undefined;
         }
 
         const isInterrupted = abortController.signal.aborted;
@@ -826,6 +934,8 @@ export class GatewayServer {
             status: isInterrupted ? 'INTERRUPTED' : 'COMPLETED',
             finalOutput: reply,
             toolResults,
+            source: replySource,
+            model: preferredModel,
           },
           timestamp: Date.now(),
         };

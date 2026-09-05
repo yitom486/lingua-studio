@@ -84,6 +84,23 @@ export const app = new Hono()
       timestamp: Date.now(),
     })
   )
+
+  .get('/api/agent/codex/status', async (c) => {
+    const res = await gatewayServer.getCodexAccountStatus();
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_STATUS');
+    }
+    return c.json(res.value);
+  })
+  .get('/api/agent/codex/models', async (c) => {
+    const includeHidden = c.req.query('includeHidden') === '1';
+    const res = await gatewayServer.listCodexModels(includeHidden);
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_MODELS');
+    }
+    return c.json({ models: res.value });
+  })
+
   // 本地词典优先；仅在日语本地未命中时提供 OJAD 外链，不代理或抓取 OJAD。
   .get('/api/dictionary/:language', async (c) => {
     const language = c.req.param('language');

@@ -4,10 +4,19 @@ import {
   mapAppServerNotificationToEvents,
   CodexAdapter,
   loadCodexConfigFromEnv,
+  normalizeSandboxMode,
+  normalizeApprovalPolicy,
 } from '../index.js';
 import { isErr } from '@study-studio/shared';
 
 describe('Agent Codex - Mapper & Adapter', () => {
+  it('normalizes sandbox and approval kebab-case enums', () => {
+    expect(normalizeSandboxMode('readOnly')).toBe('read-only');
+    expect(normalizeSandboxMode('workspaceWrite')).toBe('workspace-write');
+    expect(normalizeSandboxMode('danger-full-access')).toBe('danger-full-access');
+    expect(normalizeApprovalPolicy('onRequest')).toBe('on-request');
+    expect(normalizeApprovalPolicy('never')).toBe('never');
+  });
   it('should map message_delta correctly', () => {
     const event = mapCodexItemToAgentEvent({
       type: 'message_delta',

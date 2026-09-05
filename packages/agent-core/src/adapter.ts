@@ -7,6 +7,8 @@ export interface CreateSessionOptions {
   userId: string;
   systemPrompt?: string;
   tools?: ToolDefinition[];
+  /** 可选：覆盖本轮 / 本会话模型（Codex App Server thread/start.model） */
+  model?: string;
 }
 
 export interface AgentAdapter {

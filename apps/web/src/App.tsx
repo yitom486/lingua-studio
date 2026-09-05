@@ -133,14 +133,11 @@ export function App() {
       {/* Codex 风格自由教练窗：无题目上下文时 / 或可并行打开 */}
       {isTutorOpen && !tutorContext && (
         <div className="fixed inset-y-3 right-3 z-50 w-[min(100vw-1.5rem,420px)] shadow-2xl">
-          <AgentChatPanel gateway={gateway} className="h-full" />
-          <button
-            type="button"
-            className="absolute top-2 right-2 text-[11px] text-stone-400 hover:text-stone-200 px-2 py-1"
-            onClick={closeTutor}
-          >
-            关闭
-          </button>
+          <AgentChatPanel
+            gateway={gateway}
+            className="h-full"
+            onClose={closeTutor}
+          />
         </div>
       )}
 

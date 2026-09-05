@@ -19,8 +19,17 @@ import {
   type TurnStartParams,
   type TurnStartResponse,
   loadCodexConfigFromEnv,
+  buildCodexProcessEnv,
+  resolveCodexHome,
+  resolveCodexBinary,
+  type CodexAccountStatus,
+  type CodexModelInfo,
+  normalizeSandboxMode,
+  normalizeApprovalPolicy,
 } from './app-server-protocol.js';
 import { mapAppServerNotificationToEvents } from './event-mapper.js';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 
 export type ToolCallHandler = (
   params: DynamicToolCallParams
@@ -55,9 +64,15 @@ export class CodexAppServerConnection {
     }
     if (this.rpc.isConnected && this.initialized) return ok(undefined);
 
-    const startOpts: { command: string; args: string[]; cwd?: string } = {
+    const startOpts: {
+      command: string;
+      args: string[];
+      cwd?: string;
+      env?: NodeJS.ProcessEnv;
+    } = {
       command: this.config.command || 'codex',
       args: this.config.args ?? ['app-server', '--listen', 'stdio://'],
+      env: buildCodexProcessEnv(this.config),
     };
     if (this.config.cwd) startOpts.cwd = this.config.cwd;
     const startRes = await this.rpc.start(startOpts);
@@ -129,6 +144,8 @@ export class CodexAppServerConnection {
     dynamicTools?: DynamicToolSpec[];
     model?: string;
     cwd?: string;
+    sandbox?: string;
+    approvalPolicy?: string;
   }): Promise<Result<{ threadId: string }, BusinessError>> {
     const ready = await this.connect();
     if (!isOk(ready)) return ready;
@@ -136,8 +153,10 @@ export class CodexAppServerConnection {
     const body: ThreadStartParams = {
       model: params?.model ?? this.config.model ?? null,
       cwd: params?.cwd ?? this.config.cwd ?? null,
-      sandbox: this.config.sandbox ?? 'readOnly',
-      approvalPolicy: this.config.approvalPolicy ?? 'never',
+      sandbox: normalizeSandboxMode(params?.sandbox ?? this.config.sandbox),
+      approvalPolicy: normalizeApprovalPolicy(
+        params?.approvalPolicy ?? this.config.approvalPolicy
+      ),
       ephemeral: true,
       dynamicTools: params?.dynamicTools ?? null,
     };
@@ -169,6 +188,9 @@ export class CodexAppServerConnection {
     threadId: string;
     message: string;
     signal?: AbortSignal;
+    model?: string;
+    effort?: string;
+    approvalPolicy?: string;
   }): AsyncGenerator<AgentEvent, void, unknown> {
     const ready = await this.connect();
     if (!isOk(ready)) {
@@ -187,7 +209,6 @@ export class CodexAppServerConnection {
       if (ev.type === 'TEXT_DELTA' && ev.delta) sawText = true;
       if (ev.type === 'COMPLETED' && ev.finalOutput) {
         lastFinal = ev.finalOutput;
-        // 若已有流式正文，避免再用整段 COMPLETED 覆盖；仍要结束
         if (sawText) {
           queue.push({ type: 'COMPLETED' });
         } else {
@@ -229,10 +250,22 @@ export class CodexAppServerConnection {
     params.signal?.addEventListener('abort', onAbort, { once: true });
 
     try {
-      const startRes = await this.rpc.request<TurnStartResponse>('turn/start', {
+      const turnBody: TurnStartParams = {
         threadId: params.threadId,
         input: [{ type: 'text', text: params.message }],
-      } satisfies TurnStartParams);
+      };
+      if (params.model) turnBody.model = params.model;
+      if (params.effort) turnBody.effort = params.effort;
+      if (params.approvalPolicy) {
+        turnBody.approvalPolicy = normalizeApprovalPolicy(params.approvalPolicy);
+      } else if (this.config.effort && !params.effort) {
+        // no-op; effort only when explicitly set
+      }
+      if (!params.effort && this.config.effort) {
+        turnBody.effort = this.config.effort;
+      }
+
+      const startRes = await this.rpc.request<TurnStartResponse>('turn/start', turnBody);
 
       if (!isOk(startRes)) {
         yield { type: 'ERROR', error: startRes.error };
@@ -272,11 +305,107 @@ export class CodexAppServerConnection {
       params.signal?.removeEventListener('abort', onAbort);
     }
   }
-
   public async interrupt(threadId: string, turnId: string): Promise<Result<void, BusinessError>> {
-    const res = await this.rpc.request('turn/interrupt', { threadId, turnId } satisfies TurnInterruptParams);
+    const res = await this.rpc.request('turn/interrupt', {
+      threadId,
+      turnId,
+    } satisfies TurnInterruptParams);
     if (!isOk(res)) return res;
     return ok(undefined);
+  }
+
+  /** 列出本机 Codex 账号可见模型（复用 login 会话）。 */
+  public async listModels(params?: {
+    includeHidden?: boolean;
+  }): Promise<Result<CodexModelInfo[], BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{ data?: Array<Record<string, unknown>> }>('model/list', {
+      includeHidden: params?.includeHidden ?? false,
+    });
+    if (!isOk(res)) return res;
+    const rows = Array.isArray(res.value?.data) ? res.value.data : [];
+    const models: CodexModelInfo[] = rows
+      .map((row) => {
+        const info: CodexModelInfo = {
+          id: String(row.id ?? row.model ?? ''),
+          model: String(row.model ?? row.id ?? ''),
+          displayName: String(row.displayName ?? row.model ?? row.id ?? 'model'),
+          isDefault: Boolean(row.isDefault),
+          hidden: Boolean(row.hidden),
+        };
+        if (row.description) info.description = String(row.description);
+        const effortsRaw = row.supportedReasoningEfforts;
+        if (Array.isArray(effortsRaw)) {
+          info.supportedReasoningEfforts = effortsRaw
+            .map((e) => {
+              if (typeof e === 'string') return e;
+              if (e && typeof e === 'object' && 'reasoningEffort' in e) {
+                return String((e as { reasoningEffort: unknown }).reasoningEffort);
+              }
+              return '';
+            })
+            .filter(Boolean);
+        }
+        if (row.defaultReasoningEffort) {
+          info.defaultReasoningEffort = String(row.defaultReasoningEffort);
+        }
+        return info;
+      })
+      .filter((m) => m.id || m.model);
+    return ok(models);
+  }
+
+  /** 探测本机 Codex 登录态（不读取/复制密钥，只问 App Server）。 */
+  public async readAccountStatus(): Promise<Result<CodexAccountStatus, BusinessError>> {
+    const binary = this.config.command || resolveCodexBinary();
+    const codexHome = resolveCodexHome(this.config.codexHome);
+    const authHint = Boolean(codexHome && existsSync(path.join(codexHome, 'auth.json')));
+
+    const ready = await this.connect();
+    if (!isOk(ready)) {
+      const status: CodexAccountStatus = {
+        linked: false,
+        requiresOpenaiAuth: true,
+        binary,
+        message: ready.error.userMessage || ready.error.message,
+      };
+      if (codexHome) status.codexHome = codexHome;
+      return ok(status);
+    }
+
+    const res = await this.rpc.request<{
+      account?: { email?: string; planType?: string } | null;
+      requiresOpenaiAuth?: boolean;
+    }>('account/read', {});
+    if (!isOk(res)) {
+      const status: CodexAccountStatus = {
+        linked: authHint,
+        requiresOpenaiAuth: true,
+        binary,
+        message: res.error.userMessage || res.error.message,
+      };
+      if (codexHome) status.codexHome = codexHome;
+      return ok(status);
+    }
+
+    const account = res.value?.account ?? null;
+    const requires = Boolean(res.value?.requiresOpenaiAuth);
+    const linked = Boolean(account) || (authHint && !requires);
+    const status: CodexAccountStatus = {
+      linked,
+      requiresOpenaiAuth: requires,
+      planType: account?.planType ?? null,
+      email: account?.email ?? null,
+      binary,
+      message: linked
+        ? '已联动本机 Codex 登录态'
+        : requires
+          ? '本机 Codex 尚未登录，请先在终端执行 codex login'
+          : '已检测到本机 Codex 配置，可直接发起对话',
+    };
+    if (codexHome) status.codexHome = codexHome;
+    return ok(status);
   }
 
   public async close(): Promise<Result<void, BusinessError>> {

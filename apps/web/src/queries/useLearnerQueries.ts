@@ -22,6 +22,7 @@ export const QUERY_KEYS = {
   NEWS_TOPICS: ['learner', 'newsTopics'] as const,
   PITCH: ['curriculum', 'pitch'] as const,
   PROFILE: ['learner', 'profile'] as const,
+  DICTIONARY: ['learner', 'dictionary'] as const,
   MISTAKES: ['learner', 'mistakes'] as const,
   QUESTIONS: ['learner', 'questions'] as const,
   CARDS: ['learner', 'cards'] as const,
@@ -915,6 +916,104 @@ export type PitchLexiconItem = {
   };
   tip: string;
 };
+
+export type DictionaryLookupResult = {
+  entries: Array<{
+    id: string;
+    language: 'ja' | 'en' | 'ko';
+    headword: string;
+    reading?: string;
+    romanization?: string;
+    meanings: string[];
+    pronunciation?: Record<string, unknown>;
+    partOfSpeech?: string;
+    sourceLabel: string;
+    licenseNote: string;
+  }>;
+  externalLookup?: {
+    provider: 'OJAD';
+    url: string;
+    opensExternally: true;
+  };
+};
+
+export type DictionaryPackageInfo = {
+  id: string;
+  language: 'en' | 'ja' | 'ko';
+  provider: string;
+  version: string;
+  sourceUrl: string;
+  licenseName: string;
+  licenseUrl: string;
+  attribution: string;
+  description: string;
+  installMode: 'on_demand';
+  installed: boolean;
+  entryCount?: number;
+  installedAt?: string;
+};
+
+type DictionaryPackagesResponse = { packages: DictionaryPackageInfo[] };
+
+/** 词典包只读取 Gateway 状态；不把大词典内容放入浏览器缓存。 */
+export function useDictionaryPackagesQuery(enabled = true) {
+  return useQuery<DictionaryPackagesResponse>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, 'packages'],
+    enabled,
+    queryFn: async () => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/dictionary/packages`);
+      if (!response.ok) throw new Error('暂时无法读取词典包状态。');
+      return (await response.json()) as DictionaryPackagesResponse;
+    },
+    staleTime: 1000 * 30,
+  });
+}
+
+/** 用户显式确认后才下载词典包；成功后使本地查询结果和包状态同步刷新。 */
+export function useInstallDictionaryPackageMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (packageId: string) => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/dictionary/packages/${encodeURIComponent(packageId)}/install`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '词典包安装失败，请检查网络后重试。');
+      }
+      return (await response.json()) as DictionaryPackageInfo;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'packages'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DICTIONARY });
+    },
+  });
+}
+
+/** 通用本地词典查询；日语未命中时由 Gateway 返回 OJAD 外链，前端不直接请求 OJAD。 */
+export function useDictionaryLookupQuery(
+  language: 'ja' | 'en' | 'ko',
+  query: string
+) {
+  const normalized = query.trim();
+  return useQuery<DictionaryLookupResult>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, language, normalized],
+    enabled: Boolean(normalized),
+    queryFn: async () => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/dictionary/${language}?q=${encodeURIComponent(normalized)}`
+      );
+      if (!response.ok) {
+        return { entries: [] };
+      }
+      return (await response.json()) as DictionaryLookupResult;
+    },
+    staleTime: 1000 * 60 * 10,
+  });
+}
 
 /** 声调基准词表（Gateway curriculum，非 OJAD） */
 export function usePitchLexiconQuery(search = '') {

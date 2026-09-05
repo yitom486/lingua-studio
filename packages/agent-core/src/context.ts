@@ -65,5 +65,13 @@ export interface ContextSnapshot {
 export interface AgentInput {
   message: string;
   contextSnapshot?: ContextSnapshot | undefined;
+  /** 本轮覆盖：模型 / 思考等级 / 审批策略（由 Adapter 映射到引擎原生字段） */
+  turnOptions?:
+    | {
+        model?: string | undefined;
+        effort?: string | undefined;
+        approvalPolicy?: string | undefined;
+      }
+    | undefined;
 }
 
