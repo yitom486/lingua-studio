@@ -10,15 +10,12 @@ export * from './router/tool-router.js';
 export * from './router/agent-router.js';
 export * from './infrastructure/db/index.js';
 export * from './infrastructure/drizzle-learner-repository.js';
-export * from './infrastructure/sqlite-learner-repository.js';
 export * from './errors/http-error-handler.js';
 
 // 生产单例：进程内只装配一次。测试如需隔离请用 createGateway() 显式注入，
 // 不要依赖本模块单例；路由装配见 transport/http/create-app.ts。
 const gateway = createGateway();
 export const drizzleRepo = gateway.repo;
-/** 保持向前兼容别名 */
-export const sqliteRepo = gateway.repo;
 export const gatewayServer = gateway.server;
 
 /**
