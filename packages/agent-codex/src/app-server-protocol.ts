@@ -130,6 +130,54 @@ export interface CodexMcpServerStatusDto {
   pluginId: string | null;
 }
 
+/**
+ * EXPERIMENTAL — Codex thread realtime（语音/实时会话）。
+ * 协议已暴露；Study Studio 当前未接 UI / 音频管线，调用可能失败或行为不完整。
+ */
+export type CodexRealtimeOutputModality = 'text' | 'audio';
+export type CodexRealtimeTextRole = 'user' | 'developer' | 'assistant';
+export type CodexRealtimeTransport =
+  | { type: 'websocket' }
+  | { type: 'webrtc'; sdp: string };
+
+export interface CodexRealtimeStartParams {
+  threadId: string;
+  outputModality: CodexRealtimeOutputModality;
+  model?: string;
+  voice?: string;
+  prompt?: string;
+  transport?: CodexRealtimeTransport;
+  version?: string;
+  realtimeSessionId?: string;
+  realtimeStartInstructions?: string;
+  realtimeEndInstructions?: string;
+}
+
+export interface CodexRealtimeAudioChunkDto {
+  /** base64 PCM / 原始音频负载 */
+  data: string;
+  sampleRate: number;
+  numChannels: number;
+  samplesPerChannel?: number | null;
+  itemId?: string | null;
+}
+
+export interface CodexRealtimeVoicesDto {
+  v1: string[];
+  v2: string[];
+  defaultV1: string | null;
+  defaultV2: string | null;
+}
+
+export interface CodexRealtimeCapabilityDto {
+  /** 本机 App Server 是否响应了 voices 探测 */
+  available: boolean;
+  experimental: true;
+  /** 对用户可读的说明 */
+  message: string;
+  voices?: CodexRealtimeVoicesDto;
+}
+
 export interface DynamicToolCallParams {
   threadId: string;
   turnId: string;

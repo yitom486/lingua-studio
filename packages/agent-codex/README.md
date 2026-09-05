@@ -57,10 +57,20 @@
 - `GET /api/agent/codex/mcp-servers` — MCP 状态只读（`mcpServerStatus/list`，非学习域工具总线）
 - `GET /api/agent/codex/collaboration-modes` — 协作模式预设
 
+### EXPERIMENTAL realtime（预留，无产品 UI）
+
+> 对应 App Server `thread/realtime/*`。Gateway 只透传 RPC；**未接麦克风/扬声器/WebRTC 管线**，调用不保证成功，勿绑学习闭环。
+
+- `GET /api/agent/codex/realtime/capability` — 探测本机是否响应 voices
+- `GET /api/agent/codex/realtime/voices` — `thread/realtime/listVoices`
+- `POST /api/agent/codex/realtime/:id/start|stop` — 启停
+- `POST /api/agent/codex/realtime/:id/append-text|append-speech|append-audio` — 输入
+
 WebSocket：
 - `client.queue.start` → 流式消费队列下一项；turn 完成 payload 含 `queueRemaining`
 - `agent.queue.changed` ← `thread/queue/changed`
 - `agent.skills.changed` ← `skills/changed`
+- `agent.realtime.*` ← `thread/realtime/*` 旁路通知（预留转发）
 
 ## 再生协议类型（可选）
 

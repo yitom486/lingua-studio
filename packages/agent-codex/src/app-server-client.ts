@@ -35,6 +35,11 @@ import {
   type CodexSkillDto,
   type CodexRateLimitsDto,
   type CodexMcpServerStatusDto,
+  type CodexRealtimeStartParams,
+  type CodexRealtimeAudioChunkDto,
+  type CodexRealtimeVoicesDto,
+  type CodexRealtimeCapabilityDto,
+  type CodexRealtimeTextRole,
   normalizeSandboxMode,
   normalizeApprovalPolicy,
 } from './app-server-protocol.js';
@@ -955,6 +960,144 @@ export class CodexAppServerConnection {
       servers,
       nextCursor: res.value?.nextCursor ?? null,
     });
+  }
+
+  /**
+   * EXPERIMENTAL — thread/realtime/listVoices + 能力探测。
+   * 成功仅代表本机 App Server 识别该 RPC；不代表 Study Studio 已接音频 UI。
+   */
+  public async probeRealtimeCapability(): Promise<
+    Result<CodexRealtimeCapabilityDto, BusinessError>
+  > {
+    const voicesRes = await this.listRealtimeVoices();
+    if (!isOk(voicesRes)) {
+      return ok({
+        available: false,
+        experimental: true,
+        message:
+          voicesRes.error.userMessage ||
+          voicesRes.error.message ||
+          '本机 Codex 暂未响应 realtime voices；接口已预留，待引擎支持后再用。',
+      });
+    }
+    return ok({
+      available: true,
+      experimental: true,
+      message:
+        '本机 App Server 已响应 realtime voices（实验性）。Study Studio 尚未接 UI/音频管线，请勿当作可用产品能力。',
+      voices: voicesRes.value,
+    });
+  }
+
+  public async listRealtimeVoices(): Promise<Result<CodexRealtimeVoicesDto, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request<{
+      voices?: {
+        v1?: string[];
+        v2?: string[];
+        defaultV1?: string;
+        defaultV2?: string;
+      };
+    }>('thread/realtime/listVoices', {});
+    if (!isOk(res)) return res;
+    const v = res.value?.voices;
+    return ok({
+      v1: Array.isArray(v?.v1) ? v.v1.map(String) : [],
+      v2: Array.isArray(v?.v2) ? v.v2.map(String) : [],
+      defaultV1: v?.defaultV1 != null ? String(v.defaultV1) : null,
+      defaultV2: v?.defaultV2 != null ? String(v.defaultV2) : null,
+    });
+  }
+
+  /** EXPERIMENTAL — thread/realtime/start */
+  public async startRealtime(
+    params: CodexRealtimeStartParams
+  ): Promise<Result<{ ok: true }, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const body: Record<string, unknown> = {
+      threadId: params.threadId,
+      outputModality: params.outputModality,
+    };
+    if (params.model) body.model = params.model;
+    if (params.voice) body.voice = params.voice;
+    if (params.prompt) body.prompt = params.prompt;
+    if (params.transport) body.transport = params.transport;
+    if (params.version) body.version = params.version;
+    if (params.realtimeSessionId) body.realtimeSessionId = params.realtimeSessionId;
+    if (params.realtimeStartInstructions) {
+      body.realtimeStartInstructions = params.realtimeStartInstructions;
+    }
+    if (params.realtimeEndInstructions) {
+      body.realtimeEndInstructions = params.realtimeEndInstructions;
+    }
+    const res = await this.rpc.request('thread/realtime/start', body);
+    if (!isOk(res)) return res;
+    return ok({ ok: true });
+  }
+
+  /** EXPERIMENTAL — thread/realtime/stop */
+  public async stopRealtime(threadId: string): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/realtime/stop', { threadId });
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
+  /** EXPERIMENTAL — thread/realtime/appendText */
+  public async appendRealtimeText(params: {
+    threadId: string;
+    text: string;
+    role?: CodexRealtimeTextRole;
+  }): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/realtime/appendText', {
+      threadId: params.threadId,
+      text: params.text,
+      role: params.role ?? 'user',
+    });
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
+  /** EXPERIMENTAL — thread/realtime/appendSpeech */
+  public async appendRealtimeSpeech(params: {
+    threadId: string;
+    text: string;
+  }): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/realtime/appendSpeech', {
+      threadId: params.threadId,
+      text: params.text,
+    });
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
+  /** EXPERIMENTAL — thread/realtime/appendAudio */
+  public async appendRealtimeAudio(params: {
+    threadId: string;
+    audio: CodexRealtimeAudioChunkDto;
+  }): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const audio: Record<string, unknown> = {
+      data: params.audio.data,
+      sampleRate: params.audio.sampleRate,
+      numChannels: params.audio.numChannels,
+      samplesPerChannel: params.audio.samplesPerChannel ?? null,
+      itemId: params.audio.itemId ?? null,
+    };
+    const res = await this.rpc.request('thread/realtime/appendAudio', {
+      threadId: params.threadId,
+      audio,
+    });
+    if (!isOk(res)) return res;
+    return ok(undefined);
   }
 
   public async close(): Promise<Result<void, BusinessError>> {

@@ -12,6 +12,7 @@ export const CODEX_QUERY_KEYS = {
   SKILLS: ['agent', 'codexSkills'] as const,
   RATE_LIMITS: ['agent', 'codexRateLimits'] as const,
   MCP_SERVERS: ['agent', 'codexMcpServers'] as const,
+  REALTIME_CAPABILITY: ['agent', 'codexRealtimeCapability'] as const,
 };
 
 type CodexInvalidateListener = (event: {
@@ -132,6 +133,19 @@ export interface CodexMcpServerStatusDto {
   authStatus: string;
   toolCount: number;
   pluginId: string | null;
+}
+
+/** EXPERIMENTAL — 本机 realtime 能力探测（无 UI） */
+export interface CodexRealtimeCapabilityDto {
+  available: boolean;
+  experimental: true;
+  message: string;
+  voices?: {
+    v1: string[];
+    v2: string[];
+    defaultV1: string | null;
+    defaultV2: string | null;
+  };
 }
 
 /** 本机 Codex 登录联动状态（复用 ~/.codex，不另建凭证） */
@@ -394,5 +408,71 @@ export function useCodexMcpServersQuery(enabled = true) {
     },
     staleTime: 1000 * 60 * 5,
     retry: 1,
+  });
+}
+
+/**
+ * EXPERIMENTAL — 探测本机 Codex realtime 是否响应。
+ * 默认不启用；仅联调时手动 enabled=true。产品 UI 未接入。
+ */
+export function useCodexRealtimeCapabilityQuery(enabled = false) {
+  return useQuery<CodexRealtimeCapabilityDto>({
+    queryKey: CODEX_QUERY_KEYS.REALTIME_CAPABILITY,
+    enabled,
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/agent/codex/realtime/capability`);
+      if (!res.ok) {
+        return {
+          available: false,
+          experimental: true as const,
+          message: '无法探测 realtime 能力（Gateway/Codex 未就绪）。',
+        };
+      }
+      return (await res.json()) as CodexRealtimeCapabilityDto;
+    },
+    staleTime: 1000 * 60 * 5,
+    retry: 0,
+  });
+}
+
+/** EXPERIMENTAL — 预留 mutations；勿接到正式学习路径 */
+export function useStartCodexRealtimeMutation() {
+  return useMutation({
+    mutationFn: async (input: {
+      threadId: string;
+      outputModality?: 'text' | 'audio';
+      model?: string;
+      voice?: string;
+      prompt?: string;
+    }) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/realtime/${encodeURIComponent(input.threadId)}/start`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            outputModality: input.outputModality ?? 'text',
+            ...(input.model ? { model: input.model } : {}),
+            ...(input.voice ? { voice: input.voice } : {}),
+            ...(input.prompt ? { prompt: input.prompt } : {}),
+          }),
+        }
+      );
+      if (!res.ok) throw new Error('realtime start 失败（实验性接口）');
+      return (await res.json()) as { ok: boolean; experimental?: boolean; warning?: string };
+    },
+  });
+}
+
+export function useStopCodexRealtimeMutation() {
+  return useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/realtime/${encodeURIComponent(threadId)}/stop`,
+        { method: 'POST' }
+      );
+      if (!res.ok) throw new Error('realtime stop 失败（实验性接口）');
+      return (await res.json()) as { ok: boolean; experimental?: boolean };
+    },
   });
 }

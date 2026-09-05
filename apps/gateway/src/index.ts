@@ -270,6 +270,152 @@ export const app = new Hono()
     }
     return c.json(res.value);
   })
+  /**
+   * EXPERIMENTAL realtime（预留）
+   * — 仅暴露 App Server RPC 外壳；无 UI、无音频管线、不保证可用。
+   */
+  .get('/api/agent/codex/realtime/capability', async (c) => {
+    const res = await gatewayServer.probeCodexRealtime();
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_PROBE');
+    }
+    return c.json(res.value);
+  })
+  .get('/api/agent/codex/realtime/voices', async (c) => {
+    const res = await gatewayServer.listCodexRealtimeVoices();
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_VOICES');
+    }
+    return c.json({ experimental: true, voices: res.value });
+  })
+  .post('/api/agent/codex/realtime/:threadId/start', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      outputModality?: 'text' | 'audio';
+      model?: string;
+      voice?: string;
+      prompt?: string;
+      transport?: { type: 'websocket' } | { type: 'webrtc'; sdp: string };
+      version?: string;
+      realtimeSessionId?: string;
+      realtimeStartInstructions?: string;
+      realtimeEndInstructions?: string;
+    };
+    const outputModality = body.outputModality === 'audio' ? 'audio' : 'text';
+    const res = await gatewayServer.startCodexRealtime({
+      threadId,
+      outputModality,
+      ...(body.model ? { model: body.model } : {}),
+      ...(body.voice ? { voice: body.voice } : {}),
+      ...(body.prompt ? { prompt: body.prompt } : {}),
+      ...(body.transport ? { transport: body.transport } : {}),
+      ...(body.version ? { version: body.version } : {}),
+      ...(body.realtimeSessionId ? { realtimeSessionId: body.realtimeSessionId } : {}),
+      ...(body.realtimeStartInstructions
+        ? { realtimeStartInstructions: body.realtimeStartInstructions }
+        : {}),
+      ...(body.realtimeEndInstructions
+        ? { realtimeEndInstructions: body.realtimeEndInstructions }
+        : {}),
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_START');
+    }
+    return c.json({
+      ok: true,
+      experimental: true,
+      warning: 'Realtime 为实验性预留接口，Study Studio 尚未接 UI/音频管线。',
+    });
+  })
+  .post('/api/agent/codex/realtime/:threadId/stop', async (c) => {
+    const threadId = c.req.param('threadId');
+    const res = await gatewayServer.stopCodexRealtime(threadId);
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_STOP');
+    }
+    return c.json({ ok: true, experimental: true });
+  })
+  .post('/api/agent/codex/realtime/:threadId/append-text', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      text?: string;
+      role?: 'user' | 'developer' | 'assistant';
+    };
+    const text = String(body.text || '').trim();
+    if (!text) {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', 'realtime 文本不能为空', 'VALIDATION'),
+        'CODEX_REALTIME_APPEND_TEXT'
+      );
+    }
+    const res = await gatewayServer.appendCodexRealtimeText({
+      threadId,
+      text,
+      ...(body.role ? { role: body.role } : {}),
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_APPEND_TEXT');
+    }
+    return c.json({ ok: true, experimental: true });
+  })
+  .post('/api/agent/codex/realtime/:threadId/append-speech', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as { text?: string };
+    const text = String(body.text || '').trim();
+    if (!text) {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', 'realtime speech 文本不能为空', 'VALIDATION'),
+        'CODEX_REALTIME_APPEND_SPEECH'
+      );
+    }
+    const res = await gatewayServer.appendCodexRealtimeSpeech({ threadId, text });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_APPEND_SPEECH');
+    }
+    return c.json({ ok: true, experimental: true });
+  })
+  .post('/api/agent/codex/realtime/:threadId/append-audio', async (c) => {
+    const threadId = c.req.param('threadId');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      audio?: {
+        data?: string;
+        sampleRate?: number;
+        numChannels?: number;
+        samplesPerChannel?: number | null;
+        itemId?: string | null;
+      };
+    };
+    const audio = body.audio;
+    if (!audio?.data || typeof audio.sampleRate !== 'number' || typeof audio.numChannels !== 'number') {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError(
+          'E_INVALID_INPUT',
+          '缺少有效 audio 负载（data / sampleRate / numChannels）',
+          'VALIDATION'
+        ),
+        'CODEX_REALTIME_APPEND_AUDIO'
+      );
+    }
+    const res = await gatewayServer.appendCodexRealtimeAudio({
+      threadId,
+      audio: {
+        data: String(audio.data),
+        sampleRate: audio.sampleRate,
+        numChannels: audio.numChannels,
+        ...(audio.samplesPerChannel !== undefined
+          ? { samplesPerChannel: audio.samplesPerChannel }
+          : {}),
+        ...(audio.itemId !== undefined ? { itemId: audio.itemId } : {}),
+      },
+    });
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_REALTIME_APPEND_AUDIO');
+    }
+    return c.json({ ok: true, experimental: true });
+  })
   // 词典包默认不预装；客户端可先查询状态，再由用户显式触发一次下载与 SQLite 导入。
   .get('/api/dictionary/packages', (c) =>
     c.json({ packages: listDictionaryPackages(drizzleRepo.getRawDb()) })

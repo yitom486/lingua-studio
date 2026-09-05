@@ -33,6 +33,18 @@ export const WsEventTypes = {
   AGENT_QUEUE_CHANGED: 'agent.queue.changed',
   /** Codex skills/changed 转发 */
   AGENT_SKILLS_CHANGED: 'agent.skills.changed',
+  /**
+   * EXPERIMENTAL realtime 旁路通知（预留）。
+   * 当前仅协议占位；完整音频/SDP 管线尚未接入。
+   */
+  AGENT_REALTIME_STARTED: 'agent.realtime.started',
+  AGENT_REALTIME_CLOSED: 'agent.realtime.closed',
+  AGENT_REALTIME_ERROR: 'agent.realtime.error',
+  AGENT_REALTIME_TRANSCRIPT_DELTA: 'agent.realtime.transcript.delta',
+  AGENT_REALTIME_TRANSCRIPT_DONE: 'agent.realtime.transcript.done',
+  AGENT_REALTIME_AUDIO_DELTA: 'agent.realtime.audio.delta',
+  AGENT_REALTIME_SDP: 'agent.realtime.sdp',
+  AGENT_REALTIME_ITEM_ADDED: 'agent.realtime.item.added',
   AGENT_ERROR: 'agent.error',
   LEARNER_PROFILE_UPDATED: 'learner.profile.updated',
   LEARNER_DAILY_TASK_UPDATED: 'learner.daily_task.updated',

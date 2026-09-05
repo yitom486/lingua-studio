@@ -144,6 +144,33 @@ export class GatewayServer {
         type: WsEventTypes.AGENT_SKILLS_CHANGED,
         payload: {},
       });
+      return;
+    }
+
+    // EXPERIMENTAL realtime 通知转发（音频/UI 管线未接，仅推送信封便于日后联调）
+    const realtimeMap: Record<string, string> = {
+      'thread/realtime/started': WsEventTypes.AGENT_REALTIME_STARTED,
+      'thread/realtime/closed': WsEventTypes.AGENT_REALTIME_CLOSED,
+      'thread/realtime/error': WsEventTypes.AGENT_REALTIME_ERROR,
+      'thread/realtime/transcript/delta': WsEventTypes.AGENT_REALTIME_TRANSCRIPT_DELTA,
+      'thread/realtime/transcript/done': WsEventTypes.AGENT_REALTIME_TRANSCRIPT_DONE,
+      'thread/realtime/outputAudio/delta': WsEventTypes.AGENT_REALTIME_AUDIO_DELTA,
+      'thread/realtime/sdp': WsEventTypes.AGENT_REALTIME_SDP,
+      'thread/realtime/itemAdded': WsEventTypes.AGENT_REALTIME_ITEM_ADDED,
+    };
+    const wsType = realtimeMap[method];
+    if (!wsType) return;
+    const threadId = p.threadId != null ? String(p.threadId) : '';
+    if (threadId) {
+      this.emitToThreadSessions(threadId, {
+        type: wsType,
+        payload: { ...p, experimental: true },
+      });
+    } else {
+      this.emitToAllSessions({
+        type: wsType,
+        payload: { ...p, experimental: true },
+      });
     }
   }
 
@@ -259,6 +286,43 @@ export class GatewayServer {
 
   public async listCodexMcpServers(params?: { cursor?: string; limit?: number }) {
     return this.agentAdapter.listMcpServerStatus(params);
+  }
+
+  /** EXPERIMENTAL realtime — 预留接口，产品 UI 尚未接入 */
+  public async probeCodexRealtime() {
+    return this.agentAdapter.probeRealtimeCapability();
+  }
+
+  public async listCodexRealtimeVoices() {
+    return this.agentAdapter.listRealtimeVoices();
+  }
+
+  public async startCodexRealtime(
+    params: Parameters<CodexAdapter['startRealtime']>[0]
+  ) {
+    return this.agentAdapter.startRealtime(params);
+  }
+
+  public async stopCodexRealtime(threadId: string) {
+    return this.agentAdapter.stopRealtime(threadId);
+  }
+
+  public async appendCodexRealtimeText(
+    params: Parameters<CodexAdapter['appendRealtimeText']>[0]
+  ) {
+    return this.agentAdapter.appendRealtimeText(params);
+  }
+
+  public async appendCodexRealtimeSpeech(
+    params: Parameters<CodexAdapter['appendRealtimeSpeech']>[0]
+  ) {
+    return this.agentAdapter.appendRealtimeSpeech(params);
+  }
+
+  public async appendCodexRealtimeAudio(
+    params: Parameters<CodexAdapter['appendRealtimeAudio']>[0]
+  ) {
+    return this.agentAdapter.appendRealtimeAudio(params);
   }
 
   public async listCodexCollaborationModes() {

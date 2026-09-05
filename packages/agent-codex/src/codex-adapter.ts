@@ -32,6 +32,11 @@ import type {
   CodexSkillDto,
   CodexRateLimitsDto,
   CodexMcpServerStatusDto,
+  CodexRealtimeStartParams,
+  CodexRealtimeAudioChunkDto,
+  CodexRealtimeVoicesDto,
+  CodexRealtimeCapabilityDto,
+  CodexRealtimeTextRole,
   DynamicToolCallResponse,
 } from './app-server-protocol.js';
 
@@ -599,6 +604,63 @@ export class CodexAdapter implements AgentAdapter {
     const conn = await this.ensureConnection();
     if (!isOk(conn)) return conn;
     return conn.value.listMcpServerStatus(params);
+  }
+
+  /** EXPERIMENTAL realtime — 见 app-server-protocol 注释 */
+  public async probeRealtimeCapability(): Promise<
+    Result<CodexRealtimeCapabilityDto, BusinessError>
+  > {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.probeRealtimeCapability();
+  }
+
+  public async listRealtimeVoices(): Promise<Result<CodexRealtimeVoicesDto, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.listRealtimeVoices();
+  }
+
+  public async startRealtime(
+    params: CodexRealtimeStartParams
+  ): Promise<Result<{ ok: true }, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.startRealtime(params);
+  }
+
+  public async stopRealtime(threadId: string): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.stopRealtime(threadId);
+  }
+
+  public async appendRealtimeText(params: {
+    threadId: string;
+    text: string;
+    role?: CodexRealtimeTextRole;
+  }): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.appendRealtimeText(params);
+  }
+
+  public async appendRealtimeSpeech(params: {
+    threadId: string;
+    text: string;
+  }): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.appendRealtimeSpeech(params);
+  }
+
+  public async appendRealtimeAudio(params: {
+    threadId: string;
+    audio: CodexRealtimeAudioChunkDto;
+  }): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.appendRealtimeAudio(params);
   }
 
   public async listCollaborationModes(): Promise<
