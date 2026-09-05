@@ -109,8 +109,9 @@ describe('learning control tools (C1–C3 / D)', () => {
     const res = await tool.execute({ action: 'get' }, { userId: 'u_plan', sessionId: 's1' });
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
-      expect(res.value.steps.length).toBeGreaterThan(0);
-      expect(res.value.steps[0]?.navigateTo).toBeDefined();
+      const plan = res.value as { steps: Array<{ navigateTo?: string }> };
+      expect(plan.steps.length).toBeGreaterThan(0);
+      expect(plan.steps[0]?.navigateTo).toBeDefined();
     }
   });
 });

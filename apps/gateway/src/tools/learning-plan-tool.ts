@@ -5,24 +5,52 @@ import {
   ToolPermissions,
   ToolLocations,
 } from '@study-studio/tool-core';
-import { ok, err, type Result, BusinessError } from '@study-studio/shared';
+import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
 import type { DailyStudyPlan, LearnerRepository } from '@study-studio/learner-core';
+import type { PracticeBlockSpec } from '@study-studio/protocol';
+import { PracticeBlockSpecSchema } from '@study-studio/protocol';
 
 export const LearningPlanInputSchema = z.object({
-  action: z.enum(['get', 'complete_step']),
+  action: z.enum([
+    'get',
+    'complete_step',
+    // P5：模板与运行只读查询（AI 只读层）
+    'list_templates',
+    'get_template',
+    'preview_template',
+    'get_today_run',
+  ]),
   stepId: z.string().optional(),
   date: z.string().optional(),
+  // list_templates
+  language: z.enum(['en', 'ja', 'ko']).optional(),
+  includeDisabled: z.boolean().optional(),
+  // get_template
+  templateId: z.string().optional(),
+  // preview_template
+  blocks: z.array(PracticeBlockSpecSchema).optional(),
 });
+
 export type LearningPlanInput = z.infer<typeof LearningPlanInputSchema>;
+
+export interface LearningPlanPreview {
+  totalQuestions: number;
+  aiGradingCount: number;
+  estimatedMinutes: number;
+  blocks: PracticeBlockSpec[];
+}
 
 /**
  * 当日学习计划：读取冻结步骤顺序，或把某一步记为已完成。
  * 完成态优先由打卡/FSRS/错题实时叠加；complete_step 用于无法自动计量的步骤。
+ *
+ * P5 扩展：list_templates / get_template / preview_template / get_today_run 为 AI 只读层，
+ * 让 Agent 理解用户当前计划与剩余任务；模板保存/删除仍走 HTTP Mutation（不在此工具）。
  */
-export class LearningPlanTool implements ToolDefinition<LearningPlanInput, DailyStudyPlan> {
+export class LearningPlanTool implements ToolDefinition<LearningPlanInput, unknown> {
   public readonly name = 'learning.plan';
   public readonly description =
-    '获取今日学习计划，或将某一步标记完成。步骤会跳转到闪卡、阅读、做题或错题工作台，不另起独立课程。';
+    '获取今日学习计划、标记步骤完成，或只读查询练习计划模板与当日运行。模板保存/删除走 HTTP Mutation。';
   public readonly location = ToolLocations.SERVER;
   public readonly permission = ToolPermissions.WRITE;
   public readonly schema = LearningPlanInputSchema;
@@ -32,14 +60,65 @@ export class LearningPlanTool implements ToolDefinition<LearningPlanInput, Daily
   public async execute(
     input: LearningPlanInput,
     context: ToolExecutionContext
-  ): Promise<Result<DailyStudyPlan, BusinessError>> {
-    if (input.action === 'get') {
-      return this.learnerRepo.getOrCreateDailyStudyPlan(context.userId, input.date);
+  ): Promise<Result<unknown, BusinessError>> {
+    switch (input.action) {
+      case 'get':
+        return this.learnerRepo.getOrCreateDailyStudyPlan(context.userId, input.date);
+      case 'complete_step': {
+        if (!input.stepId) {
+          return err(new BusinessError('E_INVALID_INPUT', '标记完成需要 stepId', 'VALIDATION'));
+        }
+        return this.learnerRepo.completeDailyPlanStep(context.userId, input.stepId, input.date);
+      }
+      case 'list_templates':
+        return this.learnerRepo.listPracticePlanTemplates(context.userId, {
+          language: input.language,
+          includeDisabled: input.includeDisabled,
+        });
+      case 'get_template': {
+        if (!input.templateId) {
+          return err(new BusinessError('E_INVALID_INPUT', 'get_template 需要 templateId', 'VALIDATION'));
+        }
+        return this.learnerRepo.getPracticePlanTemplate(context.userId, input.templateId);
+      }
+      case 'preview_template':
+        return this.previewTemplate(input);
+      case 'get_today_run': {
+        const res = await this.learnerRepo.listPracticePlanRuns(context.userId, {
+          status: 'IN_PROGRESS',
+          language: input.language,
+        });
+        if (!isOk(res)) return err(res.error);
+        return ok(res.value);
+      }
+      default:
+        return err(new BusinessError('E_INVALID_INPUT', `未知 action: ${input.action as string}`, 'VALIDATION'));
     }
+  }
 
-    if (!input.stepId) {
-      return err(new BusinessError('E_INVALID_INPUT', '标记完成需要 stepId', 'VALIDATION'));
+  private previewTemplate(input: LearningPlanInput): Result<LearningPlanPreview, BusinessError> {
+    if (!input.blocks || input.blocks.length === 0) {
+      return err(new BusinessError('E_INVALID_INPUT', 'preview_template 需要 blocks', 'VALIDATION'));
     }
-    return this.learnerRepo.completeDailyPlanStep(context.userId, input.stepId, input.date);
+    const blocks = input.blocks as PracticeBlockSpec[];
+    let totalQuestions = 0;
+    let aiGradingCount = 0;
+    let estimatedMinutes = 0;
+    for (const b of blocks) {
+      totalQuestions += b.count;
+      if (b.gradingMode === 'AI_IMMEDIATE' || b.gradingMode === 'AI_BATCH') {
+        aiGradingCount += b.count;
+      }
+      // 粗估：客观题 0.5 分钟/题，主观题 2 分钟/题
+      const per =
+        b.kind === 'TRANSLATION' || b.kind === 'WRITING' ? 2 : b.kind === 'READING' ? 1.5 : 0.5;
+      estimatedMinutes += b.count * per;
+    }
+    return ok({
+      totalQuestions,
+      aiGradingCount,
+      estimatedMinutes: Math.max(1, Math.round(estimatedMinutes)),
+      blocks,
+    });
   }
 }

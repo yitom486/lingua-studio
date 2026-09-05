@@ -2869,7 +2869,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   public async listPracticePlanTemplates(
     userId: string,
-    opts?: { language?: string; includeDisabled?: boolean }
+    opts?: { language?: string | undefined; includeDisabled?: boolean | undefined }
   ): Promise<Result<PracticePlanTemplate[], BusinessError>> {
     try {
       const conds = [eq(practicePlanTemplates.userId, userId)];
@@ -2921,8 +2921,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     userId: string,
     params: {
       language: 'en' | 'ja' | 'ko';
-      templateId?: string;
-      blocks?: PracticeBlockSpec[];
+      templateId?: string | undefined;
+      blocks?: PracticeBlockSpec[] | undefined;
     }
   ): Promise<Result<PracticePlanRun, BusinessError>> {
     try {
@@ -2985,7 +2985,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
 
   public async listPracticePlanRuns(
     userId: string,
-    opts?: { language?: string; status?: PracticeRunStatus }
+    opts?: { language?: string | undefined; status?: PracticeRunStatus | undefined }
   ): Promise<Result<PracticePlanRun[], BusinessError>> {
     try {
       const conds = [eq(practicePlanRuns.userId, userId)];

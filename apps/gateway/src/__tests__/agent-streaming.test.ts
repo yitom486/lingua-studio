@@ -173,7 +173,7 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
       { userId: 'student_web_01', sessionId: 's1' }
     );
     expect(isOk(exactRes)).toBe(true);
-    if (isOk(exactRes)) {
+    if (isOk(exactRes) && !('results' in exactRes.value)) {
       expect(exactRes.value.isCorrect).toBe(true);
       expect(exactRes.value.score).toBe(100);
       expect(exactRes.value.mistakeDetected).toBe(false);
@@ -190,7 +190,7 @@ describe('AI Native Agent Streaming & Parameterized Tools', () => {
       { userId: 'student_web_01', sessionId: 's1' }
     );
     expect(isOk(diagRes)).toBe(true);
-    if (isOk(diagRes)) {
+    if (isOk(diagRes) && !('results' in diagRes.value)) {
       expect(diagRes.value.isCorrect).toBe(false);
       expect(diagRes.value.mistakeDetected).toBe(true);
       expect(diagRes.value.grammarFeedback).toContain('归着点');

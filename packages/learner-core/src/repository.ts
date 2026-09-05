@@ -87,7 +87,7 @@ export interface LearnerRepository {
   ): Promise<Result<PracticePlanTemplate, BusinessError>>;
   listPracticePlanTemplates(
     userId: string,
-    opts?: { language?: string; includeDisabled?: boolean }
+    opts?: { language?: string | undefined; includeDisabled?: boolean | undefined }
   ): Promise<Result<PracticePlanTemplate[], BusinessError>>;
   getPracticePlanTemplate(
     userId: string,
@@ -101,8 +101,8 @@ export interface LearnerRepository {
     userId: string,
     params: {
       language: 'en' | 'ja' | 'ko';
-      templateId?: string;
-      blocks?: PracticeBlockSpec[];
+      templateId?: string | undefined;
+      blocks?: PracticeBlockSpec[] | undefined;
     }
   ): Promise<Result<PracticePlanRun, BusinessError>>;
   getPracticePlanRun(
@@ -111,7 +111,7 @@ export interface LearnerRepository {
   ): Promise<Result<PracticePlanRun | null, BusinessError>>;
   listPracticePlanRuns(
     userId: string,
-    opts?: { language?: string; status?: PracticeRunStatus }
+    opts?: { language?: string | undefined; status?: PracticeRunStatus | undefined }
   ): Promise<Result<PracticePlanRun[], BusinessError>>;
   savePracticeItemDraft(
     userId: string,

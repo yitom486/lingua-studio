@@ -30,6 +30,7 @@ import { LearningContentTool, type LearningContentOutput } from './tools/learnin
 import { LearningAssessTool } from './tools/learning-assess-tool.js';
 import { LearningProgressTool } from './tools/learning-progress-tool.js';
 import { LearningPlanTool } from './tools/learning-plan-tool.js';
+import { LearningPracticeTool } from './tools/learning-practice-tool.js';
 import { LearningCurriculumTool } from './tools/learning-curriculum-tool.js';
 import { LearningLibraryTool } from './tools/learning-library-tool.js';
 import { DictionaryLookupTool } from './tools/dictionary-lookup-tool.js';
@@ -90,6 +91,7 @@ export class GatewayServer {
     this.toolRegistry.register(new LearningAssessTool(this.learnerRepo));
     this.toolRegistry.register(new LearningProgressTool(this.learnerRepo));
     this.toolRegistry.register(new LearningPlanTool(this.learnerRepo));
+    this.toolRegistry.register(new LearningPracticeTool(this.learnerRepo));
     this.toolRegistry.register(new LearningCurriculumTool(drizzle));
     this.toolRegistry.register(new LearningLibraryTool(drizzle));
     this.toolRegistry.register(new DictionaryLookupTool(drizzle));

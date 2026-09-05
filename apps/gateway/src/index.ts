@@ -9,6 +9,7 @@ import {
   type WsEnvelope,
   type LearnerProfile,
   type ReadingPassageSet,
+  type PracticeBlockSpec,
   WsEventTypes,
   listNewsTopics,
 } from '@study-studio/protocol';
@@ -571,6 +572,220 @@ export const app = new Hono()
       return formatBusinessErrorResponse(c, e, 'runLearningAnalysis');
     }
   })
+  // P5：可配置练习计划——模板 CRUD（HTTP Mutation，暂不暴露给 Agent）
+  .get('/api/practice/templates/:userId', async (c) => {
+    try {
+      const userId = c.req.param('userId');
+      const language = (c.req.query('lang') as 'en' | 'ja' | 'ko' | undefined) || undefined;
+      const includeDisabled = c.req.query('includeDisabled') === '1';
+      const res = await drizzleRepo.listPracticePlanTemplates(userId, { language, includeDisabled });
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'listPracticePlanTemplates');
+    }
+  })
+  .get('/api/practice/templates/:userId/:templateId', async (c) => {
+    try {
+      const res = await drizzleRepo.getPracticePlanTemplate(c.req.param('userId'), c.req.param('templateId'));
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'getPracticePlanTemplate');
+    }
+  })
+  .post(
+    '/api/practice/templates',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const res = await drizzleRepo.savePracticePlanTemplate(body as never);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'savePracticePlanTemplate');
+      }
+    }
+  )
+  .delete('/api/practice/templates/:userId/:templateId', async (c) => {
+    try {
+      const res = await drizzleRepo.deletePracticePlanTemplate(c.req.param('userId'), c.req.param('templateId'));
+      if (isOk(res)) return c.json({ ok: true });
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'deletePracticePlanTemplate');
+    }
+  })
+  // P5：练习运行生命周期
+  .post(
+    '/api/practice/runs/start',
+    validator('json', (value) => value as { userId: string; language: 'en' | 'ja' | 'ko'; templateId?: string; blocks?: unknown[] }),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const res = await drizzleRepo.startPracticePlanRun(body.userId, {
+          language: body.language,
+          templateId: body.templateId,
+          blocks: body.blocks as PracticeBlockSpec[] | undefined,
+        });
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'startPracticePlanRun');
+      }
+    }
+  )
+  .get('/api/practice/runs/:userId/:runId', async (c) => {
+    try {
+      const runRes = await drizzleRepo.getPracticePlanRun(c.req.param('userId'), c.req.param('runId'));
+      if (!isOk(runRes)) return formatBusinessErrorResponse(c, runRes.error);
+      const attemptsRes = await drizzleRepo.listPracticeItemAttempts(c.req.param('runId'));
+      if (!isOk(attemptsRes)) return formatBusinessErrorResponse(c, attemptsRes.error);
+      return c.json({ run: runRes.value, attempts: attemptsRes.value });
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'getPracticePlanRun');
+    }
+  })
+  .post(
+    '/api/practice/runs/draft',
+    validator('json', (value) => value as { userId: string; runId: string; itemId: string; userAnswer: string }),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const res = await drizzleRepo.savePracticeItemDraft(body.userId, body.runId, body.itemId, body.userAnswer);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'savePracticeItemDraft');
+      }
+    }
+  )
+  .post(
+    '/api/practice/runs/submit-objective',
+    validator(
+      'json',
+      (value) =>
+        value as {
+          userId: string;
+          runId: string;
+          itemId: string;
+          userAnswer: string;
+          isCorrect?: boolean;
+          score?: number;
+          testedSkillId?: string;
+          timeSpentMs?: number;
+        }
+    ),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const isCorrect = body.isCorrect ?? false;
+        const gradingResult = {
+          isCorrect,
+          score: typeof body.score === 'number' ? body.score : isCorrect ? 1 : 0,
+          testedSkillId: body.testedSkillId ?? 'review',
+          source: 'AUTO_IMMEDIATE',
+        };
+        const res = await drizzleRepo.submitPracticeItem(
+          body.userId,
+          body.runId,
+          body.itemId,
+          body.userAnswer,
+          gradingResult,
+          body.timeSpentMs
+        );
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'submitPracticeItemObjective');
+      }
+    }
+  )
+  .post(
+    '/api/practice/runs/submit-subjective',
+    validator(
+      'json',
+      (value) =>
+        value as {
+          userId: string;
+          runId: string;
+          itemId: string;
+          userAnswer: string;
+          gradingResult: Record<string, unknown>;
+          timeSpentMs?: number;
+        }
+    ),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const res = await drizzleRepo.submitPracticeItem(
+          body.userId,
+          body.runId,
+          body.itemId,
+          body.userAnswer,
+          body.gradingResult,
+          body.timeSpentMs
+        );
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'submitPracticeItemSubjective');
+      }
+    }
+  )
+  .post(
+    '/api/practice/runs/submit-batch',
+    validator(
+      'json',
+      (value) =>
+        value as {
+          userId: string;
+          runId: string;
+          items: Array<{ itemId: string; userAnswer: string; gradingResult: Record<string, unknown>; timeSpentMs?: number }>;
+        }
+    ),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const attempts = [];
+        let correct = 0;
+        for (const it of body.items) {
+          const res = await drizzleRepo.submitPracticeItem(
+            body.userId,
+            body.runId,
+            it.itemId,
+            it.userAnswer,
+            it.gradingResult,
+            it.timeSpentMs
+          );
+          if (!isOk(res)) return formatBusinessErrorResponse(c, res.error);
+          attempts.push(res.value);
+          if ((it.gradingResult as { isCorrect?: boolean }).isCorrect) correct++;
+        }
+        return c.json({
+          attempts,
+          batchSummary: { total: body.items.length, graded: attempts.length, correct },
+        });
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'submitPracticeBatch');
+      }
+    }
+  )
+  .post(
+    '/api/practice/runs/finalize',
+    validator('json', (value) => value as { userId: string; runId: string }),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const res = await drizzleRepo.finalizePracticePlanRun(body.userId, body.runId);
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'finalizePracticePlanRun');
+      }
+    }
+  )
   // 3. FSRS 闪卡存取
   .get('/api/cards/:userId', async (c) => {
     const userId = c.req.param('userId');
