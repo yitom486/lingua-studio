@@ -40,17 +40,13 @@ import {
   useDictionaryPackagesQuery,
   useInstallDictionaryPackageMutation,
 } from '../queries/useLearnerQueries.js';
+import { useGatewayStore } from '../stores/useGatewayStore.js';
 
-interface SystemSettingsPopoverProps {
-  gateway: {
-    isConnected: boolean;
-    latencyMs?: number | null;
-  };
-}
-
-export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
+export function SystemSettingsPopover() {
   const [open, setOpen] = useState(false);
   const [voiceTick, setVoiceTick] = useState(0);
+  const isConnected = useGatewayStore((s) => s.isConnected);
+  const latencyMs = useGatewayStore((s) => s.latencyMs);
 
   // TTS 状态
   const gender = useTtsStore((s) => s.gender);
@@ -148,7 +144,7 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
         <span className="hidden md:inline font-medium">设置</span>
         <span
           className={`w-1.5 h-1.5 rounded-full ${
-            gateway.isConnected ? 'bg-emerald-500' : 'bg-amber-400'
+            isConnected ? 'bg-emerald-500' : 'bg-amber-400'
           }`}
         />
       </PopoverTrigger>
@@ -167,10 +163,10 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
           </div>
           {/* 网关轻量状态指示 */}
           <div className="flex items-center gap-1.5 text-[11px] font-medium">
-            {gateway.isConnected ? (
+            {isConnected ? (
               <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <Wifi className="w-3 h-3" />
-                <span>已联通{gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}</span>
+                <span>已联通{latencyMs ? ` (${latencyMs}ms)` : ''}</span>
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
@@ -329,7 +325,7 @@ export function SystemSettingsPopover({ gateway }: SystemSettingsPopoverProps) {
                       type="button"
                       size="sm"
                       className="h-7 shrink-0 gap-1 px-2 text-[11px]"
-                      disabled={!gateway.isConnected || installDictionaryPackage.isPending}
+                      disabled={!isConnected || installDictionaryPackage.isPending}
                       onClick={handleInstallEnglishDictionary}
                     >
                       {installDictionaryPackage.isPending ? (

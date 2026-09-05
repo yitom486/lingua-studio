@@ -26,42 +26,24 @@ import {
   useQuestionsQuery,
   usePrependQuestionMutation,
 } from '../queries/useLearnerQueries.js';
+import {
+  useGenerateAdaptiveQuizMutation,
+  useSubmitQuizMutation,
+} from '../queries/useAgentMutations.js';
+import { useGatewayStore } from '../stores/useGatewayStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 
 interface AdaptiveQuizWorkbenchProps {
   onOpenTutor: (ctx: AiTutorContext) => void;
-  onGradeSubjective: (data: {
-    questionId: string;
-    prompt: string;
-    standardAnswer: string;
-    userSubmission: string;
-    testedSkillId: string;
-  }) => Promise<any>;
-  onSubmitQuizToGateway: (payload: {
-    questionId: string;
-    userAnswer: string;
-    isCorrect: boolean;
-    score: number;
-    timeSpentMs: number;
-    testedSkillId: string;
-    questionContent: string;
-    correctAnswer: string;
-    explanation: string;
-  }) => void;
-  isGatewayConnected: boolean;
-  onGenerateAdaptiveQuizApi?: () => Promise<any>;
 }
 
-export function AdaptiveQuizWorkbench({
-  onOpenTutor,
-  onGradeSubjective,
-  onSubmitQuizToGateway,
-  isGatewayConnected,
-  onGenerateAdaptiveQuizApi,
-}: AdaptiveQuizWorkbenchProps) {
+export function AdaptiveQuizWorkbench({ onOpenTutor }: AdaptiveQuizWorkbenchProps) {
   const shell = useLearningShell();
   const { data: questionsFromQuery = [], isLoading: questionsLoading } = useQuestionsQuery();
   const prependQuestion = usePrependQuestionMutation();
+  const submitQuiz = useSubmitQuizMutation();
+  const generateAdaptive = useGenerateAdaptiveQuizMutation();
+  const isGatewayConnected = useGatewayStore((s) => s.isConnected);
   const questionIndex = useStudySessionStore((s) => s.questionIndex);
   const setQuestionIndex = useStudySessionStore((s) => s.setQuestionIndex);
   const presentedQuiz = useStudySessionStore((s) => s.presentedQuiz);
@@ -105,8 +87,11 @@ export function AdaptiveQuizWorkbench({
     setIsGeneratingAdaptive(true);
     clearPresentedQuiz();
     try {
-      if (isGatewayConnected && onGenerateAdaptiveQuizApi) {
-        const reply = await onGenerateAdaptiveQuizApi();
+      if (isGatewayConnected) {
+        const reply = (await generateAdaptive.mutateAsync({})) as {
+          questions?: any[];
+          targetSkillName?: string;
+        };
         if (reply && reply.questions && reply.questions.length > 0) {
           const newQRaw = reply.questions[0];
           const newQ: QuizQuestionItem = {
@@ -247,7 +232,7 @@ export function AdaptiveQuizWorkbench({
     setQuizSubmitted(true);
 
     // 同步将做题结果与错题上报网关，由 SQLite 统一持久化
-    onSubmitQuizToGateway({
+    submitQuiz.mutate({
       questionId: currentQ.id,
       userAnswer:
         currentQ.type === 'CHOICE'
@@ -334,7 +319,7 @@ export function AdaptiveQuizWorkbench({
       </div>
 
       {quizSubMode === 'SUBJECTIVE' ? (
-        <SubjectiveWritingWorkbench onGradeSubjective={onGradeSubjective} />
+        <SubjectiveWritingWorkbench />
       ) : (
         <>
           {/* 顶部进度指示 */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
@@ -18,7 +18,7 @@ import { ReadingComprehensionWorkbench } from './components/ReadingComprehension
 import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
 import { KanaStudioWorkbench } from './components/KanaStudioWorkbench.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
-import { useGateway } from './hooks/useGateway.js';
+import { useEnsureGateway } from './hooks/useAgentGateway.js';
 import { useLearningShell } from './hooks/useLearningShell.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
@@ -35,7 +35,7 @@ import {
 import { sound } from './utils/audio.js';
 
 export function App() {
-  const gateway = useGateway();
+  useEnsureGateway();
   const theme = usePreferencesStore((s) => s.theme);
   const shell = useLearningShell();
   const activeTab = useStudySessionStore((s) => s.activeTab);
@@ -62,7 +62,6 @@ export function App() {
   }, [shell.track]);
 
   const fetchProfile = useUserProfileStore((s) => s.fetchProfile);
-  const recordActivity = useUserProfileStore((s) => s.recordActivity);
 
   // 等 Zustand persist 水合后再拉远端，避免默认 en 抢先覆盖本地已存的韩语/日语轨道
   useEffect(() => {
@@ -75,22 +74,6 @@ export function App() {
     }
     return useUserProfileStore.persist.onFinishHydration(run);
   }, [fetchProfile]);
-
-  const handleSubmitQuiz = useCallback(
-    (payload: any) => {
-      gateway.submitQuizToGateway(payload);
-      recordActivity({ quizzes: 1 });
-    },
-    [gateway, recordActivity]
-  );
-
-  const handleReviewCard = useCallback(
-    (payload: any) => {
-      gateway.reviewCardToGateway(payload);
-      recordActivity({ cards: 1 });
-    },
-    [gateway, recordActivity]
-  );
 
   const { data: cards = [] } = useCardsQuery();
   const { data: mistakes = [] } = useMistakesQuery();
@@ -127,17 +110,12 @@ export function App() {
         isOpen={isTutorOpen && Boolean(tutorContext)}
         onClose={closeTutor}
         context={tutorContext}
-        gateway={gateway}
       />
 
       {/* Codex 风格自由教练窗：无题目上下文时 / 或可并行打开 */}
       {isTutorOpen && !tutorContext && (
         <div className="fixed inset-y-3 right-3 z-50 w-[min(100vw-1.5rem,420px)] shadow-2xl">
-          <AgentChatPanel
-            gateway={gateway}
-            className="h-full"
-            onClose={closeTutor}
-          />
+          <AgentChatPanel className="h-full" onClose={closeTutor} />
         </div>
       )}
 
@@ -147,7 +125,7 @@ export function App() {
       />
 
       <div className="flex-1 min-w-0 flex flex-col relative z-10">
-        <AppHeader gateway={gateway} onOpenMobileNav={() => setMobileNavOpen(true)} />
+        <AppHeader onOpenMobileNav={() => setMobileNavOpen(true)} />
 
         <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
           {shell.copy.interimBanner && (
@@ -171,16 +149,10 @@ export function App() {
                   sound.playClick();
                   openTutor(ctx);
                 }}
-                onGradeSubjective={gateway.gradeSubjectiveQuiz}
-                onSubmitQuizToGateway={handleSubmitQuiz}
-                isGatewayConnected={gateway.isConnected}
-                onGenerateAdaptiveQuizApi={gateway.generateAdaptiveQuiz}
               />
             )}
 
-            {activeTab === 'CARDS' && (
-              <FsrsCardWorkbench key={shell.track} onReviewCardToGateway={handleReviewCard} />
-            )}
+            {activeTab === 'CARDS' && <FsrsCardWorkbench key={shell.track} />}
 
             {activeTab === 'READING' && (
               <ReadingComprehensionWorkbench
@@ -192,12 +164,7 @@ export function App() {
               />
             )}
 
-            {activeTab === 'WRITING' && (
-              <WritingStudioWorkbench
-                key={shell.track}
-                onGradeSubjective={gateway.gradeSubjectiveQuiz}
-              />
-            )}
+            {activeTab === 'WRITING' && <WritingStudioWorkbench key={shell.track} />}
 
             {activeTab === 'TEXTBOOK' && (
               <motion.div

@@ -15,19 +15,12 @@ import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
 import type { StudyCardItem } from '../data/learning-data.js';
+import { useReviewCardMutation } from '../queries/useAgentMutations.js';
 
-interface FsrsCardWorkbenchProps {
-  onReviewCardToGateway: (payload: {
-    cardId: string;
-    rating: CardReviewRating;
-    currentStability: number;
-    currentReps: number;
-  }) => void;
-}
-
-export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchProps) {
+export function FsrsCardWorkbench() {
   const { data: cards = [] } = useCardsQuery();
   const updateCard = useUpdateCardMutation();
+  const reviewCard = useReviewCardMutation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
   const shell = useLearningShell();
@@ -59,7 +52,7 @@ export function FsrsCardWorkbench({ onReviewCardToGateway }: FsrsCardWorkbenchPr
       reps: nextFsrs.reps,
     });
 
-    onReviewCardToGateway({
+    reviewCard.mutate({
       cardId: activeCard.id,
       rating,
       currentStability: activeCard.stability,

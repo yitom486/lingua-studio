@@ -14,7 +14,7 @@ import {
   WifiOff,
   KeyRound,
 } from 'lucide-react';
-import type { useGateway } from '../hooks/useGateway.js';
+import { useAgentGateway } from '../hooks/useAgentGateway.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
@@ -57,7 +57,6 @@ interface ChatMessage {
 }
 
 interface AgentChatPanelProps {
-  gateway?: ReturnType<typeof useGateway>;
   className?: string;
   onClose?: () => void;
 }
@@ -87,7 +86,8 @@ function effortLabel(v: string): string {
  * 对齐 Inkdown / Codex VS Code 风格：顶栏状态 + 底栏 mode/model/thinking + 流式气泡。
  * 仅经 Gateway；不引入厂商 SDK。
  */
-export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPanelProps) {
+export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps) {
+  const gateway = useAgentGateway();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -109,7 +109,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
 
   const { data: codexStatus } = useCodexStatusQuery();
   const { data: models = [], isFetching: modelsLoading } = useCodexModelsQuery(
-    Boolean(gateway?.isConnected)
+    Boolean(gateway.isConnected)
   );
 
   const selectedModel = useMemo(
@@ -182,7 +182,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
 
       // 生成中：注入 turn/steer，不新开一轮
       if (busy) {
-        if (!gateway?.isConnected) return;
+        if (!gateway.isConnected) return;
         sound.playClick();
         setInput('');
         setMessages((prev) => [
@@ -204,7 +204,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
       ]);
       setBusy(true);
 
-      if (!gateway?.isConnected) {
+      if (!gateway.isConnected) {
         const offline = buildTutorOfflineReply(track, text);
         setMessages((prev) =>
           prev.map((m) => (m.id === aiId ? { ...m, text: offline, streaming: false } : m))
@@ -302,8 +302,9 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
           setBusy(false);
         },
         onError: (err) => {
+          const e = err as { userMessage?: string; message?: string } | undefined;
           const msg =
-            err?.userMessage || err?.message || '导师服务暂时不可用，请稍后重试。';
+            e?.userMessage || e?.message || '导师服务暂时不可用，请稍后重试。';
           setMessages((prev) =>
             prev.map((m) => (m.id === aiId ? { ...m, text: msg, streaming: false } : m))
           );
@@ -327,7 +328,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
     decision: 'accept' | 'acceptForSession' | 'decline'
   ) => {
     sound.playClick();
-    gateway?.respondApproval?.(approvalId, decision);
+    gateway.respondApproval(approvalId, decision);
     setMessages((prev) =>
       prev.map((m) =>
         m.approval?.approvalId === approvalId && m.approval
@@ -350,14 +351,14 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
 
   const interrupt = () => {
     sound.playClick();
-    gateway?.interruptTurn?.();
+    gateway.interruptTurn();
     setBusy(false);
     setMessages((prev) =>
       prev.map((m) => (m.streaming ? { ...m, streaming: false } : m))
     );
   };
 
-  const connected = Boolean(gateway?.isConnected);
+  const connected = gateway.isConnected;
   const authLinked = Boolean(codexStatus?.linked);
   const modelLabel =
     selectedModel?.displayName || coachModelId || (modelsLoading ? '加载中…' : '本机默认');

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff } from 'lucide-react';
 import type { ContextSnapshot } from '@study-studio/agent-core';
 import { sound } from '../utils/audio.js';
-import type { useGateway } from '../hooks/useGateway.js';
+import { useAgentGateway } from '../hooks/useAgentGateway.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import {
@@ -44,7 +44,6 @@ interface AiTutorDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   context: AiTutorContext | null;
-  gateway?: ReturnType<typeof useGateway>;
 }
 
 function normalizeTutorLanguage(lang: string): TrackLanguage {
@@ -76,7 +75,8 @@ function buildTutorClientSnapshot(
   };
 }
 
-export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDrawerProps) {
+export function AiTutorDrawer({ isOpen, onClose, context }: AiTutorDrawerProps) {
+  const gateway = useAgentGateway();
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -97,7 +97,7 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
 
   const attachStreamToMessage = useCallback(
     (aiMsgId: string, input: string, intent: 'EXPLAIN' | 'FREE_COACH' = 'EXPLAIN') => {
-      if (!gateway?.isConnected) return false;
+      if (!gateway.isConnected) return false;
 
       return gateway.sendTurnStream({
         input,
@@ -169,7 +169,7 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
     setIsTyping(false);
     activeStreamMsgIdRef.current = null;
 
-    if (gateway?.isConnected) {
+    if (gateway.isConnected) {
       const aiMsgId = `ai-boot-${Date.now()}`;
       activeStreamMsgIdRef.current = aiMsgId;
       setMessages([
@@ -206,7 +206,7 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
         timestamp: '刚刚',
       },
     ]);
-  }, [isOpen, context, gateway?.isConnected, attachStreamToMessage, profile.targetLanguage]);
+  }, [isOpen, context, gateway.isConnected, attachStreamToMessage, profile.targetLanguage]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -292,7 +292,7 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
   const tutorCopy = getTutorTrackCopy(track);
   const quickPrompts = tutorCopy.quickPrompts;
 
-  const isGatewayConnected = gateway?.isConnected ?? false;
+  const isGatewayConnected = gateway.isConnected;
 
   return (
     <Sheet open={isOpen && !!context} onOpenChange={(open) => !open && onClose()}>

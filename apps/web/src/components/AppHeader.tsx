@@ -14,21 +14,20 @@ import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { SystemSettingsPopover } from './SystemSettingsPopover.js';
 import { UserProfileModal } from './UserProfileModal.js';
+import { useGatewayStore } from '../stores/useGatewayStore.js';
 
 interface AppHeaderProps {
-  gateway: {
-    isConnected: boolean;
-    latencyMs?: number | null;
-  };
   onOpenMobileNav?: () => void;
 }
 
-export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
+export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
   const theme = usePreferencesStore((s) => s.theme);
   const toggleTheme = usePreferencesStore((s) => s.toggleTheme);
   const setIsCommandOpen = useStudySessionStore((s) => s.setIsCommandOpen);
   const openTutor = useStudySessionStore((s) => s.openTutor);
   const activeTab = useStudySessionStore((s) => s.activeTab);
+  const isConnected = useGatewayStore((s) => s.isConnected);
+  const latencyMs = useGatewayStore((s) => s.latencyMs);
 
   return (
     <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
@@ -65,13 +64,13 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
             {/* 极简网关连通状态指示灯 */}
             <span
               className={`w-2 h-2 rounded-full shrink-0 transition-colors ${
-                gateway.isConnected
+                isConnected
                   ? 'bg-emerald-500 shadow-xs shadow-emerald-500/50'
                   : 'bg-amber-400'
               }`}
               title={
-                gateway.isConnected
-                  ? `网关已联通${gateway.latencyMs ? ` (${gateway.latencyMs}ms)` : ''}`
+                isConnected
+                  ? `网关已联通${latencyMs ? ` (${latencyMs}ms)` : ''}`
                   : '离线模式'
               }
             />
@@ -130,7 +129,7 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
           </Button>
 
           {/* 偏好与系统控制中心收纳面板 (集成 Edge-TTS 音色、网关状态、画像入口) */}
-          <SystemSettingsPopover gateway={gateway} />
+          <SystemSettingsPopover />
 
           {/* 明暗模式主题切换 */}
           <Button

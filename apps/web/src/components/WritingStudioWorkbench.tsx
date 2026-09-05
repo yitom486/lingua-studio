@@ -13,21 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select.js';
-import type { QuizGradingResult } from '@study-studio/protocol';
-import type { SubjectiveExercise } from '../data/subjective-demo-data.js';
 import { useGenerateWritingPromptsMutation } from '../queries/useLearnerQueries.js';
+import type { SubjectiveExercise } from '../data/subjective-demo-data.js';
 
-interface WritingStudioWorkbenchProps {
-  onGradeSubjective: (data: {
-    questionId: string;
-    prompt: string;
-    standardAnswer: string;
-    userSubmission: string;
-    testedSkillId: string;
-  }) => Promise<QuizGradingResult>;
-}
-
-export function WritingStudioWorkbench({ onGradeSubjective }: WritingStudioWorkbenchProps) {
+export function WritingStudioWorkbench() {
   const [genre, setGenre] = useState('translation');
   const [difficulty, setDifficulty] = useState('3');
   const [exercises, setExercises] = useState<SubjectiveExercise[] | undefined>(undefined);
@@ -127,7 +116,6 @@ export function WritingStudioWorkbench({ onGradeSubjective }: WritingStudioWorkb
       </div>
 
       <SubjectiveWritingWorkbench
-        onGradeSubjective={onGradeSubjective}
         exercises={exercises}
         onExercisesChange={setExercises}
         genre={genre}

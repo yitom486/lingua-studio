@@ -26,15 +26,9 @@ import {
   useGenerateWritingPromptsMutation,
   type WritingPromptItem,
 } from '../queries/useLearnerQueries.js';
+import { useGradeSubjectiveMutation } from '../queries/useAgentMutations.js';
 
 interface SubjectiveWritingWorkbenchProps {
-  onGradeSubjective: (data: {
-    questionId: string;
-    prompt: string;
-    standardAnswer: string;
-    userSubmission: string;
-    testedSkillId: string;
-  }) => Promise<QuizGradingResult>;
   /** 外部注入的题干（写作工作室生成后传入） */
   exercises?: SubjectiveExercise[] | undefined;
   onExercisesChange?: ((exercises: SubjectiveExercise[]) => void) | undefined;
@@ -55,12 +49,12 @@ function toExercise(p: WritingPromptItem): SubjectiveExercise {
 }
 
 export function SubjectiveWritingWorkbench({
-  onGradeSubjective,
   exercises: controlledExercises,
   onExercisesChange,
   genre = 'translation',
   difficulty = 3,
 }: SubjectiveWritingWorkbenchProps) {
+  const gradeSubjective = useGradeSubjectiveMutation();
   const [localExercises, setLocalExercises] = useState<SubjectiveExercise[]>(
     INITIAL_SUBJECTIVE_EXERCISES
   );
@@ -114,13 +108,13 @@ export function SubjectiveWritingWorkbench({
     setGradingResult(null);
 
     try {
-      const result = await onGradeSubjective({
+      const result = (await gradeSubjective.mutateAsync({
         questionId: currentExercise.id,
         prompt: currentExercise.chinesePrompt,
         standardAnswer: currentExercise.standardAnswer,
         userSubmission: inputSubmission.trim(),
         testedSkillId: currentExercise.testedSkillId,
-      });
+      })) as QuizGradingResult;
 
       setGradingResult(result);
 
