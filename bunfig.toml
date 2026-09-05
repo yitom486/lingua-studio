@@ -1,0 +1,5 @@
+[test]
+# tsc -b 会在各包生成 dist/__tests__/*.test.js 编译产物；
+# 不忽略会导致 bun test 把同一用例跑两遍（src/.ts + dist/.js）。
+# 此处剪掉整棵 dist，保证 `bun test` 只跑源码单测。
+pathIgnorePatterns = ["**/dist/**"]
