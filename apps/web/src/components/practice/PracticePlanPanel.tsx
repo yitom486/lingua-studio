@@ -17,7 +17,7 @@ interface PracticePlanPanelProps {
 }
 
 export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) {
-  const { data: templates = [], isLoading } = usePracticeTemplatesQuery(userId, language);
+  const { data: templates = [], isLoading, isError, error, refetch } = usePracticeTemplatesQuery(userId, language);
   const deleteMutation = useDeletePracticeTemplateMutation(userId);
   const startMutation = useStartPracticeRunMutation(userId);
   const proposeMutation = useProposeTemplateMutation(userId);
@@ -90,8 +90,8 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
         userId={userId}
         language={language}
         onCompleted={() => {
+          // 完成后留在工作台复盘视图，由用户主动返回；不再直接卸载
           toast.success('练习已完成');
-          setActiveRunId(null);
         }}
         onExit={() => setActiveRunId(null)}
       />
@@ -113,6 +113,12 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
       </div>
 
       {isLoading && <div className="text-xs text-slate-400">加载中…</div>}
+      {isError && (
+        <div className="rounded-md border border-rose-200 p-3 text-xs text-rose-600">
+          练习计划加载失败：{(error as Error).message}
+          <Button size="sm" variant="outline" className="ml-2" onClick={() => refetch()}>重试</Button>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         {templates.map((tpl) => (
@@ -157,7 +163,7 @@ export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) 
             </div>
           </div>
         ))}
-        {templates.length === 0 && !isLoading && (
+        {templates.length === 0 && !isLoading && !isError && (
           <div className="rounded-md border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
             还没有练习计划，点击「新建」创建第一个
           </div>

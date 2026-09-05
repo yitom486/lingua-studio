@@ -1,202 +1,32 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { toast } from 'sonner';
+import React from 'react';
 import { CheckCircle2, XCircle, Loader2, Send } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { Progress } from '../ui/progress.js';
 import { QuestionRenderer } from './QuestionRenderer.js';
-import {
-  useSubmitObjectiveMutation,
-  useSubmitSubjectiveMutation,
-  useSavePracticeDraftMutation,
-  useGradeBatchMutation,
-  useGradeSingleMutation,
-  useFinalizePracticeRunMutation,
-} from '../../queries/useLearnerQueries.js';
+import { usePracticeRunner, type PracticeRunnerItem } from '../../hooks/usePracticeRunner.js';
 import type { PracticeItemAttempt, GeneratedQuestion } from '@study-studio/protocol';
+
+export type { PracticeRunnerItem };
 
 /** P5：通用练习运行器。按题型渲染；客观题即时判定，主观题草稿暂存+批量评测+批量提交；断点恢复。 */
 
-export interface PracticeRunnerItem {
-  itemId: string;
-  blockId: string;
-  question: GeneratedQuestion;
-  gradingMode: 'AUTO_IMMEDIATE' | 'AI_IMMEDIATE' | 'AI_BATCH';
-}
-
 interface PracticeRunnerProps {
   runId: string;
+  userId: string;
   items: PracticeRunnerItem[];
   attempts: PracticeItemAttempt[];
   language: 'en' | 'ja' | 'ko';
   onCompleted?: (() => void) | undefined;
 }
 
-type ItemStatus = 'PENDING' | 'DRAFT' | 'SUBMITTED' | 'GRADED';
-interface ItemState {
-  status: ItemStatus;
-  userAnswer: string;
-  grading?: Record<string, unknown> | undefined;
-  isCorrect?: boolean | undefined;
-}
-
-const isObjective = (q: GeneratedQuestion) =>
-  q.type === 'MULTIPLE_CHOICE' || q.type === 'FILL_IN_BLANK' || q.type === 'SENTENCE_REORDER';
-
-export function PracticeRunner({ runId, items, attempts, language, onCompleted }: PracticeRunnerProps) {
-  const submitObjective = useSubmitObjectiveMutation();
-  const submitSubjective = useSubmitSubjectiveMutation();
-  const saveDraft = useSavePracticeDraftMutation();
-  const gradeBatch = useGradeBatchMutation();
-  const gradeSingle = useGradeSingleMutation();
-  const finalizeRun = useFinalizePracticeRunMutation();
-
-  const restored = useMemo(() => {
-    const map = new Map<string, ItemState>();
-    for (const a of attempts) {
-      map.set(a.itemId, {
-        status: a.status as ItemStatus,
-        userAnswer: a.userAnswer ?? '',
-        grading: a.gradingResult,
-        isCorrect: (a.gradingResult as { isCorrect?: boolean } | undefined)?.isCorrect,
-      });
-    }
-    return map;
-  }, [attempts]);
-
-  const [states, setStates] = useState<Record<string, ItemState>>({});
-  useEffect(() => {
-    const next: Record<string, ItemState> = {};
-    for (const it of items) next[it.itemId] = restored.get(it.itemId) ?? { status: 'PENDING', userAnswer: '' };
-    setStates(next);
-  }, [items, restored]);
-
-  const setItem = (itemId: string, patch: Partial<ItemState>) =>
-    setStates((p) => ({ ...p, [itemId]: { ...p[itemId]!, ...patch } }));
-
-  const doneCount = items.filter((it) => {
-    const s = states[it.itemId];
-    return s?.status === 'GRADED' || s?.status === 'SUBMITTED';
-  }).length;
-  const progress = items.length > 0 ? (doneCount / items.length) * 100 : 0;
-  const allDone = items.length > 0 && doneCount === items.length;
-  // P5-E5：只有 AI_BATCH 主观题才需要批量提交按钮
-  const hasBatchSubjects = items.some(
-    (it) => !isObjective(it.question) && it.gradingMode === 'AI_BATCH'
-  );
-
-  const handleObjective = async (it: PracticeRunnerItem, answer: string) => {
-    const q = it.question;
-    let isCorrect = false;
-    if (q.type === 'MULTIPLE_CHOICE') isCorrect = answer.trim() === q.correctAnswer.trim();
-    else if (q.type === 'FILL_IN_BLANK')
-      isCorrect = answer.trim() === q.correctAnswer.trim() || (q.acceptableVariants?.some((v) => v.trim() === answer.trim()) ?? false);
-    else if (q.type === 'SENTENCE_REORDER') isCorrect = answer.trim() === q.correctAnswer.trim();
-    setItem(it.itemId, { status: 'GRADED', userAnswer: answer, isCorrect, grading: { isCorrect, score: isCorrect ? 1 : 0 } });
-    try {
-      await submitObjective.mutateAsync({ runId, itemId: it.itemId, userAnswer: answer, isCorrect, testedSkillId: q.testedSkillId });
-      toast[isCorrect ? 'success' : 'error'](isCorrect ? '回答正确' : '答案不对，已记入错题信号');
-    } catch (e) {
-      toast.error((e as Error).message);
-      setItem(it.itemId, { status: 'PENDING' });
-    }
-  };
-
-  const handleDraft = async (it: PracticeRunnerItem, answer: string) => {
-    setItem(it.itemId, { status: 'DRAFT', userAnswer: answer });
-    try {
-      await saveDraft.mutateAsync({ runId, itemId: it.itemId, userAnswer: answer });
-    } catch {
-      /* 草稿失败静默 */
-    }
-  };
-
-  // P5-E5：AI_IMMEDIATE——单题提交后立即评测并入库，不等批量
-  const handleImmediate = async (it: PracticeRunnerItem, answer: string) => {
-    const q = it.question;
-    try {
-      const grading = await gradeSingle.mutateAsync({
-        prompt: q.prompt,
-        standardAnswer: q.correctAnswer,
-        userSubmission: answer,
-        testedSkillId: q.testedSkillId,
-        language,
-      });
-      setItem(it.itemId, {
-        status: 'GRADED',
-        userAnswer: answer,
-        grading: grading as unknown as Record<string, unknown>,
-        isCorrect: grading.isCorrect,
-      });
-      await submitSubjective.mutateAsync({
-        runId,
-        itemId: it.itemId,
-        userAnswer: answer,
-        gradingResult: grading as unknown as Record<string, unknown>,
-      });
-      toast[grading.isCorrect ? 'success' : 'error'](
-        grading.isCorrect ? '即时批改通过' : '即时批改完成，已记入错题信号'
-      );
-    } catch (e) {
-      toast.error('即时批改失败：' + (e as Error).message);
-    }
-  };
-
-  const handleBatch = async () => {
-    const ready = items
-      .filter((it) => !isObjective(it.question) && it.gradingMode === 'AI_BATCH')
-      .filter((it) => {
-        const s = states[it.itemId];
-        return s && s.status === 'DRAFT' && s.userAnswer.trim().length > 0;
-      });
-    if (ready.length === 0) {
-      toast.info('没有可批量提交的主观题草稿');
-      return;
-    }
-    let batch;
-    try {
-      batch = await gradeBatch.mutateAsync(
-        ready.map((it) => ({
-          itemId: it.itemId,
-          prompt: it.question.prompt,
-          standardAnswer: it.question.correctAnswer,
-          userSubmission: states[it.itemId]!.userAnswer,
-          testedSkillId: it.question.testedSkillId,
-          language,
-        }))
-      );
-    } catch (e) {
-      toast.error('批量评测失败：' + (e as Error).message);
-      return;
-    }
-    try {
-      for (const r of batch.results)
-        setItem(r.itemId, { status: 'GRADED', grading: r.grading, isCorrect: (r.grading as { isCorrect?: boolean }).isCorrect });
-      await Promise.all(
-        batch.results.map((r) =>
-          submitSubjective.mutateAsync({
-            runId,
-            itemId: r.itemId,
-            userAnswer: states[r.itemId]!.userAnswer,
-            gradingResult: r.grading,
-          })
-        )
-      );
-      toast.success(`已批量提交 ${batch.results.length} 题，正确 ${batch.summary.correct} 题`);
-    } catch (e) {
-      toast.error('批量提交失败：' + (e as Error).message);
-    }
-  };
-
-  const handleFinalize = async () => {
-    try {
-      await finalizeRun.mutateAsync(runId);
-      toast.success('练习已完成，学习进度已更新');
-      onCompleted?.();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  };
+export function PracticeRunner({ runId, userId, items, attempts, language, onCompleted }: PracticeRunnerProps) {
+  const {
+    viewStates: states, doneCount, progress, canFinish, hasBatchSubjects, isBatchSubmitting,
+    itemBusy, setDraft, handleObjective, handleDraft, handleImmediate, handleBatch, handleFinalize, mutations,
+  } = usePracticeRunner({ userId, runId, items, attempts, language });
+  const { finalizeRun } = mutations;
+  const setItem = (itemId: string, patch: { userAnswer: string }) => setDraft(itemId, patch.userAnswer);
 
   return (
     <div className="flex flex-col gap-4">
@@ -238,9 +68,9 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
                 onSubmitObjective={(a) => handleObjective(it, a)}
                 onSubmitSubjective={(a) => handleImmediate(it, a)}
                 onSaveDraft={(a) => handleDraft(it, a)}
-                disabled={s.status === 'GRADED' || s.status === 'SUBMITTED'}
-                busy={submitObjective.isPending || saveDraft.isPending}
-                submittingSubjective={gradeSingle.isPending || submitSubjective.isPending}
+                disabled={s.status === 'GRADED' || (s.status === 'SUBMITTED' && !s.submitting)}
+                busy={itemBusy(it.itemId)}
+                submittingSubjective={itemBusy(it.itemId)}
               />
             </div>
           );
@@ -248,12 +78,12 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
       </div>
       <div className="flex items-center justify-end gap-2 pt-2">
         {hasBatchSubjects && (
-          <Button variant="outline" onClick={handleBatch} disabled={gradeBatch.isPending}>
-            {gradeBatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+          <Button variant="outline" onClick={handleBatch} disabled={isBatchSubmitting}>
+            {isBatchSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
             批量提交主观题
           </Button>
         )}
-        <Button onClick={handleFinalize} disabled={!allDone || finalizeRun.isPending}>
+        <Button onClick={() => handleFinalize(onCompleted)} disabled={!canFinish || finalizeRun.isPending}>
           {finalizeRun.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
           完成练习
         </Button>

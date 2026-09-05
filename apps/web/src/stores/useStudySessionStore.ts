@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { GeneratedQuestion } from '@study-studio/protocol';
 import type { DailyPlanStepKind } from '@study-studio/learner-core';
-import type { AiTutorContext } from '../components/AiTutorDrawer.js';
+import type { AiTutorContext } from './tutor-context.js';
 import { usePreferencesStore } from './usePreferencesStore.js';
 
 export type NavigationTab =
@@ -68,6 +68,7 @@ export interface StudySessionState {
 
 const TAB_SET = new Set<string>([
   'TODAY',
+  'PRACTICE_PLAN',
   'QUIZ',
   'CARDS',
   'KANA',

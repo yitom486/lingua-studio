@@ -47,11 +47,11 @@ const BLOCK_KINDS: PracticeBlockKind[] = [
 const GRADING_MODES: GradingMode[] = ['AUTO_IMMEDIATE', 'AI_IMMEDIATE', 'AI_BATCH'];
 const VOCAB_KINDS = new Set<PracticeBlockKind>(['VOCAB_REVIEW', 'VOCAB_NEW']);
 
-function defaultBlock(kind: PracticeBlockKind): PracticeBlockSpec {
+function defaultBlock(kind: PracticeBlockKind, language: string): PracticeBlockSpec {
   const isObjective = kind === 'VOCAB_REVIEW' || kind === 'VOCAB_NEW' || kind === 'QUIZ';
   const grading: GradingMode = isObjective ? 'AUTO_IMMEDIATE' : 'AI_BATCH';
   const block: PracticeBlockSpec = { id: generateId('blk'), kind, count: 5, gradingMode: grading };
-  if (kind === 'TRANSLATION') block.translationDirection = { sourceLanguage: 'zh', targetLanguage: 'en' };
+  if (kind === 'TRANSLATION') block.translationDirection = { sourceLanguage: 'zh', targetLanguage: language };
   if (VOCAB_KINDS.has(kind)) block.vocabularySource = 'DUE_CARDS';
   return block;
 }
@@ -76,7 +76,7 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
       toast.info('一个模板最多 8 个练习块');
       return;
     }
-    setBlocks((prev) => [...prev, defaultBlock(kind)]);
+    setBlocks((prev) => [...prev, defaultBlock(kind, language)]);
   };
   const removeBlock = (id: string) => setBlocks((prev) => prev.filter((b) => b.id !== id));
   const move = (id: string, dir: -1 | 1) =>
