@@ -51,13 +51,15 @@ describe('news RSS integration', () => {
     expect(koAll.some((f) => f.url.includes('donga.com'))).toBe(true);
   });
 
-  it('builds Korean interim AI prompt scaffold', async () => {
+  it('builds Korean TOPIK AI passage (no longer an English scaffold)', async () => {
     const { buildKoreanAiReadingPrompt } = await import(
       '../services/learning-language-policy.js'
     );
     const p = buildKoreanAiReadingPrompt({ topic: '시사', difficulty: 2 });
-    expect(p.sourceLabel).toContain('Korean track');
-    expect(p.body).toContain('TOPIK');
+    expect(p.sourceLabel).toContain('TOPIK');
+    expect(p.body).toContain('시사');
+    expect(/[\uAC00-\uD7A3]/.test(p.body)).toBe(true);
+    expect(p.body).not.toContain('interim EN scaffold');
   });
 
   it('parses NHK-like RSS XML items', () => {

@@ -175,35 +175,29 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
           questions = [
             {
               id: `${newSetId}_q1`,
-              prompt: 'What reading strategies will the Korean track emphasize once authentic content lands?',
+              prompt: '글의 중심 내용으로 가장 알맞은 것은 무엇입니까?',
               options: [
-                {
-                  key: 'A',
-                  text: 'Main idea, connector words, and honorific/formal register awareness',
-                },
-                { key: 'B', text: 'Only memorizing hangul stroke order without meaning' },
-                { key: 'C', text: 'Ignoring discourse markers entirely' },
-                { key: 'D', text: 'Translating every sentence into Japanese first' },
+                { key: 'A', text: '사소해 보이는 일상에서도 새로운 발견과 노력이 있다' },
+                { key: 'B', text: '바쁠 때는 주변을 전혀 살펴보지 말아야 한다' },
+                { key: 'C', text: '일상생활에는 배울 것이 전혀 없다' },
+                { key: 'D', text: '과거의 경험은 모두 잊어야 한다' },
               ],
               correctAnswer: 'A',
               explanation:
-                'The interim scaffold and KOREAN_LEARNING_NOTES highlight TOPIK-style main idea, connectors, and register.',
+                '첫째 문단과 둘째 문단에 작은 일 속의 새로운 발견과 사람들의 노력이 나와 있습니다.',
             },
             {
               id: `${newSetId}_q2`,
-              prompt: `Why is this interim passage still useful while studying “${topic}”?`,
+              prompt: '이 글의 내용과 같은 것은 무엇입니까?',
               options: [
-                {
-                  key: 'A',
-                  text: 'It keeps the KO track wired end-to-end before Korean RSS replaces the scaffold',
-                },
-                { key: 'B', text: 'It permanently replaces authentic Korean news' },
-                { key: 'C', text: 'It teaches only English spelling rules' },
-                { key: 'D', text: 'It disables skill metrics for reading practice' },
+                { key: 'A', text: '매일 조금씩 쌓으면 한국어 실력이 좋아진다' },
+                { key: 'B', text: '한국어 공부는 한 번의 큰 시험으로 끝난다' },
+                { key: 'C', text: '호기심을 가져도 새로운 세계를 알 수 없다' },
+                { key: 'D', text: '작은 발견은 소중히 여기지 않아도 된다' },
               ],
               correctAnswer: 'A',
               explanation:
-                'KO language code is persisted; content can later swap to Korean media without rewiring the client.',
+                '셋째 문단에 ‘매일 조금씩 새로운 표현을 쌓으면 읽기 실력과 표현력이 점점 좋아집니다’라고 나와 있습니다.',
             },
           ];
         } else {

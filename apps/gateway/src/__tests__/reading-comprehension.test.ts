@@ -159,6 +159,29 @@ describe('Reading Comprehension Hono RPC Routes', () => {
     expect(created.questions.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('should generate a Korean TOPIK passage set via POST /api/reading/generate/:userId', async () => {
+    const payload = {
+      origin: 'ai',
+      difficulty: 2,
+      language: 'KO',
+      topic: '여행과 온천',
+    };
+
+    const res = await app.request(`/api/reading/generate/${testUserId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(200);
+    const created = (await res.json()) as ReadingPassageSet;
+    expect(created.language).toBe('KO');
+    expect(/[\uAC00-\uD7A3]/.test(created.body)).toBe(true);
+    expect(created.body).not.toContain('interim EN scaffold');
+    expect(created.questions.length).toBeGreaterThanOrEqual(2);
+    expect(/[\uAC00-\uD7A3]/.test(created.questions[0]?.prompt ?? '')).toBe(true);
+  });
+
   it('should record practice score via POST /api/reading/practice/:userId', async () => {
     const payload = {
       setId: 'read_news_quiet_delivery',

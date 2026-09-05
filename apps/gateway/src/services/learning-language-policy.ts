@@ -57,29 +57,30 @@ Wrong options should be plausible Chinglish traps or over-generalizations.
 Keep option length similar; one clearly best answer.
 `.trim();
 
-/** 韩语轨道学习注记：新闻已接公开韩语 RSS；AI 篇目脚手架仍可演进 */
+/** 韩语轨道学习注记：新闻已接公开韩语 RSS；AI 篇目为 TOPIK 初中级模板正文 */
 export const KOREAN_LEARNING_NOTES = `
 Korean track news uses public Korean RSS (Yonhap / Donga) with article full-text extract when possible, else RSS summary.
-Align prompts with TOPIK reading strategies (main idea, connector words, honorific register awareness).
+AI passages are TOPIK 1–4 level template texts with main-idea / connector / register items; swap to model generation when wired.
 `.trim();
 
 /**
- * 韩语轨道 AI 篇目脚手架（正文暂为英文说明 + TOPIK 提示占位）。
- * 正式接入时替换为韩语正文与 TOPIK 配题。
+ * 韩语轨道 AI 篇目：TOPIK 初中级模板正文（日常话题 + 그래서/하지만 连接 + 平实语体）。
+ * 接 LLM 时可将本函数返回值作为 system/user prompt 骨架。
  */
 export function buildKoreanAiReadingPrompt(params: {
   topic: string;
   difficulty: number;
 }): { title: string; body: string; sourceLabel: string } {
   const { topic, difficulty } = params;
+  const band = difficulty <= 2 ? 'TOPIK 1–2급' : difficulty === 3 ? 'TOPIK 3–4급' : 'TOPIK 5–6급';
   return {
-    title: `TOPIK Reading Prep (interim): ${topic}`,
-    sourceLabel: `AI Korean track · interim EN scaffold · Lv.${difficulty} · Topic: ${topic}`,
-    body: `This passage is a temporary English scaffold for the Korean learning track while authentic Korean media RSS and TOPIK-aligned generation are wired up.
+    title: `TOPIK 읽기: ${topic} (${band})`,
+    sourceLabel: `AI 한국어 지문 · ${band} · 주제: ${topic}`,
+    body: `오늘의 주제는 '${topic}'입니다. 이 주제는 우리의 일상생활과 가까운 내용입니다. 바쁜 하루 속에서도 잠깐 멈추어 주변을 살펴보면 새로운 것을 발견할 수 있습니다.
 
-Focus theme: ${topic}. When Korean content lands, practice: (1) finding the main idea in the first two sentences, (2) tracking connector words (그래서, 하지만, 그러나), and (3) noticing honorific or formal register in news-style writing.
+예를 들어 어제 있었던 일을 생각해 봅시다. 처음에는 별일 아닌 것 같아도 자세히 살펴보면 몰랐던 노력과 사람들의 따뜻함을 느낄 수 있습니다. 그래서 작은 발견을 소중히 여기는 마음이 중요합니다. 하지만 많은 사람들은 바쁘다는 이유로 이런 여유를 갖지 못합니다.
 
-${KOREAN_LEARNING_NOTES}`,
+한국어를 공부하는 것도 같습니다. 매일 조금씩 새로운 표현을 쌓으면 읽기 실력과 표현력이 점점 좋아집니다. 앞으로도 호기심을 가지고 새로운 세계를 알아봅시다.`,
   };
 }
 
