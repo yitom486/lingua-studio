@@ -11,6 +11,8 @@ import {
   isOk,
 } from '@study-studio/shared';
 import type { GatewayServer } from '../gateway-runtime.js';
+import type { ContextSnapshot } from '@study-studio/agent-core';
+import type { ToolDefinition } from '@study-studio/tool-core';
 import type { AgentLane, SessionManager } from '../../session/session-manager.js';
 import {
   buildGenericCoachReply,
@@ -72,7 +74,7 @@ export async function handleTurnSend(
     input: string;
     userId?: string;
     intent?: string;
-    contextSnapshot?: any;
+    contextSnapshot?: Partial<ContextSnapshot>;
     agentOptions?: {
       model?: string;
       preferCodex?: boolean;
@@ -146,7 +148,7 @@ export async function handleTurnSend(
   const turnStartedAt = Date.now();
 
   let reply = '';
-  let toolResults: any = undefined;
+  let toolResults: unknown = undefined;
   let replySource: 'codex' | 'lite' | 'keyword' | 'local' = 'local';
   let codexThreadId: string | undefined;
   let codexFailureMessage: string | undefined;
@@ -337,7 +339,7 @@ export async function handleTurnSend(
           server.toolRegistry.get('dictionary.lookup'),
           server.toolRegistry.get('ui.navigate'),
           server.toolRegistry.get('ui.present'),
-        ].filter(Boolean);
+        ].filter((tool): tool is ToolDefinition => Boolean(tool));
 
         // 按 lane 复用 Codex thread（coach 与 learning 互不共享）
         let agentSession =
@@ -358,7 +360,7 @@ export async function handleTurnSend(
           const sessionOpts: {
             sessionId: string;
             userId: string;
-            tools: any;
+            tools?: ToolDefinition[];
             model?: string;
             approvalPolicy?: string;
             resumeThreadId?: string;
@@ -367,7 +369,7 @@ export async function handleTurnSend(
             // 同一 Gateway WS session 下按 lane 分 key，避免 CodexAdapter 互相覆盖
             sessionId: `${envelope.sessionId}:${agentLane}`,
             userId,
-            tools: learningTools as any,
+            tools: learningTools,
           };
           if (preferredModel) sessionOpts.model = preferredModel;
           if (preferredApproval) sessionOpts.approvalPolicy = preferredApproval;

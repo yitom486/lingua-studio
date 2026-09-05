@@ -260,8 +260,8 @@ export async function fetchRssItems(
       );
     }
     return ok(items);
-  } catch (e: any) {
-    const aborted = e?.name === 'AbortError';
+  } catch (e) {
+    const aborted = e instanceof Error && e.name === 'AbortError';
     return err(
       new BusinessError(
         aborted ? 'E_NEWS_RSS_TIMEOUT' : 'E_NEWS_RSS_FETCH',
