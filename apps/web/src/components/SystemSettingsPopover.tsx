@@ -13,6 +13,7 @@ import {
   BookOpen,
   Download,
   LoaderCircle,
+  DatabaseBackup,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
@@ -41,6 +42,8 @@ import {
   useInstallDictionaryPackageMutation,
 } from '../queries/useLearnerQueries.js';
 import { useGatewayStore } from '../stores/useGatewayStore.js';
+import { getPlatform } from '../platform/capabilities.js';
+import { backupDesktopDatabase } from '../platform/tauri-capabilities.js';
 
 export function SystemSettingsPopover() {
   const [open, setOpen] = useState(false);
@@ -69,6 +72,17 @@ export function SystemSettingsPopover() {
   const dictionaryPackages = useDictionaryPackagesQuery(open);
   const installDictionaryPackage = useInstallDictionaryPackageMutation();
   const englishDictionary = dictionaryPackages.data?.packages.find((item) => item.id === 'oewn-2025');
+
+  // P4-B：桌面端专属（Web 端不渲染）。getPlatform 在 Tauri WebView 内返回桌面实现。
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [backupPending, setBackupPending] = useState(false);
+  useEffect(() => {
+    try {
+      setIsDesktop(getPlatform().isDesktop());
+    } catch {
+      setIsDesktop(false);
+    }
+  }, []);
 
   // 系统音色异步加载（Chrome onvoiceschanged）
   useEffect(() => {
@@ -127,6 +141,24 @@ export function SystemSettingsPopover() {
         toast.error(error instanceof Error ? error.message : '词典包安装失败，请稍后重试。');
       },
     });
+  };
+
+  const handleBackupDatabase = async () => {
+    if (backupPending) return;
+    sound.playClick();
+    setBackupPending(true);
+    try {
+      const dest = await backupDesktopDatabase();
+      toast.success('学习数据库已备份', { description: dest });
+    } catch (e) {
+      // 用户取消保存对话框不算错误，不打扰
+      const message = e instanceof Error ? e.message : '备份失败，请稍后重试。';
+      if (!message.includes('未选择保存路径')) {
+        toast.error(message);
+      }
+    } finally {
+      setBackupPending(false);
+    }
   };
 
   return (
@@ -396,6 +428,42 @@ export function SystemSettingsPopover() {
               </div>
             </div>
           </div>
+
+          {/* 4. 桌面端数据管理（仅 Tauri 壳内可见） */}
+          {isDesktop && (
+            <>
+              <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
+                  <DatabaseBackup className="w-3.5 h-3.5 text-amber-500" />
+                  <span>学习数据管理</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-amber-500/30 text-amber-600 dark:text-amber-400">
+                    桌面端
+                  </Badge>
+                </div>
+                <div className="rounded-xl border border-stone-200/80 bg-stone-50/70 p-2.5 dark:border-stone-800 dark:bg-stone-900/50">
+                  <p className="text-[10px] leading-relaxed text-stone-500 dark:text-stone-400">
+                    学习库保存在本机应用数据目录，随应用重启保留。建议定期备份；恢复时把备份文件放回原目录并重启应用即可。
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-7 gap-1 px-2 text-[11px]"
+                    disabled={backupPending}
+                    onClick={() => void handleBackupDatabase()}
+                  >
+                    {backupPending ? (
+                      <LoaderCircle className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="h-3 w-3" />
+                    )}
+                    备份学习数据库
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </PopoverContent>
     </Popover>
