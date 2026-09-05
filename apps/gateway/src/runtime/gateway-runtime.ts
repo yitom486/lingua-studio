@@ -19,7 +19,6 @@ import {
 import { type LearnerRepository } from '@study-studio/learner-core';
 import {
   handleQuizSubmit,
-  handleCardReview,
   handleProfileGet,
   handleProfileUpdate,
   handleTaskProgressGet,
@@ -387,8 +386,8 @@ export class GatewayServer {
       case WsEventTypes.CLIENT_QUIZ_SUBMIT:
         return handleQuizSubmit(this, envelope);
 
-      case WsEventTypes.CLIENT_CARD_REVIEW:
-        return handleCardReview(this, envelope);
+      // 双传输收敛：CLIENT_CARD_REVIEW WS 处理已删除——卡片评分唯一路径为
+      // HTTP POST /api/cards/:userId/:cardId/review（避免双写 FSRS 状态）。
 
       case WsEventTypes.CLIENT_PROFILE_GET:
         return handleProfileGet(this, envelope);

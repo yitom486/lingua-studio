@@ -14,7 +14,6 @@ import {
 import {
   createMistakeEntry,
   recordSkillAttempt,
-  scheduleNextReview,
 } from '@study-studio/learner-core';
 import type { GatewayServer } from '../gateway-runtime.js';
 import { DrizzleLearnerRepository } from '../../infrastructure/drizzle-learner-repository.js';
@@ -105,57 +104,6 @@ export async function handleQuizSubmit(
       questionId: payload.questionId,
       isCorrect: payload.isCorrect,
       persistedToDb: true,
-    },
-    timestamp: Date.now(),
-  });
-}
-
-export async function handleCardReview(
-  server: GatewayServer,
-  envelope: WsEnvelope
-): Promise<Result<WsEnvelope, BusinessError>> {
-  const payload = envelope.payload as {
-    userId: string;
-    cardId: string;
-    rating: 'AGAIN' | 'HARD' | 'GOOD' | 'EASY';
-    currentStability?: number;
-    currentReps?: number;
-  };
-
-  const currentFsrs = {
-    stability: payload.currentStability ?? 1.0,
-    difficulty: 5.0,
-    reps: payload.currentReps ?? 0,
-    lapses: 0,
-    dueAt: nowIso(),
-    state: 'REVIEW' as const,
-  };
-
-  const nextFsrs = scheduleNextReview(currentFsrs, payload.rating);
-
-  // 真正将卡片最新 FSRS 状态持久化回写至 SQLite
-  const cardsRes = await server.learnerRepo.getDueCards(payload.userId, 200);
-  if (isOk(cardsRes)) {
-    const targetCard = cardsRes.value.find((c) => c.id === payload.cardId);
-    if (targetCard) {
-      targetCard.fsrs = nextFsrs;
-      const saveRes = await server.learnerRepo.saveCard(targetCard);
-      if (!isOk(saveRes)) return err(saveRes.error);
-    }
-  }
-
-  // 自动累计每日卡片复习足迹
-  await server.learnerRepo.recordDailyActivity(payload.userId, { cards: 1 });
-
-  return ok({
-    version: '1.0',
-    id: generateId('msg'),
-    sessionId: envelope.sessionId,
-    type: WsEventTypes.AGENT_TURN_COMPLETED,
-    payload: {
-      cardId: payload.cardId,
-      nextFsrs,
-      nextReviewDays: Math.round(nextFsrs.stability),
     },
     timestamp: Date.now(),
   });

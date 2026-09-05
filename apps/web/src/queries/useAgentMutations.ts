@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   gatewayClient,
-  type CardReviewPayload,
   type QuizSubmitPayload,
   type SubjectiveGradePayload,
 } from '../lib/gateway-client.js';
@@ -38,30 +37,6 @@ export function useSubmitQuizMutation() {
       recordActivity({ quizzes: 1 });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.MISTAKES });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.LEARNING_ANALYSIS });
-    },
-  });
-}
-
-/** 闪卡复盘 → Gateway WS */
-export function useReviewCardMutation() {
-  const queryClient = useQueryClient();
-  const recordActivity = useUserProfileStore((s) => s.recordActivity);
-
-  return useMutation({
-    mutationFn: async (payload: CardReviewPayload) => {
-      assertConnected();
-      if (!gatewayClient.reviewCard(payload)) {
-        throw new Error('卡片复盘失败：无法发送到 Gateway');
-      }
-      return payload;
-    },
-    onSuccess: () => {
-      recordActivity({ cards: 1 });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
-      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.LEARNING_ANALYSIS });

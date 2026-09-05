@@ -3,7 +3,6 @@ import {
   WsEventTypes,
   type WsEventType,
   type WsEnvelope,
-  type CardReviewRating,
   type GeneratedQuestion,
 } from '@study-studio/protocol';
 import { generateId } from '@study-studio/shared';
@@ -111,13 +110,6 @@ export interface QuizSubmitPayload {
   questionContent?: string;
   correctAnswer?: string;
   explanation?: string;
-}
-
-export interface CardReviewPayload {
-  cardId: string;
-  rating: CardReviewRating;
-  currentStability?: number;
-  currentReps?: number;
 }
 
 export interface SubjectiveGradePayload {
@@ -343,12 +335,8 @@ export class GatewayClient {
     });
   }
 
-  public reviewCard(data: CardReviewPayload): boolean {
-    return this.sendEnvelope(WsEventTypes.CLIENT_CARD_REVIEW, {
-      userId: this.options.userId,
-      ...data,
-    });
-  }
+  // 双传输收敛：WS reviewCard 已删除——卡片评分唯一路径为 HTTP
+  // POST /api/cards/:userId/:cardId/review（Gateway 单点计算 FSRS）。
 
   public async generateAdaptiveQuiz(options?: {
     weaknessSkillId?: string;

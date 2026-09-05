@@ -50,7 +50,7 @@ export function useAgentGateway() {
       decision: boolean | 'accept' | 'acceptForSession' | 'decline' | 'cancel'
     ) => gatewayClient.respondApproval(approvalId, decision),
     submitQuizToGateway: gatewayClient.submitQuiz.bind(gatewayClient),
-    reviewCardToGateway: gatewayClient.reviewCard.bind(gatewayClient),
+    // 双传输收敛：reviewCardToGateway 已删除，卡片评分唯一路径为 HTTP review 端点。
     generateAdaptiveQuiz: gatewayClient.generateAdaptiveQuiz.bind(gatewayClient),
     gradeSubjectiveQuiz: gatewayClient.gradeSubjectiveQuiz.bind(gatewayClient),
   };

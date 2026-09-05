@@ -428,31 +428,6 @@ export function usePrependQuestionMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
-/**
- * 提交测验作答并记录打卡足迹 (Hono RPC)
- */
-export function useSubmitQuizMutation(userId = DEFAULT_USER_ID) {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (payload: {
-      questionId: string;
-      selectedKey: string;
-      isCorrect: boolean;
-    }) => {
-      try {
-        await apiClient.api.task.activity[':userId'].$post({
-          param: { userId },
-          json: { quizzes: 1 },
-        });
-      } catch (e) {
-        console.warn('[useSubmitQuizMutation] Hono RPC failed to record quiz activity', e);
-      }
-      return { success: true as const, payload };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.MISTAKES });
-    },
-  });
-}
+// 双传输收敛：HTTP 版 useSubmitQuizMutation（仅记足迹，曾有同名 WS 版）已删除——
+// 唯一消费者 AdaptiveQuizWorkbench 使用 useAgentMutations 的 WS 版；答题足迹由
+// Gateway WS CLIENT_QUIZ_SUBMIT 落库路径统一累计。
