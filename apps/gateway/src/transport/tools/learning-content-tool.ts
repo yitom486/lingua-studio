@@ -21,7 +21,7 @@ import {
   DrizzleLearnerRepository,
   inferLanguageFromSkillId,
   normalizeTrackLanguage,
-} from '../../repository/drizzle-learner-repository.js';
+} from '../../infrastructure/drizzle-learner-repository.js';
 
 export const LearningContentInputSchema = z.object({
   action: z.enum([

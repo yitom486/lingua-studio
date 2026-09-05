@@ -1,4 +1,4 @@
-import type { DrizzleLearnerRepository } from '../../repository/drizzle-learner-repository.js';
+import type { DrizzleLearnerRepository } from '../../infrastructure/drizzle-learner-repository.js';
 import type { GatewayServer } from '../../runtime/gateway-runtime.js';
 
 /**
