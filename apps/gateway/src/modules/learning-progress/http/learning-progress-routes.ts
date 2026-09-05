@@ -2,6 +2,7 @@
 import { validator } from 'hono/validator';
 import { isOk, BusinessError } from '@study-studio/shared';
 import type { LearnerProfile } from '@study-studio/protocol';
+import type { MistakeEntry } from '@study-studio/learner-core';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import { runLearningAnalysis, buildAnalysisSnapshot } from '../application/learning-analysis.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
@@ -26,7 +27,7 @@ export function createLearningProgressRoutes(deps: GatewayDeps) {
         const res = await deps.repo.updateLearnerProfile(userId, body);
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'updateLearnerProfile');
       }
     }
@@ -65,7 +66,7 @@ export function createLearningProgressRoutes(deps: GatewayDeps) {
         const res = await deps.repo.recordDailyActivity(userId, body);
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'recordDailyActivity');
       }
     }
@@ -135,10 +136,11 @@ export function createLearningProgressRoutes(deps: GatewayDeps) {
     async (c) => {
       try {
         const body = c.req.valid('json');
-        const res = await deps.repo.saveMistake(body as any);
+        // MistakeEntry 暂无 zod schema；此处为 HTTP 信任边界断言（与此前 as any 等价，不断言不放行）。
+        const res = await deps.repo.saveMistake(body as unknown as MistakeEntry);
         if (isOk(res)) return c.json({ success: true });
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'saveMistake');
       }
     }

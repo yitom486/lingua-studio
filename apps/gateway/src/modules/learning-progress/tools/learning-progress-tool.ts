@@ -10,6 +10,7 @@ import {
   err,
   type Result,
   BusinessError,
+  extractErrorText,
   isOk,
 } from '@study-studio/shared';
 import type { LearnerRepository } from '@study-studio/learner-core';
@@ -115,11 +116,11 @@ export class LearningProgressTool
             new BusinessError('E_INVALID_INPUT', `未知 progress action`, 'VALIDATION')
           );
       }
-    } catch (e: any) {
+    } catch (e) {
       return err(
         new BusinessError(
           'E_TOOL_EXECUTION',
-          `学情写入失败: ${e?.message || '未知错误'}`,
+          `学情写入失败: ${extractErrorText(e) || '未知错误'}`,
           'TOOL_EXECUTION'
         )
       );

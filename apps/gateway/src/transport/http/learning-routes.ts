@@ -28,7 +28,7 @@ export function createLearningCompatRoutes(deps: GatewayDeps) {
         const res = await tool.execute(body, { userId, sessionId: 'http_content' });
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'learningContent');
       }
     }
@@ -50,7 +50,7 @@ export function createLearningCompatRoutes(deps: GatewayDeps) {
         const res = await tool.execute(body, { userId, sessionId: 'http_assess' });
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'learningAssess');
       }
     }

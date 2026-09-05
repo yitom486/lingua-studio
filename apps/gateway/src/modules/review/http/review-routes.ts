@@ -2,6 +2,7 @@
 import { validator } from 'hono/validator';
 import { isOk, BusinessError } from '@study-studio/shared';
 import { scheduleNextReview } from '@study-studio/learner-core';
+import { FlashcardSchema } from '@study-studio/protocol';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
@@ -24,10 +25,18 @@ export function createReviewRoutes(deps: GatewayDeps) {
         const body = c.req.valid('json');
         const cardsToSave = Array.isArray(body) ? body : [body];
         for (const card of cardsToSave) {
-          await deps.repo.saveCard(card as any);
+          const parsed = FlashcardSchema.safeParse(card);
+          if (!parsed.success) {
+            return formatBusinessErrorResponse(
+              c,
+              new BusinessError('E_INVALID_INPUT', '闪卡数据格式不正确，请检查后重试。', 'VALIDATION'),
+              'saveCards'
+            );
+          }
+          await deps.repo.saveCard(parsed.data);
         }
         return c.json({ success: true, count: cardsToSave.length });
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'saveCards');
       }
     }
