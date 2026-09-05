@@ -311,6 +311,47 @@ describe('practice assembly by block spec (P5-E4)', () => {
       expect(String(it.question.testedSkillId)).toBe('en.reading.comprehension');
     }
   });
+
+  it('hits pooled DICTATION rows with fullJapanese (P6-2, no generation tool)', async () => {
+    await repo.saveQuestion({
+      id: 'q_pool_dict_1',
+      userId,
+      type: 'DICTATION',
+      category: 'test',
+      prompt: '听写挖空',
+      content: '公園（　）歩く',
+      correctAnswer: 'を',
+      explanation: '助词',
+      testedSkillId: 'en.test.dictation',
+      difficulty: 2,
+      language: 'en',
+      dictation: { fullJapanese: '公園を歩く', speaker: 'teacher' },
+    });
+
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'en',
+      blocks: [
+        { id: 'blk_dic_pool', kind: 'DICTATION', count: 1, gradingMode: 'AUTO_IMMEDIATE' },
+      ] satisfies PracticeBlockSpec[],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+
+    // 不传 content tool：证明命中来自池化行，而非模板生成
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(1);
+    expect(asm.value.skippedBlocks).toEqual([]);
+
+    const itemsRes = await repo.getPracticeRunItems(userId, runRes.value.id);
+    if (!isOk(itemsRes)) return;
+    expect(itemsRes.value).toHaveLength(1);
+    const q = itemsRes.value[0]!.question;
+    expect(q.type).toBe('LISTENING_DICTATION');
+    expect(String(q.id)).toBe('q_pool_dict_1');
+    expect(q.dictation?.fullJapanese).toBe('公園を歩く');
+  });
 });
 
 function flashcard(id: string, front: string, back: string, state: Flashcard['fsrs']['state'] = 'REVIEW'): Flashcard {

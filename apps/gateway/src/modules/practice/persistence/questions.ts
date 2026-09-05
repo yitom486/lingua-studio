@@ -21,6 +21,37 @@ import { resolveActiveLanguage } from '../../learning-progress/persistence/profi
  * 练习域持久化：题库读写与作答记录（G4：由 repository/domains/cards-questions.ts 拆分而来，行为不变）。
  */
 /**
+ * P6-2：题型语料提取（仅 dictation 子结构；reading 正文不入库）。
+ * 结构损坏一律返回 undefined（不臆造语料）。
+ */
+function extractDictationExtras(question: any): Record<string, unknown> | undefined {
+  const d = question?.dictation;
+  if (!d || typeof d !== 'object') return undefined;
+  if (typeof (d as { fullJapanese?: unknown }).fullJapanese !== 'string') return undefined;
+  const out: Record<string, unknown> = {
+    fullJapanese: (d as { fullJapanese: string }).fullJapanese,
+  };
+  for (const key of ['speaker', 'chinese', 'furiganaHint'] as const) {
+    const value = (d as Record<string, unknown>)[key];
+    if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
+
+/** P6-2：读回语料（损坏/缺失返回 undefined）。 */
+function parseDictationExtras(raw: unknown): Record<string, unknown> | undefined {
+  if (typeof raw !== 'string' || !raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const dictation = (parsed as { dictation?: unknown }).dictation;
+    return extractDictationExtras({ dictation });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 获取题库题目列表 (从 SQLite quiz_questions 表读取)
  */
 export async function getQuestions(
@@ -59,22 +90,27 @@ export async function getQuestions(
       .orderBy(desc(quizQuestions.createdAt))
       .limit(limit);
 
-    let mapped = rows.map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      type: r.type,
-      category: r.category,
-      prompt: r.prompt,
-      content: r.content,
-      options: r.options ? JSON.parse(r.options) : undefined,
-      chunks: r.chunks ? JSON.parse(r.chunks) : undefined,
-      correctAnswer: r.correctAnswer,
-      explanation: r.explanation,
-      testedSkill: r.testedSkillId,
-      testedSkillId: r.testedSkillId,
-      difficulty: r.difficulty,
-      createdAt: r.createdAt,
-    }));
+    let mapped = rows.map((r) => {
+      // P6-2：语料回填（无/损坏则省略该字段）
+      const dictation = parseDictationExtras((r as { extrasJson?: unknown }).extrasJson);
+      return {
+        id: r.id,
+        userId: r.userId,
+        type: r.type,
+        category: r.category,
+        prompt: r.prompt,
+        content: r.content,
+        options: r.options ? JSON.parse(r.options) : undefined,
+        chunks: r.chunks ? JSON.parse(r.chunks) : undefined,
+        correctAnswer: r.correctAnswer,
+        explanation: r.explanation,
+        testedSkill: r.testedSkillId,
+        testedSkillId: r.testedSkillId,
+        difficulty: r.difficulty,
+        createdAt: r.createdAt,
+        ...(dictation ? { dictation } : {}),
+      };
+    });
 
     // 防串语：历史上曾把 EN 题误写入 ko 分区；按 skillId 前缀再过滤一次
     mapped = mapped.filter((q) => {
@@ -124,6 +160,9 @@ export async function saveQuestion(
         ? question.chunks
         : JSON.stringify(question.chunks)
       : null;
+    // P6-2：仅持久化 dictation 语料（reading 正文不入库）
+    const dictationExtras = extractDictationExtras(question);
+    const extrasStr = dictationExtras ? JSON.stringify({ dictation: dictationExtras }) : null;
 
     if (existing.length > 0) {
       await deps.db
@@ -140,6 +179,7 @@ export async function saveQuestion(
           explanation: question.explanation,
           testedSkillId: skillId,
           difficulty: question.difficulty ?? 3,
+          extrasJson: extrasStr,
         })
         .where(eq(quizQuestions.id, question.id));
     } else {
@@ -157,6 +197,7 @@ export async function saveQuestion(
         explanation: question.explanation,
         testedSkillId: skillId,
         difficulty: question.difficulty ?? 3,
+        extrasJson: extrasStr,
         createdAt: question.createdAt || nowIso(),
       });
     }

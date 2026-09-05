@@ -461,3 +461,69 @@ describe('DrizzleLearnerRepository', () => {
     expect(afterMistake.value.completedCount).toBeGreaterThan(before.value.completedCount);
   });
 });
+
+describe('quiz_questions extras round-trip (P6-2)', () => {
+  let repo: DrizzleLearnerRepository;
+  const userId = 'p62_user_01';
+
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  function dictationQuestion(id: string, extra: Record<string, unknown> | undefined) {
+    return {
+      id,
+      userId,
+      type: 'DICTATION',
+      category: 'dictation',
+      prompt: '听写挖空',
+      content: '公園（　）歩く',
+      correctAnswer: 'を',
+      explanation: '助词',
+      testedSkillId: 'en.test.dictation',
+      difficulty: 2,
+      language: 'en',
+      ...(extra === undefined ? {} : { dictation: extra }),
+    };
+  }
+
+  it('persists and reads back dictation extras', async () => {
+    await repo.saveQuestion(
+      dictationQuestion('q_dict_1', {
+        fullJapanese: '公園を歩く',
+        speaker: 'teacher',
+        furiganaHint: 'を',
+      })
+    );
+    const listRes = await repo.getQuestions(userId, 50, 'en', { types: ['DICTATION'] });
+    expect(isOk(listRes)).toBe(true);
+    if (!isOk(listRes)) return;
+    const found = listRes.value.find((q: any) => q.id === 'q_dict_1');
+    expect(found).toBeDefined();
+    expect((found as any).dictation).toEqual({
+      fullJapanese: '公園を歩く',
+      speaker: 'teacher',
+      furiganaHint: 'を',
+    });
+  });
+
+  it('omits extras for rows without them (backward compatible)', async () => {
+    await repo.saveQuestion(dictationQuestion('q_plain_1', undefined));
+    const listRes = await repo.getQuestions(userId, 50, 'en', { types: ['DICTATION'] });
+    expect(isOk(listRes)).toBe(true);
+    if (!isOk(listRes)) return;
+    const found = listRes.value.find((q: any) => q.id === 'q_plain_1');
+    expect(found).toBeDefined();
+    expect('dictation' in (found as object)).toBe(false);
+  });
+
+  it('drops corrupt extras instead of inventing', async () => {
+    await repo.saveQuestion(dictationQuestion('q_bad_1', { speaker: 'x' } as any));
+    const listRes = await repo.getQuestions(userId, 50, 'en', { types: ['DICTATION'] });
+    expect(isOk(listRes)).toBe(true);
+    if (!isOk(listRes)) return;
+    const found = listRes.value.find((q: any) => q.id === 'q_bad_1');
+    expect(found).toBeDefined();
+    expect('dictation' in (found as object)).toBe(false);
+  });
+});

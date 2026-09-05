@@ -265,8 +265,14 @@ export async function assemblePracticeRun(
   return ok({ run, blocks, totalItems, skippedBlocks });
 }
 
-/** 把 quiz_questions 池行映射为协议 GeneratedQuestion。 */
+/** 把 quiz_questions 池行映射为协议 GeneratedQuestion（含 P6-2 语料透传）。 */
 function mapPoolQuestion(q: any): GeneratedQuestion {
+  // 语料：仅接受结构完整的 dictation（fullJapanese 必填），否则丢弃
+  const rawDictation = q?.dictation;
+  const dictation =
+    rawDictation && typeof rawDictation === 'object' && typeof rawDictation.fullJapanese === 'string'
+      ? rawDictation
+      : undefined;
   return {
     id: String(q.id),
     type: mapQuestionType(q.type),
@@ -277,6 +283,7 @@ function mapPoolQuestion(q: any): GeneratedQuestion {
     explanation: String(q.explanation ?? ''),
     testedSkillId: String(q.testedSkillId ?? q.testedSkill ?? 'review'),
     difficultyTier: typeof q.difficulty === 'number' ? q.difficulty : 3,
+    ...(dictation ? { dictation } : {}),
   };
 }
 

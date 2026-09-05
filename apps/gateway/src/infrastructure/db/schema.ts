@@ -258,6 +258,11 @@ export const quizQuestions = sqliteTable(
     explanation: text('explanation').notNull(),
     testedSkillId: text('tested_skill_id').notNull(),
     difficulty: integer('difficulty').notNull().default(3),
+    /**
+     * P6-2：题型语料 JSON（仅 dictation 子结构；reading 正文不入库，仍随 run 携带）。
+     * 可空；旧行缺省无语料，向后兼容。
+     */
+    extrasJson: text('extras_json'),
     createdAt: text('created_at').notNull(),
   },
   (table) => ({

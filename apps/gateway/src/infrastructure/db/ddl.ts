@@ -188,6 +188,7 @@ export function initSchema(sqlite: Database): void {
       explanation TEXT NOT NULL,
       tested_skill_id TEXT NOT NULL,
       difficulty INTEGER NOT NULL DEFAULT 3,
+      extras_json TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -339,6 +340,8 @@ export function initSchema(sqlite: Database): void {
     "ALTER TABLE quiz_attempts ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE mistakes ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE quiz_questions ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
+    // P6-2：题型语料（仅 dictation；可空，旧行缺省无语料）
+    'ALTER TABLE quiz_questions ADD COLUMN extras_json TEXT',
     "ALTER TABLE practice_collections ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     "ALTER TABLE practice_items ADD COLUMN language TEXT NOT NULL DEFAULT 'ja'",
     'ALTER TABLE local_dictionary_entries ADD COLUMN source_id TEXT',
