@@ -35,6 +35,8 @@ interface MessageItem {
   timestamp: string;
   isStreaming?: boolean;
   reasoning?: string;
+  /** 本轮 AI 输出来源（网关结构化执行摘要）：直出 / 本地回退 / 未请求模型 */
+  source?: 'streamed' | 'fallback' | 'not_requested';
 }
 
 interface AiTutorDrawerProps {
@@ -141,6 +143,13 @@ export function AiTutorDrawer({
           setIsTyping(false);
           activeStreamMsgIdRef.current = null;
           if (data.threadId) setLearningThreadId(data.threadId);
+          const outcome = data.outcome ?? data.codexOutcome;
+          const source =
+            outcome === 'streamed'
+              ? ('streamed' as const)
+              : outcome === 'fallback'
+                ? ('fallback' as const)
+                : ('not_requested' as const);
           setMessages((prev) =>
             prev.map((m) =>
               m.id === aiMsgId
@@ -148,6 +157,7 @@ export function AiTutorDrawer({
                     ...m,
                     text: data.finalOutput || m.text,
                     isStreaming: false,
+                    source,
                   }
                 : m
             )
@@ -434,6 +444,32 @@ export function AiTutorDrawer({
                       {msg.text}
                       {msg.isStreaming && (
                         <span className="inline-block w-1.5 h-4 ml-1 bg-amber-500 animate-pulse align-middle" />
+                      )}
+                      {isAi && !msg.isStreaming && msg.source && (
+                        <div className="mt-2">
+                          <span
+                            className={`inline-block text-[10px] px-1.5 py-0.5 rounded-md border ${
+                              msg.source === 'streamed'
+                                ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                                : msg.source === 'fallback'
+                                  ? 'border-amber-500/40 text-amber-700 dark:text-amber-300'
+                                  : 'border-stone-300 dark:border-stone-700 text-stone-400'
+                            }`}
+                            title={
+                              msg.source === 'streamed'
+                                ? '本轮由模型实时生成'
+                                : msg.source === 'fallback'
+                                  ? '模型未响应，当前为本地规则回退内容'
+                                  : '本轮未请求模型'
+                            }
+                          >
+                            {msg.source === 'streamed'
+                              ? 'AI 直出'
+                              : msg.source === 'fallback'
+                                ? '本地回退'
+                                : '本地应答'}
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>

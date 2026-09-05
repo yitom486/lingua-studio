@@ -27,6 +27,7 @@ import {
   type KanaWordItem,
 } from '../queries/useLearnerQueries.js';
 import { romajiToKana, toHiragana } from '../lib/kana-input.js';
+import { confusionDistractors } from '../lib/kana-confusion.js';
 import type { KanaItem } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 
@@ -36,7 +37,10 @@ interface KanaStudioWorkbenchProps {
 
 type MatrixTab = 'SEION' | 'DAKUON_HANDAKUON' | 'YOON';
 type ScriptDisplayMode = 'HIRAGANA' | 'KATAKANA' | 'BOTH';
-type DrillMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA' | 'WORD_DICTATION' | 'WORD_MEANING';
+type DrillMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA' | 'WORD_DICTATION' | 'WORD_MEANING' | 'MIXED';
+type RecognitionMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA';
+const RECOGNITION_MODES: RecognitionMode[] = ['AUDIO_TO_KANA', 'KANA_TO_ROMAJI', 'HIRA_TO_KATA'];
+/** 题量档（0 = 全部）。 */
 
 /** 按读音猜书写体（回写画像用；混合书写回退 HIRAGANA）。 */
 function guessWordScript(kana: string): 'HIRAGANA' | 'KATAKANA' {
@@ -62,6 +66,15 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const [drillStreak, setDrillStreak] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
+  // 题量与本轮战报（切模式/题量/重开自动清零）
+  const [drillCount, setDrillCount] = useState<number>(0);
+  const [drillAnswered, setDrillAnswered] = useState(0);
+  const [drillCorrect, setDrillCorrect] = useState(0);
+
+  const resetRoundStats = () => {
+    setDrillAnswered(0);
+    setDrillCorrect(0);
+  };
 
   // 单词巩固（听写 / 词义）：词表来自 Gateway 本地词典，Agent 经 learning.content 同源调用
   const generateWords = useGenerateKanaWordsMutation();
@@ -135,44 +148,52 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setActiveKana(kana);
   };
 
-  // 生成自测题
+  // 生成自测题（按题量截断，0 = 全部）
   const drillItems = useMemo(() => {
     const source = allKana.length > 0 ? allKana : filteredKanaList;
     if (source.length === 0) return [];
     // 随机打乱
-    return [...source].sort(() => 0.5 - Math.random());
-  }, [allKana, filteredKanaList]);
+    const shuffled = [...source].sort(() => 0.5 - Math.random());
+    return drillCount > 0 ? shuffled.slice(0, drillCount) : shuffled;
+  }, [allKana, filteredKanaList, drillCount]);
 
   const currentDrillKana: KanaItem | undefined = drillItems[drillIndex];
 
-  // 生成选项
+  // 混合模式：每题题型提前排好，作答中途不变
+  const mixedPlan = useMemo<RecognitionMode[]>(() => {
+    if (drillMode !== 'MIXED') return [];
+    return drillItems.map(
+      () => RECOGNITION_MODES[Math.floor(Math.random() * RECOGNITION_MODES.length)]!
+    );
+  }, [drillMode, drillItems]);
+
+  // 当前题实际生效题型（混合模式按排表，其余直通）
+  const activeMode: DrillMode =
+    drillMode === 'MIXED' ? (mixedPlan[drillIndex] ?? 'AUDIO_TO_KANA') : drillMode;
+
+  // 生成选项（混淆优先：同行/同首字/浊音/同段，不足再随机补齐）
   const drillOptions = useMemo(() => {
     if (!currentDrillKana || drillItems.length === 0) return [];
 
     let correctAnswer = '';
-    if (drillMode === 'AUDIO_TO_KANA') {
+    if (activeMode === 'AUDIO_TO_KANA') {
       correctAnswer = scriptMode === 'KATAKANA' ? currentDrillKana.katakana : currentDrillKana.hiragana;
-    } else if (drillMode === 'KANA_TO_ROMAJI') {
+    } else if (activeMode === 'KANA_TO_ROMAJI') {
       correctAnswer = currentDrillKana.romaji;
     } else {
       correctAnswer = currentDrillKana.katakana;
     }
 
-    const distractors = drillItems
-      .filter((k) => k.id !== currentDrillKana.id)
-      .slice(0, 3)
-      .map((k) => {
-        if (drillMode === 'AUDIO_TO_KANA') {
-          return scriptMode === 'KATAKANA' ? k.katakana : k.hiragana;
-        } else if (drillMode === 'KANA_TO_ROMAJI') {
-          return k.romaji;
-        } else {
-          return k.katakana;
-        }
-      });
+    const pool = allKana.length > 0 ? allKana : drillItems;
+    const distractors = confusionDistractors(
+      currentDrillKana,
+      pool,
+      scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA',
+      3
+    );
 
     return [correctAnswer, ...distractors].sort(() => 0.5 - Math.random());
-  }, [currentDrillKana, drillItems, drillMode, scriptMode]);
+  }, [currentDrillKana, drillItems, allKana, activeMode, scriptMode]);
 
   // 提交自测作答
   const handleSelectDrillOption = (option: string) => {
@@ -182,18 +203,20 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setIsAnswered(true);
 
     let isCorrect = false;
-    if (drillMode === 'AUDIO_TO_KANA') {
+    if (activeMode === 'AUDIO_TO_KANA') {
       isCorrect =
         option ===
         (scriptMode === 'KATAKANA' ? currentDrillKana.katakana : currentDrillKana.hiragana);
-    } else if (drillMode === 'KANA_TO_ROMAJI') {
+    } else if (activeMode === 'KANA_TO_ROMAJI') {
       isCorrect = option === currentDrillKana.romaji;
     } else {
       isCorrect = option === currentDrillKana.katakana;
     }
 
+    setDrillAnswered((n) => n + 1);
     if (isCorrect) {
       sound.playCorrect();
+      setDrillCorrect((n) => n + 1);
       setDrillStreak((s) => s + 1);
       toast.success('回答正确！+1');
       if ((drillStreak + 1) % 5 === 0) {
@@ -224,6 +247,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
       fireSuccessConfetti();
       toast.success('恭喜完成本轮假名自测！');
       setDrillIndex(0);
+      resetRoundStats();
     }
   };
 
@@ -259,8 +283,10 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     const isCorrect =
       converted !== '' && toHiragana(converted) === toHiragana(currentWord.kana);
     setIsAnswered(true);
+    setDrillAnswered((n) => n + 1);
     if (isCorrect) {
       sound.playCorrect();
+      setDrillCorrect((n) => n + 1);
       setDrillStreak((s) => s + 1);
       toast.success('拼写正确！+1');
       if ((drillStreak + 1) % 5 === 0) {
@@ -281,8 +307,10 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setIsAnswered(true);
     const correct = currentWord.meanings[0] ?? '';
     const isCorrect = option === correct;
+    setDrillAnswered((n) => n + 1);
     if (isCorrect) {
       sound.playCorrect();
+      setDrillCorrect((n) => n + 1);
       setDrillStreak((s) => s + 1);
       toast.success('回答正确！+1');
       if ((drillStreak + 1) % 5 === 0) {
@@ -318,6 +346,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
       fireSuccessConfetti();
       toast.success('本轮单词巩固完成！');
       setWordIndex(0);
+      resetRoundStats();
     }
   };
 
@@ -329,6 +358,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setIsAnswered(false);
     setWordInput('');
     setWordStudyDone(false);
+    resetRoundStats();
   };
 
   // 呼出导师深度解析
@@ -426,6 +456,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                 setWordIndex(0);
                 setWordInput('');
                 setWordStudyDone(false);
+                resetRoundStats();
               }}
               className="px-3.5 py-1.5 text-xs font-semibold gap-1.5 shadow-md"
             >
@@ -503,6 +534,15 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     <span>{drillStreak} 连对</span>
                   </div>
                 )}
+                {drillAnswered > 0 && (
+                  <div
+                    className="text-xs text-stone-500 dark:text-stone-400"
+                    title="本轮战报会随画像回写，导师可见你的假名薄弱项"
+                  >
+                    本轮 {drillCorrect}/{drillAnswered} ·{' '}
+                    {Math.round((drillCorrect / drillAnswered) * 100)}%
+                  </div>
+                )}
                 {/* 自测题型切换 */}
                 <select
                   value={drillMode}
@@ -514,15 +554,37 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     setWordIndex(0);
                     setWordInput('');
                     setWordStudyDone(false);
+                    resetRoundStats();
                   }}
                   className="text-xs rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-2 py-1"
                 >
                   <option value="AUDIO_TO_KANA">听音辨字</option>
                   <option value="KANA_TO_ROMAJI">看字辨音</option>
                   <option value="HIRA_TO_KATA">平片互转</option>
+                  <option value="MIXED">综合混合</option>
                   <option value="WORD_DICTATION">单词听写</option>
                   <option value="WORD_MEANING">词义回想</option>
                 </select>
+                {!isWordMode && (
+                  <select
+                    value={drillCount}
+                    onChange={(e) => {
+                      sound.playClick();
+                      setDrillCount(Number(e.target.value));
+                      setDrillIndex(0);
+                      setSelectedOption(null);
+                      setIsAnswered(false);
+                      resetRoundStats();
+                    }}
+                    title="每轮题量"
+                    className="text-xs rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-2 py-1"
+                  >
+                    <option value={10}>10 题</option>
+                    <option value={20}>20 题</option>
+                    <option value={50}>50 题</option>
+                    <option value={0}>全部</option>
+                  </select>
+                )}
               </div>
             </div>
 
@@ -695,7 +757,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
               </div>
             ) : currentDrillKana ? (
               <div className="text-center py-6 space-y-4">
-                {drillMode === 'AUDIO_TO_KANA' ? (
+                {activeMode === 'AUDIO_TO_KANA' ? (
                   <div className="space-y-3">
                     <p className="text-xs text-stone-500">听发音，点击选择正确的假名：</p>
                     <button
@@ -705,7 +767,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                       <Volume2 className="w-8 h-8" />
                     </button>
                   </div>
-                ) : drillMode === 'KANA_TO_ROMAJI' ? (
+                ) : activeMode === 'KANA_TO_ROMAJI' ? (
                   <div className="space-y-2">
                     <p className="text-xs text-stone-500">看假名，选择正确的罗马字发音：</p>
                     <div className="text-6xl font-serif font-bold text-stone-900 dark:text-stone-100">
@@ -727,13 +789,13 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                 <div className="grid grid-cols-2 gap-3 pt-4 max-w-md mx-auto">
                   {drillOptions.map((opt, idx) => {
                     let isCorrectOpt = false;
-                    if (drillMode === 'AUDIO_TO_KANA') {
+                    if (activeMode === 'AUDIO_TO_KANA') {
                       isCorrectOpt =
                         opt ===
                         (scriptMode === 'KATAKANA'
                           ? currentDrillKana.katakana
                           : currentDrillKana.hiragana);
-                    } else if (drillMode === 'KANA_TO_ROMAJI') {
+                    } else if (activeMode === 'KANA_TO_ROMAJI') {
                       isCorrectOpt = opt === currentDrillKana.romaji;
                     } else {
                       isCorrectOpt = opt === currentDrillKana.katakana;
