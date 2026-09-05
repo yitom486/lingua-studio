@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { GatewayServer } from '../runtime/gateway-runtime.js';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { WsEventTypes, type WsEnvelope } from '@study-studio/protocol';
 import { isOk } from '@study-studio/shared';
 import { LearningContentTool } from '../transport/tools/learning-content-tool.js';

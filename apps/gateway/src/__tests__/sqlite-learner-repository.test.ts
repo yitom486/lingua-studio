@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { SqliteLearnerRepository } from '../repository/sqlite-learner-repository.js';
+import { SqliteLearnerRepository } from '../infrastructure/sqlite-learner-repository.js';
 import { isOk, generateId, nowIso } from '@study-studio/shared';
 import type { Flashcard } from '@study-studio/protocol';
 import type { MistakeEntry } from '@study-studio/learner-core';

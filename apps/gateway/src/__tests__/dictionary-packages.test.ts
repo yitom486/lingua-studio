@@ -9,7 +9,7 @@ import {
   parseKengdicTsv,
   parseJmdictXml,
 } from '../modules/dictionary/application/dictionary-packages.js';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { isOk, generateId } from '@study-studio/shared';
 import type { Flashcard } from '@study-studio/protocol';
 

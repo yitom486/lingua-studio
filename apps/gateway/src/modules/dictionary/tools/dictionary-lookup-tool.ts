@@ -10,7 +10,7 @@ import {
   DrizzleLearnerRepository,
   type LocalDictionaryEntry,
   type TrackLanguage,
-} from '../../../repository/drizzle-learner-repository.js';
+} from '../../../infrastructure/drizzle-learner-repository.js';
 import { buildOjadSearchUrl } from '../application/dictionary-external-links.js';
 
 export const DictionaryLookupInputSchema = z.object({

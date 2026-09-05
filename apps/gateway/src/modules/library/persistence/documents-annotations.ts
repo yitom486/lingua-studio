@@ -9,8 +9,8 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { DocumentItem, AnnotationItem, Flashcard } from '@study-studio/protocol';
-import { documents, annotations } from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
+import { documents, annotations } from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 
 /**
  * 文档/批注域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { GatewayServer } from '../runtime/gateway-runtime.js';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { WsEventTypes, type WsEnvelope, type TurnExecutionSummary } from '@study-studio/protocol';
 import { isOk, BusinessError } from '@study-studio/shared';
 import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../runtime/turn-summary-builder.js';

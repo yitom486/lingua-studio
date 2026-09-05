@@ -17,9 +17,9 @@ import {
   learnerProfiles,
   learnerLanguageProfiles,
   skillMetrics,
-} from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import { normalizeTrackLanguage, inferLanguageFromSkillId } from './language.js';
+} from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { normalizeTrackLanguage, inferLanguageFromSkillId } from '../../../infrastructure/persistence/language.js';
 import {
   ensureLanguageProfile,
   mirrorLanguageProfileToMain,

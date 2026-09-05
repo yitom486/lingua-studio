@@ -8,9 +8,9 @@ export * from './session/session-manager.js';
 export * from './context/context-builder.js';
 export * from './router/tool-router.js';
 export * from './router/agent-router.js';
-export * from './db/index.js';
-export * from './repository/drizzle-learner-repository.js';
-export * from './repository/sqlite-learner-repository.js';
+export * from './infrastructure/db/index.js';
+export * from './infrastructure/drizzle-learner-repository.js';
+export * from './infrastructure/sqlite-learner-repository.js';
 export * from './errors/http-error-handler.js';
 
 // 生产单例：进程内只装配一次。测试如需隔离请用 createGateway() 显式注入，

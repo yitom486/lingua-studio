@@ -29,15 +29,15 @@ import {
   dailyStudyPlans,
   practicePlanRuns,
   practiceItemAttempts,
-} from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import type { TrackLanguage } from './language.js';
-import { normalizeTrackLanguage } from './language.js';
+} from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
+import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
 import {
   ensureLanguageProfile,
   mirrorLanguageProfileToMain,
 } from './profile-internals.js';
-import { getTodayString, getYesterdayString, safeJsonParse } from './repo-utils.js';
+import { getTodayString, getYesterdayString, safeJsonParse } from '../../../infrastructure/persistence/repo-utils.js';
 
 /**
  * 足迹/计划域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。

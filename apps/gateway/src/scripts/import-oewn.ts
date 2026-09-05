@@ -1,4 +1,4 @@
-import { createDrizzleDb } from '../db/index.js';
+import { createDrizzleDb } from '../infrastructure/db/index.js';
 import {
   installOewnPackage,
   OEWN_2025_URL,

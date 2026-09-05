@@ -4,9 +4,9 @@ import {
   extractPitchQueryTokens,
   lookupPitchEntries,
   tryPitchLexiconCoachReply,
-} from '../db/seeds/pitch-seed.js';
+} from '../infrastructure/db/seeds/pitch-seed.js';
 import { buildOjadSearchUrl } from '../modules/dictionary/application/dictionary-external-links.js';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import { DictionaryLookupTool } from '../modules/dictionary/tools/dictionary-lookup-tool.js';
 import { app } from '../index.js';
 import { isOk } from '@study-studio/shared';

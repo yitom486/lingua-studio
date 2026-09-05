@@ -23,7 +23,7 @@ import {
   recordSkillAttempt,
   scheduleNextReview,
 } from '@study-studio/learner-core';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 import type { LearningContentOutput } from '../transport/tools/learning-content-tool.js';
 import { registerGatewayTools } from '../transport/tools/register-tools.js';
 import {

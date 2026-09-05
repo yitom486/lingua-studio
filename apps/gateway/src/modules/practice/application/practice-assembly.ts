@@ -1,6 +1,6 @@
 import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
 import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun } from '@study-studio/protocol';
-import type { DrizzleLearnerRepository } from '../../../repository/drizzle-learner-repository.js';
+import type { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import type { LearningContentInput, LearningContentOutput } from '../../../transport/tools/learning-content-tool.js';
 
 /**

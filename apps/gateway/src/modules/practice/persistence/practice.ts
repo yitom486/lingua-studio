@@ -15,9 +15,9 @@ import type {
   GeneratedQuestion,
   Flashcard,
 } from '@study-studio/protocol';
-import { practiceCollections, practiceItems } from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import { resolveActiveLanguage } from './profile-internals.js';
+import { practiceCollections, practiceItems } from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { resolveActiveLanguage } from '../../learning-progress/persistence/profile-internals.js';
 
 /**
  * 练习队列域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。

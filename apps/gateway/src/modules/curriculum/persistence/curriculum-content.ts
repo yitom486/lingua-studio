@@ -7,20 +7,19 @@ import {
   translateToBusinessError,
   nowIso,
 } from '@study-studio/shared';
-import type {
-  KanaItem,
-  ReadingPassageSet,
-  SubmitReadingPractice,
-} from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
 import {
   curriculumKana,
-  skillMetrics,
   learningContentTemplates,
   documents,
-} from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import { normalizeTrackLanguage } from './language.js';
+} from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
 
+/**
+ * 课程域持久化：假名底座、内容模板、阅读篇目读写（G4：由 repository/domains/curriculum-reading.ts
+ * 拆分而来；成绩回写类调用归 learning-progress，行为不变）。
+ */
 /**
  * 课程/阅读域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
  * 跨域调用一律走 `deps.repo`（接口方法）；同域互调直接调模块函数。
@@ -157,77 +156,6 @@ export async function listContentTemplates(
     );
   }
 }
-
-/**
- * 记录假名练习结果并回写学习者熟练度与每日打卡活动
- */
-export async function recordKanaPractice(
-  deps: RepoDeps,
-  userId: string,
-  kanaId: string,
-  isCorrect: boolean,
-  scriptType: 'HIRAGANA' | 'KATAKANA' | 'ROMAJI' = 'HIRAGANA'
-): Promise<Result<{ proficiency: number }, BusinessError>> {
-  try {
-    const skillId = scriptType === 'KATAKANA' ? 'jp.kana.katakana' : 'jp.kana.hiragana';
-    const skillName = scriptType === 'KATAKANA' ? '片假名认读与听写' : '平假名认读与听写';
-
-    const existingRows = await deps.db
-      .select()
-      .from(skillMetrics)
-      .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.skillId, skillId)))
-      .limit(1);
-
-    let totalAttempts = 1;
-    let correctAttempts = isCorrect ? 1 : 0;
-    let consecutiveErrors = isCorrect ? 0 : 1;
-
-    if (existingRows.length > 0) {
-      const row = existingRows[0]!;
-      totalAttempts = row.totalAttempts + 1;
-      correctAttempts = row.correctAttempts + (isCorrect ? 1 : 0);
-      consecutiveErrors = isCorrect ? 0 : row.consecutiveErrors + 1;
-    }
-
-    const proficiency = Math.min(
-      1.0,
-      Math.max(0.05, Number((correctAttempts / totalAttempts).toFixed(2)))
-    );
-
-    const status =
-      consecutiveErrors >= 2
-        ? 'WEAKNESS'
-        : proficiency >= 0.85 && totalAttempts >= 5
-        ? 'STRENGTH'
-        : 'NORMAL';
-
-    await deps.repo.saveSkillMetric(userId, {
-      id: skillId,
-      dimension: 'VOCABULARY',
-      name: skillName,
-      proficiency,
-      totalAttempts,
-      correctAttempts,
-      consecutiveErrors,
-      status,
-      lastPracticedAt: nowIso(),
-    });
-
-    // 累计当日学习足迹
-    await deps.repo.recordDailyActivity(userId, { quizzes: 1 });
-
-    return ok({ proficiency });
-  } catch (error) {
-    return err(
-      translateToBusinessError(error, {
-        category: 'DATABASE',
-        action: 'recordKanaPractice',
-        entityId: kanaId,
-      })
-    );
-  }
-}
-
 /**
  * 检索阅读理解篇目套题列表 (AI 分级篇目 / 真实新闻)
  */
@@ -383,88 +311,6 @@ export async function saveReadingSet(
         category: 'DATABASE',
         action: 'saveReadingSet',
         entityId: set.id,
-      })
-    );
-  }
-}
-
-/**
- * 记录阅读理解做题成绩，同步更新学情雷达与当日打卡活动
- */
-export async function recordReadingPractice(
-  deps: RepoDeps,
-  userId: string,
-  input: SubmitReadingPractice
-): Promise<Result<{ proficiency: number }, BusinessError>> {
-  try {
-    const skillId =
-      input.language === 'JA'
-        ? 'jp.reading.comprehension'
-        : input.language === 'KO'
-          ? 'ko.reading.comprehension'
-          : 'en.reading.comprehension';
-    const skillName =
-      input.language === 'JA'
-        ? '日语长文阅读与理解'
-        : input.language === 'KO'
-          ? '韩语阅读理解（扩展预留）'
-          : '英语篇章精读与理解';
-
-    const existingRows = await deps.db
-      .select()
-      .from(skillMetrics)
-      .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.skillId, skillId)))
-      .limit(1);
-
-    let totalAttempts = input.totalQuestions;
-    let correctAttempts = input.score;
-    const isGoodScore = input.score >= Math.ceil(input.totalQuestions * 0.6);
-    let consecutiveErrors = isGoodScore ? 0 : 1;
-
-    if (existingRows.length > 0) {
-      const row = existingRows[0]!;
-      totalAttempts = row.totalAttempts + input.totalQuestions;
-      correctAttempts = row.correctAttempts + input.score;
-      consecutiveErrors = isGoodScore ? 0 : row.consecutiveErrors + 1;
-    }
-
-    const proficiency = Math.min(
-      1.0,
-      Math.max(0.05, Number((correctAttempts / totalAttempts).toFixed(2)))
-    );
-
-    const status =
-      consecutiveErrors >= 2
-        ? 'WEAKNESS'
-        : proficiency >= 0.85 && totalAttempts >= 6
-        ? 'STRENGTH'
-        : 'NORMAL';
-
-    await deps.repo.saveSkillMetric(userId, {
-      id: skillId,
-      dimension: 'READING',
-      name: skillName,
-      proficiency,
-      totalAttempts,
-      correctAttempts,
-      consecutiveErrors,
-      status,
-      lastPracticedAt: nowIso(),
-    });
-
-    // 阅读篇目单独计数；题量仍计入 quizzes 以兼容原有每日目标
-    await deps.repo.recordDailyActivity(userId, {
-      quizzes: input.totalQuestions,
-      reading: 1,
-    });
-
-    return ok({ proficiency });
-  } catch (error) {
-    return err(
-      translateToBusinessError(error, {
-        category: 'DATABASE',
-        action: 'recordReadingPractice',
-        entityId: input.setId,
       })
     );
   }

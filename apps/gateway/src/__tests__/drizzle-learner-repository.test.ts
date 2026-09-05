@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { isOk, isErr } from '@study-studio/shared';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
 
 describe('DrizzleLearnerRepository', () => {
   let repo: DrizzleLearnerRepository;

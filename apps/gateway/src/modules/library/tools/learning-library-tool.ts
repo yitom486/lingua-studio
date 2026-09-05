@@ -8,7 +8,7 @@ import {
 import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared';
 import type { DocumentItem, AnnotationItem, NewsTopic } from '@study-studio/protocol';
 import { listNewsTopics } from '@study-studio/protocol';
-import { DrizzleLearnerRepository } from '../../../repository/drizzle-learner-repository.js';
+import { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 
 export const LearningLibraryInputSchema = z.object({
   action: z.enum([

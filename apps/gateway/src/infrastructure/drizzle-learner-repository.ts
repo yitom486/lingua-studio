@@ -22,7 +22,7 @@ import type {
   PracticeItem,
   GeneratedQuestion,
 } from '@study-studio/protocol';
-import { createDrizzleDb, type DrizzleDb, learnerLanguageProfiles } from '../db/index.js';
+import { createDrizzleDb, type DrizzleDb, learnerLanguageProfiles } from './db/index.js';
 import type {
   PracticePlanTemplate,
   PracticePlanRun,
@@ -33,48 +33,50 @@ import type {
 
 // P0-1 拆分：语种 / 词典 / 通用工具已下沉 domains；本地 import 供剩余方法使用，
 // 底部 export 保持对外契约不变（index.ts 经 export * 转出）。
-import type { TrackLanguage } from './domains/language.js';
-import { normalizeTrackLanguage, inferLanguageFromSkillId } from './domains/language.js';
+import type { TrackLanguage } from './persistence/language.js';
+import { normalizeTrackLanguage, inferLanguageFromSkillId } from './persistence/language.js';
 import type {
   LocalDictionaryEntry,
   DictionaryEntryCollection,
-} from './domains/dictionary.js';
+} from '../modules/dictionary/persistence/dictionary.js';
 import {
   searchLocalDictionary as searchLocalDictionaryDomain,
   collectDictionaryEntry as collectDictionaryEntryDomain,
-} from './domains/dictionary.js';
+} from '../modules/dictionary/persistence/dictionary.js';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
   ensureLanguageProfile as ensureLanguageProfileDomain,
   mirrorLanguageProfileToMain as mirrorLanguageProfileToMainDomain,
-} from './domains/profile-internals.js';
+} from '../modules/learning-progress/persistence/profile-internals.js';
 import {
   getLearnerProfile as getLearnerProfileDomain,
   updateLearnerProfile as updateLearnerProfileDomain,
   getProfileSnapshot as getProfileSnapshotDomain,
   saveSkillMetric as saveSkillMetricDomain,
-} from './domains/profile.js';
+} from '../modules/learning-progress/persistence/profile.js';
 import {
   getDailyTaskProgress as getDailyTaskProgressDomain,
   getActivityHistory as getActivityHistoryDomain,
   recordDailyActivity as recordDailyActivityDomain,
   getOrCreateDailyStudyPlan as getOrCreateDailyStudyPlanDomain,
   completeDailyPlanStep as completeDailyPlanStepDomain,
-} from './domains/activity-plan.js';
+} from '../modules/learning-progress/persistence/activity-plan.js';
 import {
   getDueCards as getDueCardsDomain,
   saveCard as saveCardDomain,
+} from '../modules/review/persistence/cards.js';
+import {
   getQuestions as getQuestionsDomain,
   saveQuestion as saveQuestionDomain,
   saveQuestions as saveQuestionsDomain,
   recordQuizAttempt as recordQuizAttemptDomain,
-} from './domains/cards-questions.js';
+} from '../modules/practice/persistence/questions.js';
 import {
   saveMistake as saveMistakeDomain,
   getMistakes as getMistakesDomain,
   resolveMistake as resolveMistakeDomain,
   retryMistake as retryMistakeDomain,
-} from './domains/mistakes.js';
+} from '../modules/learning-progress/persistence/mistakes.js';
 import {
   saveDocument as saveDocumentDomain,
   listDocuments as listDocumentsDomain,
@@ -84,21 +86,23 @@ import {
   listAnnotations as listAnnotationsDomain,
   deleteAnnotation as deleteAnnotationDomain,
   convertAnnotationToCard as convertAnnotationToCardDomain,
-} from './domains/documents-annotations.js';
+} from '../modules/library/persistence/documents-annotations.js';
 import {
   getCurriculumKana as getCurriculumKanaDomain,
   listContentTemplates as listContentTemplatesDomain,
-  recordKanaPractice as recordKanaPracticeDomain,
   listReadingSets as listReadingSetsDomain,
   saveReadingSet as saveReadingSetDomain,
+} from '../modules/curriculum/persistence/curriculum-content.js';
+import {
+  recordKanaPractice as recordKanaPracticeDomain,
   recordReadingPractice as recordReadingPracticeDomain,
-} from './domains/curriculum-reading.js';
+} from '../modules/learning-progress/persistence/learning-records.js';
 import {
   collectPracticeQuestions as collectPracticeQuestionsDomain,
   listPracticeCollections as listPracticeCollectionsDomain,
   listPracticeItems as listPracticeItemsDomain,
   convertPracticeItemsToCards as convertPracticeItemsToCardsDomain,
-} from './domains/practice.js';
+} from '../modules/practice/persistence/practice.js';
 import {
   savePracticePlanTemplate as savePracticePlanTemplateDomain,
   listPracticePlanTemplates as listPracticePlanTemplatesDomain,
@@ -114,14 +118,14 @@ import {
   listPracticeItemAttempts as listPracticeItemAttemptsDomain,
   getPracticeRunItems as getPracticeRunItemsDomain,
   finalizePracticePlanRun as finalizePracticePlanRunDomain,
-} from './domains/practice-plan.js';
+} from '../modules/practice/persistence/practice-plan.js';
 import {
   getTodayString,
   getYesterdayString,
   safeJsonParse,
   defaultLanguageProfileSeed,
-} from './domains/repo-utils.js';
-import type { RepoDeps } from './domains/repo-context.js';
+} from './persistence/repo-utils.js';
+import type { RepoDeps } from './persistence/repo-context.js';
 
 export type {
   TrackLanguage,

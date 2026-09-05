@@ -29,9 +29,9 @@ import {
   practiceCollections,
   practiceItems,
   quizAttempts,
-} from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import { safeJsonParse } from './repo-utils.js';
+} from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { safeJsonParse } from '../../../infrastructure/persistence/repo-utils.js';
 
 /**
  * 练习计划域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。

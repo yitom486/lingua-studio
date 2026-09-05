@@ -9,10 +9,10 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { Flashcard } from '@study-studio/protocol';
-import { localDictionaryEntries, flashcards } from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import type { TrackLanguage } from './language.js';
-import { normalizeTrackLanguage } from './language.js';
+import { localDictionaryEntries, flashcards } from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
+import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
 
 /**
  * 词典域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。

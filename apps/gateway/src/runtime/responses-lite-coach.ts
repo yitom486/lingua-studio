@@ -7,8 +7,8 @@ import {
   formatPitchLexiconCoachReply,
   lookupPitchEntries,
   extractPitchQueryTokens,
-} from '../db/seeds/pitch-seed.js';
-import { KANA_SEEDS } from '../db/seeds/kana-seed.js';
+} from '../infrastructure/db/seeds/pitch-seed.js';
+import { KANA_SEEDS } from '../infrastructure/db/seeds/kana-seed.js';
 
 export type LiteTrack = 'ja' | 'en' | 'ko';
 

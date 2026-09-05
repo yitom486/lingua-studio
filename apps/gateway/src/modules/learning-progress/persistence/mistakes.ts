@@ -8,9 +8,9 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { MistakeEntry } from '@study-studio/learner-core';
-import { mistakes } from '../../db/index.js';
-import type { RepoDeps } from './repo-context.js';
-import { normalizeTrackLanguage, inferLanguageFromSkillId } from './language.js';
+import { mistakes } from '../../../infrastructure/db/index.js';
+import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { normalizeTrackLanguage, inferLanguageFromSkillId } from '../../../infrastructure/persistence/language.js';
 import { resolveActiveLanguage } from './profile-internals.js';
 
 /**
