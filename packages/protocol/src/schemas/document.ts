@@ -5,6 +5,8 @@ export const DocumentSourceKindSchema = z.enum([
   'system',
   'ai_generated',
   'news',
+  // 内置课程种子（教材课文）写入的来源标记；读侧按合法枚举透传。
+  'curriculum_textbook',
 ]);
 export type DocumentSourceKind = z.infer<typeof DocumentSourceKindSchema>;
 

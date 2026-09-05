@@ -9,6 +9,12 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { DocumentItem, AnnotationItem, Flashcard } from '@study-studio/protocol';
+import {
+  AnnotationKindSchema,
+  type AnnotationKind,
+  DocumentSourceKindSchema,
+  type DocumentSourceKind,
+} from '@study-studio/protocol';
 import { documents, annotations } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 
@@ -16,6 +22,21 @@ import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.
  * 文档/批注域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
  * 跨域调用一律走 `deps.repo`（接口方法）；同域互调直接调模块函数。
  */
+
+/** DB TEXT 列 → 联合类型；损坏值回退中性默认（读侧永不抛，种子/正常写入不受影响）。 */
+function coerceDocumentSourceKind(value: unknown): DocumentSourceKind {
+  const parsed = DocumentSourceKindSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'user_import';
+}
+
+function coerceAnnotationKind(value: unknown): AnnotationKind {
+  const parsed = AnnotationKindSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'KEY_POINT';
+}
+
+function coerceCreatedBy(value: unknown): 'USER' | 'AGENT' {
+  return value === 'AGENT' ? 'AGENT' : 'USER';
+}
 
 export async function saveDocument(
   deps: RepoDeps,
@@ -96,7 +117,7 @@ export async function listDocuments(
       id: r.id,
       userId: r.userId,
       title: r.title,
-      sourceKind: r.sourceKind as any,
+      sourceKind: coerceDocumentSourceKind(r.sourceKind),
       language: r.language,
       content: r.content,
       astJson: r.astJson ?? undefined,
@@ -141,7 +162,7 @@ export async function getDocumentById(
       id: r.id,
       userId: r.userId,
       title: r.title,
-      sourceKind: r.sourceKind as any,
+      sourceKind: coerceDocumentSourceKind(r.sourceKind),
       language: r.language,
       content: r.content,
       astJson: r.astJson ?? undefined,
@@ -236,13 +257,13 @@ export async function listAnnotations(
       id: r.id,
       documentId: r.documentId,
       userId: r.userId,
-      kind: r.kind as any,
+      kind: coerceAnnotationKind(r.kind),
       quote: r.quote,
       note: r.note ?? undefined,
       startOffset: r.startOffset,
       endOffset: r.endOffset,
       pageNumber: r.pageNumber ?? undefined,
-      createdBy: r.createdBy as any,
+      createdBy: coerceCreatedBy(r.createdBy),
       flashcardId: r.flashcardId ?? undefined,
       createdAt: r.createdAt,
     }));

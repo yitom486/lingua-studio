@@ -1,10 +1,26 @@
 ﻿import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { isOk, BusinessError, generateId } from '@study-studio/shared';
+import {
+  AnnotationKindSchema,
+  DocumentSourceKindSchema,
+} from '@study-studio/protocol';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
 /** 文库域路由：文档与批注（G2 迁移，行为不变）。 */
+
+/** Hono validator 只保证 Record 形状；字符串字段在此处一次性收窄（非字符串一律 undefined）。 */
+function strField(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** 文档来源标记：非法值回退 user_import（种子/正常写入均为合法枚举，不受影响）。 */
+function coerceDocumentSourceKind(value: unknown): 'user_import' | 'system' | 'ai_generated' | 'news' | 'curriculum_textbook' {
+  const parsed = DocumentSourceKindSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'user_import';
+}
 export function createLibraryRoutes(deps: GatewayDeps) {
   return new Hono()
   // 6. 文档与教材 (Documents)
@@ -35,32 +51,32 @@ export function createLibraryRoutes(deps: GatewayDeps) {
     async (c) => {
       try {
         const userId = c.req.param('userId');
-        const body = c.req.valid('json') as any;
+        const body = c.req.valid('json');
         const now = new Date().toISOString();
         const docItem = {
-          id: body.id || generateId('doc'),
+          id: strField(body, 'id') || generateId('doc'),
           userId,
-          title: String(body.title || '未命名教材/文档'),
-          sourceKind: body.sourceKind || 'user_import',
-          language: body.language || 'ja',
-          content: body.content || '',
+          title: strField(body, 'title') || '未命名教材/文档',
+          sourceKind: coerceDocumentSourceKind(body.sourceKind),
+          language: strField(body, 'language') || 'ja',
+          content: strField(body, 'content') || '',
           astJson: body.astJson
             ? typeof body.astJson === 'string'
               ? body.astJson
               : JSON.stringify(body.astJson)
             : undefined,
-          topic: body.topic,
+          topic: strField(body, 'topic'),
           difficulty: body.difficulty ? Number(body.difficulty) : undefined,
-          sourceUrl: body.sourceUrl,
-          sourcePublisher: body.sourcePublisher,
-          examTag: body.examTag,
-          createdAt: body.createdAt || now,
+          sourceUrl: strField(body, 'sourceUrl'),
+          sourcePublisher: strField(body, 'sourcePublisher'),
+          examTag: strField(body, 'examTag'),
+          createdAt: strField(body, 'createdAt') || now,
           updatedAt: now,
         };
         const res = await deps.repo.saveDocument(docItem);
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'saveDocument');
       }
     }
@@ -86,7 +102,7 @@ export function createLibraryRoutes(deps: GatewayDeps) {
     async (c) => {
       try {
         const userId = c.req.param('userId');
-        const body = c.req.valid('json') as any;
+        const body = c.req.valid('json');
         if (!body.documentId || !body.quote) {
           return formatBusinessErrorResponse(
             c,
@@ -94,23 +110,25 @@ export function createLibraryRoutes(deps: GatewayDeps) {
           );
         }
         const annItem = {
-          id: body.id || generateId('ann'),
+          id: strField(body, 'id') || generateId('ann'),
           documentId: String(body.documentId),
           userId,
-          kind: body.kind || 'KEY_POINT',
+          kind: AnnotationKindSchema.safeParse(body.kind).success
+            ? (body.kind as 'KEY_POINT' | 'VOCAB' | 'GRAMMAR' | 'EXAM_TRAP' | 'PARAPHRASE')
+            : 'KEY_POINT',
           quote: String(body.quote),
           note: body.note ? String(body.note) : undefined,
           startOffset: Number(body.startOffset || 0),
           endOffset: Number(body.endOffset || 0),
           pageNumber: body.pageNumber ? Number(body.pageNumber) : undefined,
-          createdBy: body.createdBy || 'USER',
-          flashcardId: body.flashcardId,
-          createdAt: body.createdAt || new Date().toISOString(),
+          createdBy: body.createdBy === 'AGENT' ? ('AGENT' as const) : ('USER' as const),
+          flashcardId: strField(body, 'flashcardId'),
+          createdAt: strField(body, 'createdAt') || new Date().toISOString(),
         };
-        const res = await deps.repo.saveAnnotation(annItem as any);
+        const res = await deps.repo.saveAnnotation(annItem);
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'saveAnnotation');
       }
     }
@@ -129,7 +147,7 @@ export function createLibraryRoutes(deps: GatewayDeps) {
       try {
         const userId = c.req.param('userId');
         const annotationId = c.req.param('annotationId');
-        const body = c.req.valid('json') as any;
+        const body = c.req.valid('json');
         if (!body.front || !body.back) {
           return formatBusinessErrorResponse(
             c,
@@ -145,7 +163,7 @@ export function createLibraryRoutes(deps: GatewayDeps) {
         });
         if (isOk(res)) return c.json(res.value);
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'convertAnnotationToCard');
       }
     }

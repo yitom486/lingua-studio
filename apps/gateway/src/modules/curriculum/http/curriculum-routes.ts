@@ -1,7 +1,12 @@
 ﻿import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { isOk, BusinessError, generateId } from '@study-studio/shared';
-import { listNewsTopics, type ReadingPassageSet } from '@study-studio/protocol';
+import {
+  listNewsTopics,
+  type ReadingPassageOrigin,
+  type ReadingPassageSet,
+  type ReadingQuestion,
+} from '@study-studio/protocol';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import { generateNewsPassage } from '../application/generate-news-passage.js';
 import {
@@ -28,14 +33,14 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
     async (c) => {
       try {
         const userId = c.req.param('userId');
-        const body = c.req.valid('json') as any;
+        const body = c.req.valid('json');
         const kanaId = String(body.kanaId || '');
         const isCorrect = Boolean(body.isCorrect);
         const scriptType = (body.scriptType || 'HIRAGANA') as 'HIRAGANA' | 'KATAKANA' | 'ROMAJI';
         const res = await deps.repo.recordKanaPractice(userId, kanaId, isCorrect, scriptType);
         if (isOk(res)) return c.json({ success: true, ...res.value });
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'recordKanaPractice');
       }
     }
@@ -46,8 +51,8 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
     validator('query', (value) => value as { origin?: string; lang?: string }),
     async (c) => {
       const userId = c.req.param('userId');
-      const origin = c.req.query('origin') as any;
-      const lang = c.req.query('lang') as any;
+      const origin = c.req.query('origin') as ReadingPassageOrigin | undefined;
+      const lang = c.req.query('lang') as ReadingPassageSet['language'] | undefined;
       const res = await deps.repo.listReadingSets(userId, origin, lang);
       if (isOk(res)) return c.json(res.value);
       return formatBusinessErrorResponse(c, res.error);
@@ -79,12 +84,12 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
     async (c) => {
       try {
         const userId = c.req.param('userId');
-        const body = c.req.valid('json') as any;
+        const body = c.req.valid('json');
         const origin = (body.origin || 'ai') as 'ai' | 'news';
         const difficulty = (Number(body.difficulty) || 2) as 1 | 2 | 3 | 4 | 5;
         // 产品初期：默认英语；显式 JA/KO 才切换
         const language = normalizeContentLanguage(
-          body.language,
+          typeof body.language === 'string' ? body.language : undefined,
           DEFAULT_CONTENT_LANGUAGE
         );
         const topic = String(
@@ -102,7 +107,7 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
         let title = '';
         let bodyText = '';
         let sourceLabel = '';
-        let questions: any[] = [];
+        let questions: ReadingQuestion[] = [];
 
         let sourceUrl: string | undefined;
         // P3-B 版权与可观测性：结构化来源元数据
@@ -267,7 +272,7 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
           return c.json(res.value);
         }
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'generateReadingSet');
       }
     }
@@ -278,7 +283,7 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
     async (c) => {
       try {
         const userId = c.req.param('userId');
-        const body = c.req.valid('json') as any;
+        const body = c.req.valid('json');
         const setId = String(body.setId || '');
         const score = Number(body.score) || 0;
         const totalQuestions = Number(body.totalQuestions) || 1;
@@ -293,7 +298,7 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
         });
         if (isOk(res)) return c.json({ success: true, ...res.value });
         return formatBusinessErrorResponse(c, res.error);
-      } catch (e: any) {
+      } catch (e) {
         return formatBusinessErrorResponse(c, e, 'recordReadingPractice');
       }
     }

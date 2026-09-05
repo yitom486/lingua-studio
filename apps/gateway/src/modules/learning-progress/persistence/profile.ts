@@ -9,7 +9,9 @@ import {
   isOk,
 } from '@study-studio/shared';
 import type {
+  SkillDimension,
   SkillMetric,
+  SkillStatus,
   LearnerProfileSnapshot,
   LearnerProfile,
 } from '@study-studio/learner-core';
@@ -33,6 +35,28 @@ import {
 /**
  * 获取或初始化学习者基础档案（主表 + 当前语种档案合并）
  */
+
+const SKILL_DIMENSIONS: readonly SkillDimension[] = [
+  'VOCABULARY',
+  'GRAMMAR',
+  'LISTENING',
+  'NUANCE_PRAGMATIC',
+  'READING',
+];
+const SKILL_STATUSES: readonly SkillStatus[] = ['STRENGTH', 'NORMAL', 'WEAKNESS'];
+
+/** DB TEXT 列 → 联合类型；损坏值回退中性默认（读侧永不抛，种子/正常写入不受影响）。 */
+function coerceSkillDimension(value: unknown): SkillDimension {
+  return (SKILL_DIMENSIONS as readonly unknown[]).includes(value)
+    ? (value as SkillDimension)
+    : 'VOCABULARY';
+}
+
+function coerceSkillStatus(value: unknown): SkillStatus {
+  return (SKILL_STATUSES as readonly unknown[]).includes(value)
+    ? (value as SkillStatus)
+    : 'NORMAL';
+}
 export async function getLearnerProfile(
   deps: RepoDeps,
   userId: string
@@ -257,13 +281,13 @@ export async function getProfileSnapshot(
 
     const allMetrics: SkillMetric[] = rows.map((r) => ({
       id: r.skillId,
-      dimension: r.dimension as any,
+      dimension: coerceSkillDimension(r.dimension),
       name: r.name,
       proficiency: r.proficiency,
       totalAttempts: r.totalAttempts,
       correctAttempts: r.correctAttempts,
       consecutiveErrors: r.consecutiveErrors,
-      status: r.status as any,
+      status: coerceSkillStatus(r.status),
       lastPracticedAt: r.lastPracticedAt ?? undefined,
     }));
 

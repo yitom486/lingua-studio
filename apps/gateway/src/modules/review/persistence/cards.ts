@@ -7,7 +7,7 @@ import {
   translateToBusinessError,
   nowIso,
 } from '@study-studio/shared';
-import type { Flashcard } from '@study-studio/protocol';
+import { CardTypeSchema, type CardType, type Flashcard } from '@study-studio/protocol';
 import {
   flashcards,
   INITIAL_CARD_SEEDS,
@@ -24,6 +24,18 @@ import { resolveActiveLanguage } from '../../learning-progress/persistence/profi
  * 卡片/题库域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
  * 跨域调用一律走 `deps.repo`（接口方法）；同域互调直接调模块函数。
  */
+
+/** DB TEXT 列 → CardType；损坏值回退 VOCABULARY（读侧永不抛，种子/正常写入不受影响）。 */
+function coerceCardType(value: unknown): CardType {
+  const parsed = CardTypeSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'VOCABULARY';
+}
+
+/** Flashcard 领域类型无 language 列；兼容历史写入中可能携带的 language 透传字段。 */
+function storedCardLanguage(card: Flashcard): string | undefined {
+  const language = (card as { language?: unknown }).language;
+  return typeof language === 'string' ? language : undefined;
+}
 
 export async function getDueCards(
   deps: RepoDeps,
@@ -81,7 +93,7 @@ export async function getDueCards(
     const cards: Flashcard[] = rows.map((r) => ({
       id: r.id,
       userId: r.userId,
-      type: r.type as any,
+      type: coerceCardType(r.type),
       front: r.front,
       back: r.back,
       phonetic: r.phonetic ?? undefined,
@@ -130,7 +142,7 @@ export async function saveCard(
         .update(flashcards)
         .set({
           language: normalizeTrackLanguage(
-            (card as any).language ?? (await resolveActiveLanguage(deps, card.userId))
+            storedCardLanguage(card) ?? (await resolveActiveLanguage(deps, card.userId))
           ),
           type: card.type,
           front: card.front,
@@ -143,7 +155,7 @@ export async function saveCard(
         .where(eq(flashcards.id, card.id));
     } else {
       const language = normalizeTrackLanguage(
-        (card as any).language ?? (await resolveActiveLanguage(deps, card.userId))
+        storedCardLanguage(card) ?? (await resolveActiveLanguage(deps, card.userId))
       );
       await deps.db.insert(flashcards).values({
         id: card.id,

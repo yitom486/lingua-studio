@@ -8,6 +8,7 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
+import { KanaTypeSchema, type KanaType } from '@study-studio/protocol';
 import {
   curriculumKana,
   learningContentTemplates,
@@ -28,6 +29,12 @@ import { normalizeTrackLanguage } from '../../../infrastructure/persistence/lang
 /**
  * 获取五十音课程底座数据，支持按类型过滤
  */
+
+/** DB TEXT 列 → KanaType；损坏值回退 SEION（读侧永不抛，种子/正常写入不受影响）。 */
+function coerceKanaType(value: unknown): KanaType {
+  const parsed = KanaTypeSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'SEION';
+}
 export async function getCurriculumKana(
   deps: RepoDeps,
   type?: string
@@ -49,7 +56,7 @@ export async function getCurriculumKana(
 
     const items: KanaItem[] = rows.map((r) => ({
       id: r.id,
-      type: r.type as any,
+      type: coerceKanaType(r.type),
       hiragana: r.hiragana,
       katakana: r.katakana,
       romaji: r.romaji,

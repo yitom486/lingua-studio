@@ -8,6 +8,7 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { MistakeEntry } from '@study-studio/learner-core';
+import type { GeneratedQuestion } from '@study-studio/protocol';
 import { mistakes } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import { normalizeTrackLanguage, inferLanguageFromSkillId } from '../../../infrastructure/persistence/language.js';
@@ -23,12 +24,18 @@ export async function saveMistake(
   mistake: MistakeEntry
 ): Promise<Result<void, BusinessError>> {
   try {
+    // question 为持久化 JSON；testedSkill 为历史字段，testedSkillId 为准。
+    const question = (mistake.question ?? {}) as Partial<GeneratedQuestion> & {
+      testedSkill?: unknown;
+    };
     const skillId =
-      (mistake.question as any)?.testedSkillId ||
-      (mistake.question as any)?.testedSkill ||
+      (typeof question.testedSkillId === 'string' ? question.testedSkillId : '') ||
+      (typeof question.testedSkill === 'string' ? question.testedSkill : '') ||
       '';
+    // MistakeEntry 领域类型无 language 列；兼容历史写入中可能携带的透传字段。
+    const storedLanguage = (mistake as { language?: unknown }).language;
     const language = normalizeTrackLanguage(
-      (mistake as any).language ??
+      (typeof storedLanguage === 'string' ? storedLanguage : undefined) ??
         (await resolveActiveLanguage(deps, mistake.userId)) ??
         inferLanguageFromSkillId(String(skillId))
     );
