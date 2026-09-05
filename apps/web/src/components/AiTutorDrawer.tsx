@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff, RotateCcw } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff, RotateCcw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ContextSnapshot } from '@study-studio/agent-core';
 import { sound } from '../utils/audio.js';
@@ -8,11 +9,7 @@ import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
   SheetHeader,
-  SheetTitle,
 } from './ui/sheet.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -381,21 +378,76 @@ export function AiTutorDrawer({
   const tutorCopy = getTutorTrackCopy(track);
   const quickPrompts = tutorCopy.quickPrompts;
 
+  // ---- 浮动定位（可任意拖拽）：默认右侧垂直居中，脱离文档流，不挤压主屏 ----
+  const [panelPos, setPanelPos] = useState<{ right: number; top: number } | null>(null);
+  const dragState = useRef<{ startX: number; startY: number; origRight: number; origTop: number } | null>(null);
+
+  // Esc 关闭（非模态，无焦点陷阱）
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
+  const handlePanelDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button,input,select,textarea,a')) return;
+    const vh = typeof window === 'undefined' ? 800 : window.innerHeight;
+    const current = panelPos ?? {
+      right: 16,
+      top: Math.max(8, vh * 0.11),
+    };
+    dragState.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origRight: current.right,
+      origTop: current.top,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePanelDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragState.current;
+    if (!drag) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = Math.min(vw, widthPx);
+    const right = Math.min(Math.max(drag.origRight - (e.clientX - drag.startX), -(w - 120)), vw - 120);
+    const top = Math.min(Math.max(drag.origTop + (e.clientY - drag.startY), 0), vh - 60);
+    setPanelPos({ right, top });
+  };
+
+  const handlePanelDragEnd = () => {
+    dragState.current = null;
+  };
+
   const isGatewayConnected = gateway.isConnected;
 
   if (!mounted || !context) {
     return null;
   }
 
-  return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()} modal={false}>
-      <SheetContent
-        side="right"
-        showClose
-        hideOverlay
-        className="relative p-0 flex flex-col h-full w-full max-w-none sm:max-w-none"
-        style={{ width: `min(100vw, ${widthPx}px)` }}
-      >
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+  const panelWidth = Math.min(viewportW, widthPx);
+  const fallbackPos = { right: 16, top: Math.max(8, viewportH * 0.11) };
+  const pos = panelPos ?? fallbackPos;
+  const right = Math.min(Math.max(pos.right, -(panelWidth - 120)), viewportW - 120);
+  const top = Math.min(Math.max(pos.top, 0), viewportH - 60);
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-label="AI 导师"
+      className="fixed z-50 flex flex-col rounded-2xl border border-amber-900/15 dark:border-amber-500/20 bg-[#faf9f6] dark:bg-[#1a1816] shadow-2xl"
+      style={{ right, top, width: panelWidth, height: '78vh', display: isOpen ? 'flex' : 'none' }}
+    >
         <div
           role="separator"
           aria-orientation="vertical"
@@ -408,21 +460,27 @@ export function AiTutorDrawer({
           onPointerCancel={onResizePointerUp}
         />
         <>
-            <SheetHeader className="bg-amber-500/10 dark:bg-amber-500/15 p-4 border-b border-amber-900/10 dark:border-amber-500/10 shrink-0">
+            <SheetHeader
+              className="bg-amber-500/10 dark:bg-amber-500/15 p-4 border-b border-amber-900/10 dark:border-amber-500/10 shrink-0 cursor-move select-none"
+              onPointerDown={handlePanelDragStart}
+              onPointerMove={handlePanelDragMove}
+              onPointerUp={handlePanelDragEnd}
+              onPointerCancel={handlePanelDragEnd}
+            >
               <div className="flex items-center justify-between pr-8">
                 <div className="flex items-center gap-2.5">
                   <div className="p-2 rounded-xl bg-amber-500 text-stone-950 shadow-sm">
                     <Bot className="w-5 h-5" />
                   </div>
                   <div>
-                    <SheetTitle className="flex items-center gap-1.5 text-base">
+                    <h2 className="flex items-center gap-1.5 text-base font-bold font-serif leading-none tracking-tight text-stone-900 dark:text-stone-100">
                       AI 智能导师专属追问室
                       <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                    </SheetTitle>
-                    <SheetDescription className="text-xs">
+                    </h2>
+                    <p className="text-xs text-stone-500 dark:text-stone-400">
                       {tutorCopy.headerHint} · 聚焦：{context.skillTag}
                       <span className="ml-1 text-stone-500">· 关闭保留会话</span>
-                    </SheetDescription>
+                    </p>
                   </div>
                 </div>
                 <Badge
@@ -441,6 +499,14 @@ export function AiTutorDrawer({
                     </>
                   )}
                 </Badge>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="关闭"
+                  className="rounded-xl p-1.5 text-stone-400 transition-colors hover:bg-stone-200/60 hover:text-stone-700 dark:hover:bg-stone-800 dark:hover:text-stone-200 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
             </SheetHeader>
 
@@ -638,7 +704,7 @@ export function AiTutorDrawer({
               </form>
             </div>
           </>
-      </SheetContent>
-    </Sheet>
+    </div>,
+    document.body
   );
 }
