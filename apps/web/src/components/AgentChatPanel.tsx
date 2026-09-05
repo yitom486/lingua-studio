@@ -351,6 +351,10 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
   const compactSelect =
     'h-7 min-w-0 max-w-[9.5rem] gap-1 rounded-md border border-stone-700/80 bg-transparent px-2 text-[11px] text-stone-300 hover:border-stone-500 hover:bg-stone-800/60 focus:ring-0 shadow-none';
 
+  /** Agent 面板恒为深色底，不依赖 html.dark；高亮项强制浅色字 */
+  const darkMenuItem =
+    'text-stone-200 data-[highlighted]:bg-stone-700 data-[highlighted]:text-white focus:bg-stone-700 focus:text-white';
+
   return (
     <div
       className={`flex flex-col h-full min-h-[420px] rounded-xl border border-stone-800/80 bg-[#141518] text-stone-100 overflow-hidden shadow-xl ${className}`}
@@ -605,7 +609,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
                 </SelectTrigger>
                 <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
                   {APPROVAL_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
+                    <SelectItem key={o.value} value={o.value} className={darkMenuItem}>
                       {o.label}
                     </SelectItem>
                   ))}
@@ -621,9 +625,15 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
                   <SelectValue placeholder="Model">{modelLabel}</SelectValue>
                 </SelectTrigger>
                 <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
-                  <SelectItem value="__default__">本机默认</SelectItem>
+                  <SelectItem value="__default__" className={darkMenuItem}>
+                    本机默认
+                  </SelectItem>
                   {models.map((m) => (
-                    <SelectItem key={m.id || m.model} value={m.id || m.model}>
+                    <SelectItem
+                      key={m.id || m.model}
+                      value={m.id || m.model}
+                      className={darkMenuItem}
+                    >
                       {m.displayName || m.model}
                     </SelectItem>
                   ))}
@@ -640,7 +650,7 @@ export function AgentChatPanel({ gateway, className = '', onClose }: AgentChatPa
                 </SelectTrigger>
                 <SelectContent className="bg-[#12141a] border-stone-700 text-stone-100">
                   {effortOptions.map((e) => (
-                    <SelectItem key={e} value={e}>
+                    <SelectItem key={e} value={e} className={darkMenuItem}>
                       {effortLabel(e)}
                     </SelectItem>
                   ))}

@@ -66,7 +66,13 @@ const SelectItem = React.forwardRef<
   <BaseSelect.Item
     ref={ref}
     className={cn(
-      'relative flex w-full cursor-pointer select-none items-center rounded-lg py-1.5 pl-8 pr-2 text-xs outline-none focus:bg-amber-500/15 focus:text-amber-950 dark:focus:text-amber-200 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 transition-colors',
+      'relative flex w-full cursor-pointer select-none items-center rounded-lg py-1.5 pl-8 pr-2 text-xs outline-none transition-colors',
+      // Base UI 用 data-highlighted；避免 amber-950 在深色弹出层上糊成一团
+      'data-[highlighted]:bg-amber-100 data-[highlighted]:text-stone-900',
+      'dark:data-[highlighted]:bg-stone-700 dark:data-[highlighted]:text-stone-50',
+      'focus:bg-amber-100 focus:text-stone-900',
+      'dark:focus:bg-stone-700 dark:focus:text-stone-50',
+      'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className
     )}
     {...props}
