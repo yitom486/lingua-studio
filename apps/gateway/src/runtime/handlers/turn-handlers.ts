@@ -16,15 +16,11 @@ import type { ToolDefinition } from '@study-studio/tool-core';
 import type { AgentLane, SessionManager } from '../../session/session-manager.js';
 import {
   buildGenericCoachReply,
-  defaultCoachTopic,
-  defaultExplainTopic,
-  defaultQuizSkillId,
   normalizeTrackLanguage,
 } from '../../services/learning-language-policy.js';
 import { selectAgentRoute } from '../../router/agent-router.js';
 import { resolveResponsesLiteCoach } from '../responses-lite-coach.js';
 import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../turn-summary-builder.js';
-import type { LearningContentOutput } from '../../transport/tools/learning-content-tool.js';
 
 function resolveAgentLane(
   intent: string,
@@ -83,11 +79,6 @@ export async function handleTurnSend(
       threadId?: string;
       ephemeral?: boolean;
       collaborationMode?: string;
-      /**
-       * 跳过关键词模板短路（导师抽屉等拼装式 prompt 专用：触发词多为脚手架文字）。
-       * 置 true 后本轮必经 AgentRouter（含 Codex 主通路），不再被模板截获。
-       */
-      bypassKeywordTemplates?: boolean;
       /** coach=聊天；learning=出题/批改/题目导师 */
       lane?: string;
     };
@@ -154,7 +145,7 @@ export async function handleTurnSend(
 
   let reply = '';
   let toolResults: unknown = undefined;
-  let replySource: 'codex' | 'lite' | 'keyword' | 'local' = 'local';
+  let replySource: 'codex' | 'lite' | 'local' = 'local';
   let codexThreadId: string | undefined;
   let codexFailureMessage: string | undefined;
   // P3-C：保留 Codex 失败的结构化业务错误，供执行摘要翻译为用户友好状态（不泄漏栈）
@@ -162,130 +153,8 @@ export async function handleTurnSend(
 
   try {
     const track = normalizeTrackLanguage(snapshot.targetLanguage);
-    // FREE_COACH：跳过关键词模板，直接交给 Codex 主通路
-    const skipKeywordTemplates =
-      intent === 'FREE_COACH' || payload.agentOptions?.bypassKeywordTemplates === true;
-
-    // 根据意图或用户自然语言分发到参数化工具或专家教学大纲
-    if (!skipKeywordTemplates && (userPrompt.includes('例句') || userPrompt.includes('造句'))) {
-      const tool = server.toolRegistry.get('learning.content');
-      if (tool) {
-        const res = await tool.execute(
-          {
-            action: 'example_set',
-            topic: snapshot.focus?.skillTag || defaultCoachTopic(track),
-            language: track,
-          },
-          { userId, sessionId: envelope.sessionId }
-        );
-        if (isOk(res)) {
-          const content = res.value as LearningContentOutput;
-          if (content.examples) {
-            toolResults = content;
-            reply =
-              `为你精心梳理了 3 个与【${snapshot.focus?.skillTag || '当前语法点'}】紧密契合的地道生活化例句：\n\n` +
-              content.examples
-                .map(
-                  (ex: { sentence: string; translation: string; grammarPoint: string }, i: number) =>
-                    `${i + 1}. **${ex.sentence}**\n   ${ex.translation}\n   💡 *解析*：${ex.grammarPoint}`
-                )
-                .join('\n\n') +
-              `\n\n建议尝试默写或大声朗读，加深肌肉记忆！`;
-          }
-        }
-      }
-    } else if (
-      !skipKeywordTemplates &&
-      (
-      userPrompt.includes('为什么') ||
-      userPrompt.includes('讲透') ||
-      userPrompt.includes('辨析') ||
-      userPrompt.includes('区分') ||
-      userPrompt.includes('考点')
-      )
-    ) {
-      const tool = server.toolRegistry.get('learning.content');
-      if (tool) {
-        const res = await tool.execute(
-          {
-            action: 'explain',
-            topic: snapshot.focus?.skillTag || defaultExplainTopic(track),
-            language: track,
-          },
-          { userId, sessionId: envelope.sessionId }
-        );
-        if (isOk(res)) {
-          const content = res.value as LearningContentOutput;
-          if (content.explanation) {
-            const exp = content.explanation;
-            toolResults = content;
-            reply =
-              `【核心考点精讲】\n\n` +
-              `📌 **底层逻辑**：\n${exp.coreConcept}\n\n` +
-              `📐 **规则梳理**：\n${exp.rules.map((r: string) => `• ${r}`).join('\n')}\n\n` +
-              `⚠️ **典型雷区**：\n${exp.commonMistakes.map((m: string) => `• ${m}`).join('\n')}\n\n` +
-              `💡 **速记口诀**：\n${exp.mnemonicTip}`;
-          }
-        }
-      }
-    } else if (
-      !skipKeywordTemplates &&
-      (
-      userPrompt.includes('考我') ||
-      userPrompt.includes('出题') ||
-      userPrompt.includes('练一练') ||
-      intent === 'GENERATE_QUIZ'
-      )
-    ) {
-      const tool = server.toolRegistry.get('learning.content');
-      if (tool) {
-        const skillIds = snapshot.focus?.skillTag
-          ? [snapshot.focus.skillTag]
-          : snapshot.learnerDigest?.topWeaknesses?.[0]?.skillId
-            ? [snapshot.learnerDigest.topWeaknesses[0].skillId]
-            : [defaultQuizSkillId(track)];
-        const res = await tool.execute(
-          {
-            action: 'generate_quiz',
-            count: Math.min(3, snapshot.constraints?.maxQuestions ?? 3),
-            difficulty: 2,
-            language: track,
-            skillIds,
-            collect: true,
-            collectionTitle: '导师即时练习',
-          },
-          { userId, sessionId: envelope.sessionId }
-        );
-        if (isOk(res)) {
-          const content = res.value as LearningContentOutput;
-          if (content.questions?.[0]) {
-            const q = content.questions[0];
-            toolResults = content;
-            reply =
-              `为你量身定制了 ${content.questions.length} 道自适应诊断题` +
-              (content.collectionId ? `（已收入练习队列 ${content.collectionId}）` : '') +
-              `：\n\n` +
-              `❓ **首题**：${q.content}\n` +
-              (q.options ?? [])
-                .map((opt: string, i: number) => `${String.fromCharCode(65 + i)}. ${opt}`)
-                .join('\n') +
-              `\n\n已通过 ui.present 推送到做题工作台，可直接作答！`;
-
-            await emitClientTool(server, emit, envelope.sessionId, 'ui.navigate', {
-              target: 'QUIZ',
-            });
-            await emitClientTool(server, emit, envelope.sessionId, 'ui.present', {
-              surface: 'quiz',
-              layout: 'SINGLE_COLUMN',
-              collectionId: content.collectionId,
-              questions: content.questions,
-              stepIndex: 0,
-            });
-          }
-        }
-      }
-    }
-
+    // 所有连网回合一律经 AgentRouter（含 Codex 主通路）：关键词模板短路已删除，
+    // 任何触发词不再截获回合；离线兜底走客户端，失败走结构化回退（徽章可辨）。
     if (!reply) {
       const decision = selectAgentRoute({
         userPrompt,
@@ -556,26 +425,6 @@ export async function handleTurnSend(
           if (emit) emit(deltaEnvelope);
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
-      }
-    } else {
-      replySource = 'keyword';
-      // 关键词工具已生成整段 reply：假分块推流
-      const chunkSize = 6;
-      for (let i = 0; i < reply.length; i += chunkSize) {
-        if (abortController.signal.aborted) {
-          break;
-        }
-        const chunk = reply.slice(i, i + chunkSize);
-        const deltaEnvelope: WsEnvelope = {
-          version: '1.0',
-          id: generateId('delta'),
-          sessionId: envelope.sessionId,
-          type: WsEventTypes.AGENT_TEXT_DELTA,
-          payload: { delta: chunk, textDelta: chunk, source: replySource },
-          timestamp: Date.now(),
-        };
-        if (emit) emit(deltaEnvelope);
-        await new Promise((resolve) => setTimeout(resolve, 20));
       }
     }
   } finally {

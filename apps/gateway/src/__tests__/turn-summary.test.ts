@@ -427,7 +427,7 @@ describe('P3-C Gateway 回合执行摘要（4 场景端到端）', () => {
   });
 });
 
-describe('bypassKeywordTemplates：拼装式导师 prompt 直达 Codex', () => {
+describe('关键词模板已删除：触发词不再截获回合，一律经 AgentRouter', () => {
   let repo: DrizzleLearnerRepository;
 
   beforeEach(() => {
@@ -440,8 +440,7 @@ describe('bypassKeywordTemplates：拼装式导师 prompt 直达 Codex', () => {
     '根据当前题目做简短导入讲解（3–6 句），点明考点「五十音权威底座」。题干：请深度剖析假名。';
 
   function makeTutorEnvelope(
-    sessionId: string,
-    bypass: boolean
+    sessionId: string
   ): WsEnvelope {
     return {
       version: '1.0',
@@ -456,36 +455,23 @@ describe('bypassKeywordTemplates：拼装式导师 prompt 直达 Codex', () => {
         agentOptions: {
           preferCodex: true,
           lane: 'learning',
-          ...(bypass ? { bypassKeywordTemplates: true } : {}),
         },
       },
       timestamp: Date.now(),
     };
   }
 
-  it('带 bypass 时绕过模板短路 → Codex streamed', async () => {
+  it('含“例句”脚手架的拼装 prompt 直达 Codex（streamed），不再被模板截获', async () => {
     const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'success' }));
     const sessionId = createWsSession(server);
     const envelopes: WsEnvelope[] = [];
-    const res = await server.handleClientMessage(makeTutorEnvelope(sessionId, true), (e) =>
+    const res = await server.handleClientMessage(makeTutorEnvelope(sessionId), (e) =>
       envelopes.push(e)
     );
     expect(isOk(res)).toBe(true);
     const summary = getSummary(envelopes);
     expect(summary?.outcome).toBe('streamed');
     expect(summary?.source).toBe('codex');
-  });
-
-  it('无 bypass 时同样 prompt 被模板截获 → not_requested（未问模型）', async () => {
-    const server = new GatewayServer(repo, makeMockAdapter({ scenario: 'success' }));
-    const sessionId = createWsSession(server);
-    const envelopes: WsEnvelope[] = [];
-    const res = await server.handleClientMessage(makeTutorEnvelope(sessionId, false), (e) =>
-      envelopes.push(e)
-    );
-    expect(isOk(res)).toBe(true);
-    const summary = getSummary(envelopes);
-    expect(summary?.outcome).toBe('not_requested');
   });
 });
 

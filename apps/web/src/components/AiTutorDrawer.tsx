@@ -111,12 +111,7 @@ export function AiTutorDrawer({
   }, [context, activeTab, profile.targetLanguage, profile.overallLevel]);
 
   const attachStreamToMessage = useCallback(
-    (
-      aiMsgId: string,
-      input: string,
-      intent: 'EXPLAIN' | 'FREE_COACH' = 'EXPLAIN',
-      bypassTemplates = false
-    ) => {
+    (aiMsgId: string, input: string, intent: 'EXPLAIN' | 'FREE_COACH' = 'EXPLAIN') => {
       if (!gateway.isConnected) return false;
 
       const threadId = usePreferencesStore.getState().learningThreadId;
@@ -130,9 +125,6 @@ export function AiTutorDrawer({
           lane: 'learning',
           ephemeral: false,
           ...(threadId ? { threadId } : {}),
-          // 拼装式 prompt（含“例句”等脚手架文字）：绕过关键词模板，直达 Agent。
-          // 用户原文追问保持模板短路（如点选“造三个地道例句”本就想要模板）。
-          ...(bypassTemplates ? { bypassKeywordTemplates: true } : {}),
         },
         onDelta: (_delta, accumulated) => {
           setMessages((prev) =>
@@ -221,7 +213,7 @@ export function AiTutorDrawer({
       ]);
       setIsTyping(true);
       const prompt = buildTutorBootstrapPrompt(track, context);
-      const sent = attachStreamToMessage(aiMsgId, prompt, 'EXPLAIN', true);
+      const sent = attachStreamToMessage(aiMsgId, prompt, 'EXPLAIN');
       if (!sent) {
         setMessages([
           {
