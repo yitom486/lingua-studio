@@ -23,6 +23,11 @@ import {
 } from '@study-studio/learner-core';
 import type { Flashcard } from '@study-studio/protocol';
 
+/**
+ * @deprecated 遗留实现，仅保留编译与既有单测。
+ * 运行时 SSOT 为 DrizzleLearnerRepository（见 drizzle-learner-repository.ts 及其 domains/）；
+ * P5 练习计划在此一律返回 E_NOT_SUPPORTED。新代码禁止依赖本类。
+ */
 export class SqliteLearnerRepository implements LearnerRepository {
   private readonly db: Database;
 
