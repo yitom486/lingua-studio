@@ -98,6 +98,12 @@ import {
   mirrorLanguageProfileToMain as mirrorLanguageProfileToMainDomain,
 } from './domains/profile-internals.js';
 import {
+  getLearnerProfile as getLearnerProfileDomain,
+  updateLearnerProfile as updateLearnerProfileDomain,
+  getProfileSnapshot as getProfileSnapshotDomain,
+  saveSkillMetric as saveSkillMetricDomain,
+} from './domains/profile.js';
+import {
   getTodayString,
   getYesterdayString,
   safeJsonParse,
@@ -198,196 +204,20 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   }
 
   /**
-   * 获取或初始化学习者基础档案（主表 + 当前语种档案合并）
+   * 实现已下沉 domains/profile.ts，此处仅委托。
    */
   public async getLearnerProfile(userId: string): Promise<Result<LearnerProfile, BusinessError>> {
-    try {
-      const rows = await this.db
-        .select()
-        .from(learnerProfiles)
-        .where(eq(learnerProfiles.userId, userId))
-        .limit(1);
-
-      if (rows.length > 0) {
-        const row = rows[0]!;
-        const language = normalizeTrackLanguage(row.targetLanguage);
-        const langRow = await this.ensureLanguageProfile(userId, language, {
-          studyGoal: row.studyGoal,
-          learnerLevel: row.learnerLevel,
-          overallLevel: row.overallLevel,
-          overallProficiency: row.overallProficiency,
-          streakDays: row.streakDays,
-          maxStreakDays: row.maxStreakDays,
-          lastActiveDate: row.lastActiveDate,
-          retentionRate: row.retentionRate,
-          dailyGoalQuizzes: row.dailyGoalQuizzes,
-          dailyGoalCards: row.dailyGoalCards,
-          totalStudyMinutes: row.totalStudyMinutes,
-          totalCardsReviewed: row.totalCardsReviewed,
-          totalQuizzesAnswered: row.totalQuizzesAnswered,
-        });
-
-        return ok({
-          userId: row.userId,
-          displayName: row.displayName || '学习者',
-          targetLanguage: language,
-          studyGoal: (langRow.studyGoal as LearnerProfile['studyGoal']) || 'CET6',
-          learnerLevel: (langRow.learnerLevel as LearnerProfile['learnerLevel']) || 'BEGINNER',
-          overallLevel: langRow.overallLevel,
-          overallProficiency: langRow.overallProficiency,
-          streakDays: langRow.streakDays,
-          maxStreakDays: langRow.maxStreakDays,
-          lastActiveDate: langRow.lastActiveDate,
-          retentionRate: langRow.retentionRate,
-          dailyGoalQuizzes: langRow.dailyGoalQuizzes,
-          dailyGoalCards: langRow.dailyGoalCards,
-          totalStudyMinutes: langRow.totalStudyMinutes,
-          totalCardsReviewed: langRow.totalCardsReviewed,
-          totalQuizzesAnswered: langRow.totalQuizzesAnswered,
-          updatedAt: langRow.updatedAt || row.updatedAt,
-        });
-      }
-
-      const defaultProfile: LearnerProfile = {
-        userId,
-        displayName: '学员 ' + userId.slice(-4),
-        targetLanguage: 'en',
-        studyGoal: 'CET6',
-        learnerLevel: 'BEGINNER',
-        overallLevel: '待评测',
-        overallProficiency: 0,
-        streakDays: 0,
-        maxStreakDays: 0,
-        lastActiveDate: null,
-        retentionRate: 1.0,
-        dailyGoalQuizzes: 5,
-        dailyGoalCards: 10,
-        totalStudyMinutes: 0,
-        totalCardsReviewed: 0,
-        totalQuizzesAnswered: 0,
-        updatedAt: nowIso(),
-      };
-
-      await this.db.insert(learnerProfiles).values({
-        ...defaultProfile,
-      });
-      await this.ensureLanguageProfile(userId, 'en', defaultProfile);
-
-      return ok(defaultProfile);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'getLearnerProfile',
-          entityId: userId,
-        })
-      );
-    }
+    return getLearnerProfileDomain(this.deps, userId);
   }
 
   /**
-   * 更新学习者档案：目标/等级/配额写入当前语种行；切换 targetLanguage 时镜像新语种行
+   * 实现已下沉 domains/profile.ts，此处仅委托。
    */
   public async updateLearnerProfile(
     userId: string,
     input: Partial<LearnerProfile>
   ): Promise<Result<LearnerProfile, BusinessError>> {
-    try {
-      const currentRes = await this.getLearnerProfile(userId);
-      if (!isOk(currentRes)) return currentRes;
-      const current = currentRes.value;
-
-      const nextLanguage = input.targetLanguage
-        ? normalizeTrackLanguage(input.targetLanguage)
-        : normalizeTrackLanguage(current.targetLanguage);
-
-      const switching = nextLanguage !== normalizeTrackLanguage(current.targetLanguage);
-
-      if (input.displayName !== undefined) {
-        await this.db
-          .update(learnerProfiles)
-          .set({ displayName: input.displayName, updatedAt: nowIso() })
-          .where(eq(learnerProfiles.userId, userId));
-      }
-
-      // 切换轨道：确保目标语种行存在，并镜像到主表
-      if (switching) {
-        const langRow = await this.ensureLanguageProfile(userId, nextLanguage);
-        await this.mirrorLanguageProfileToMain(
-          userId,
-          nextLanguage,
-          langRow,
-          input.displayName ?? current.displayName
-        );
-      }
-
-      const activeLang = nextLanguage;
-      const langPatch: Record<string, unknown> = { updatedAt: nowIso() };
-      if (input.studyGoal !== undefined) langPatch.studyGoal = input.studyGoal;
-      if (input.learnerLevel !== undefined) langPatch.learnerLevel = input.learnerLevel;
-      if (input.overallLevel !== undefined) langPatch.overallLevel = input.overallLevel;
-      if (input.overallProficiency !== undefined)
-        langPatch.overallProficiency = input.overallProficiency;
-      if (input.dailyGoalQuizzes !== undefined) langPatch.dailyGoalQuizzes = input.dailyGoalQuizzes;
-      if (input.dailyGoalCards !== undefined) langPatch.dailyGoalCards = input.dailyGoalCards;
-      if (input.streakDays !== undefined) langPatch.streakDays = input.streakDays;
-      if (input.maxStreakDays !== undefined) langPatch.maxStreakDays = input.maxStreakDays;
-      if (input.lastActiveDate !== undefined) langPatch.lastActiveDate = input.lastActiveDate;
-      if (input.retentionRate !== undefined) langPatch.retentionRate = input.retentionRate;
-      if (input.totalStudyMinutes !== undefined)
-        langPatch.totalStudyMinutes = input.totalStudyMinutes;
-      if (input.totalCardsReviewed !== undefined)
-        langPatch.totalCardsReviewed = input.totalCardsReviewed;
-      if (input.totalQuizzesAnswered !== undefined)
-        langPatch.totalQuizzesAnswered = input.totalQuizzesAnswered;
-
-      await this.ensureLanguageProfile(userId, activeLang);
-      if (Object.keys(langPatch).length > 1) {
-        await this.db
-          .update(learnerLanguageProfiles)
-          .set(langPatch)
-          .where(
-            and(
-              eq(learnerLanguageProfiles.userId, userId),
-              eq(learnerLanguageProfiles.language, activeLang)
-            )
-          );
-      }
-
-      const refreshed = await this.db
-        .select()
-        .from(learnerLanguageProfiles)
-        .where(
-          and(
-            eq(learnerLanguageProfiles.userId, userId),
-            eq(learnerLanguageProfiles.language, activeLang)
-          )
-        )
-        .limit(1);
-      if (refreshed[0]) {
-        await this.mirrorLanguageProfileToMain(
-          userId,
-          activeLang,
-          refreshed[0],
-          input.displayName
-        );
-      } else {
-        await this.db
-          .update(learnerProfiles)
-          .set({ targetLanguage: activeLang, updatedAt: nowIso() })
-          .where(eq(learnerProfiles.userId, userId));
-      }
-
-      return this.getLearnerProfile(userId);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'updateLearnerProfile',
-          entityId: userId,
-        })
-      );
-    }
+    return updateLearnerProfileDomain(this.deps, userId, input);
   }
 
   /**
@@ -1013,131 +843,23 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   }
 
   /**
-   * 获取学习者全景画像快照 (融合雷达技能、基础档案与每日任务进度)
+   * 实现已下沉 domains/profile.ts，此处仅委托。
    */
   public async getProfileSnapshot(
     userId: string,
     langOverride?: string
   ): Promise<Result<LearnerProfileSnapshot, BusinessError>> {
-    try {
-      const profileRes = await this.getLearnerProfile(userId);
-      const profile = isOk(profileRes) ? profileRes.value : undefined;
-
-      const dailyTaskRes = await this.getDailyTaskProgress(userId);
-      const dailyTask = isOk(dailyTaskRes) ? dailyTaskRes.value : undefined;
-
-      const language = langOverride
-        ? normalizeTrackLanguage(langOverride)
-        : normalizeTrackLanguage(profile?.targetLanguage);
-
-      let rows = await this.db
-        .select()
-        .from(skillMetrics)
-        .where(and(eq(skillMetrics.userId, userId), eq(skillMetrics.language, language)));
-
-      // 严禁跨语种回退：英语轨道空雷达应显示空态，不得混入日语 jp.* 指标
-
-      const allMetrics: SkillMetric[] = rows.map((r) => ({
-        id: r.skillId,
-        dimension: r.dimension as any,
-        name: r.name,
-        proficiency: r.proficiency,
-        totalAttempts: r.totalAttempts,
-        correctAttempts: r.correctAttempts,
-        consecutiveErrors: r.consecutiveErrors,
-        status: r.status as any,
-        lastPracticedAt: r.lastPracticedAt ?? undefined,
-      }));
-
-      const strengths = allMetrics.filter((m) => m.proficiency >= 0.8 && m.consecutiveErrors === 0);
-      const weaknesses = allMetrics.filter(
-        (m) => m.proficiency < 0.6 || m.consecutiveErrors >= 2 || m.status === 'WEAKNESS'
-      );
-
-      return ok({
-        userId,
-        profile,
-        targetLanguage: profile?.targetLanguage ?? 'en',
-        overallLevel: profile?.overallLevel ?? 'B1',
-        strengths,
-        weaknesses,
-        allMetrics,
-        dailyTask,
-        updatedAt: nowIso(),
-      });
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'getProfileSnapshot',
-          entityId: userId,
-        })
-      );
-    }
+    return getProfileSnapshotDomain(this.deps, userId, langOverride);
   }
 
+  /**
+   * 实现已下沉 domains/profile.ts，此处仅委托。
+   */
   public async saveSkillMetric(
     userId: string,
     metric: SkillMetric
   ): Promise<Result<void, BusinessError>> {
-    try {
-      const existing = await this.db
-        .select()
-        .from(skillMetrics)
-        .where(
-          and(
-            eq(skillMetrics.userId, userId),
-            eq(skillMetrics.skillId, metric.id)
-          )
-        )
-        .limit(1);
-
-      if (existing.length > 0) {
-        await this.db
-          .update(skillMetrics)
-          .set({
-            language: inferLanguageFromSkillId(metric.id),
-            dimension: metric.dimension,
-            name: metric.name,
-            proficiency: metric.proficiency,
-            totalAttempts: metric.totalAttempts,
-            correctAttempts: metric.correctAttempts,
-            consecutiveErrors: metric.consecutiveErrors,
-            status: metric.status,
-            lastPracticedAt: metric.lastPracticedAt ?? null,
-          })
-          .where(
-            and(
-              eq(skillMetrics.userId, userId),
-              eq(skillMetrics.skillId, metric.id)
-            )
-          );
-      } else {
-        await this.db.insert(skillMetrics).values({
-          userId,
-          skillId: metric.id,
-          language: inferLanguageFromSkillId(metric.id),
-          dimension: metric.dimension,
-          name: metric.name,
-          proficiency: metric.proficiency,
-          totalAttempts: metric.totalAttempts,
-          correctAttempts: metric.correctAttempts,
-          consecutiveErrors: metric.consecutiveErrors,
-          status: metric.status,
-          lastPracticedAt: metric.lastPracticedAt ?? null,
-        });
-      }
-
-      return ok(undefined);
-    } catch (error) {
-      return err(
-        translateToBusinessError(error, {
-          category: 'DATABASE',
-          action: 'saveSkillMetric',
-          entityId: metric.id,
-        })
-      );
-    }
+    return saveSkillMetricDomain(this.deps, userId, metric);
   }
 
   public async getDueCards(
