@@ -437,6 +437,41 @@ export function useGenerateWritingPromptsMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+export type KanaWordItem = {
+  id: string;
+  /** 词典条目 id（可直接调收集接口转 FSRS 生词卡）。 */
+  entryId: string;
+  headword: string;
+  /** 假名读音（听写播报与作答比对用）。 */
+  kana: string;
+  meanings: string[];
+  /** TTS 朗读文本（即 kana）。 */
+  audioText: string;
+  sourceLabel: string;
+};
+
+/** 调用 Gateway learning.content 生成假名单词（听写/词义巩固，系统随机出题）。 */
+export function useGenerateKanaWordsMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (payload?: { count?: number; script?: 'HIRAGANA' | 'KATAKANA' }) => {
+      const res = await apiClient.api.learning.content[':userId'].$post({
+        param: { userId },
+        json: {
+          action: 'generate_kana_words',
+          count: payload?.count || 8,
+          collect: false,
+          language: 'ja',
+          ...(payload?.script ? { script: payload.script } : {}),
+        },
+      });
+      if (!res.ok) throw new Error('生成假名单词失败');
+      const data = (await res.json()) as { kanaWords?: KanaWordItem[] };
+      if (!data.kanaWords?.length) throw new Error('假名单词为空');
+      return data.kanaWords;
+    },
+  });
+}
+
 /** 调用 Gateway learning.content 生成挖词听写 */
 export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
   return useMutation({

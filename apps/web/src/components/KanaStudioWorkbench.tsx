@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Volume2,
@@ -22,7 +22,11 @@ import { Badge } from './ui/badge.js';
 import {
   useCurriculumKanaQuery,
   useKanaPracticeMutation,
+  useGenerateKanaWordsMutation,
+  useCollectDictionaryEntryMutation,
+  type KanaWordItem,
 } from '../queries/useLearnerQueries.js';
+import { romajiToKana, toHiragana } from '../lib/kana-input.js';
 import type { KanaItem } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 
@@ -32,7 +36,14 @@ interface KanaStudioWorkbenchProps {
 
 type MatrixTab = 'SEION' | 'DAKUON_HANDAKUON' | 'YOON';
 type ScriptDisplayMode = 'HIRAGANA' | 'KATAKANA' | 'BOTH';
-type DrillMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA';
+type DrillMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA' | 'WORD_DICTATION' | 'WORD_MEANING';
+
+/** 按读音猜书写体（回写画像用；混合书写回退 HIRAGANA）。 */
+function guessWordScript(kana: string): 'HIRAGANA' | 'KATAKANA' {
+  const hasKata = /[\u30A0-\u30FF]/.test(kana);
+  const hasHira = /[\u3040-\u309F]/.test(kana);
+  return hasKata && !hasHira ? 'KATAKANA' : 'HIRAGANA';
+}
 
 export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const { data: allKana = [] } = useCurriculumKanaQuery();
@@ -51,6 +62,37 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const [drillStreak, setDrillStreak] = useState(0);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
+
+  // 单词巩固（听写 / 词义）：词表来自 Gateway 本地词典，Agent 经 learning.content 同源调用
+  const generateWords = useGenerateKanaWordsMutation();
+  const collectEntry = useCollectDictionaryEntryMutation();
+  const [wordList, setWordList] = useState<KanaWordItem[]>([]);
+  const [wordIndex, setWordIndex] = useState(0);
+  const [wordInput, setWordInput] = useState('');
+  const isWordMode = drillMode === 'WORD_DICTATION' || drillMode === 'WORD_MEANING';
+  const currentWord: KanaWordItem | undefined = wordList[wordIndex];
+
+  useEffect(() => {
+    if (!isDrillActive || !isWordMode || wordList.length > 0 || generateWords.isPending) return;
+    generateWords.mutate(
+      { count: 8, script: scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA' },
+      {
+        onSuccess: (words) => {
+          setWordList(words);
+          setWordIndex(0);
+        },
+        onError: () => {
+          toast.error('假名单词加载失败，请稍后重试。');
+        },
+      }
+    );
+  }, [isDrillActive, isWordMode, wordList.length, scriptMode, generateWords.isPending, generateWords.mutate]);
+
+  // 听写题切出即自动播报
+  useEffect(() => {
+    if (!isDrillActive || drillMode !== 'WORD_DICTATION' || isAnswered || !currentWord) return;
+    void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+  }, [isDrillActive, drillMode, isAnswered, currentWord]);
 
   // 矩阵分类过滤
   const filteredKanaList = useMemo(() => {
@@ -183,6 +225,108 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     }
   };
 
+  // 词义选项（正确释义 + 同批其余词干扰项）
+  const meaningOptions = useMemo(() => {
+    if (!currentWord) return [];
+    const correct = currentWord.meanings[0] ?? '';
+    const distractors = wordList
+      .filter((w) => w.id !== currentWord.id)
+      .map((w) => w.meanings[0] ?? '')
+      .filter((m) => m && m !== correct)
+      .slice(0, 3);
+    return [correct, ...distractors].sort(() => 0.5 - Math.random());
+  }, [currentWord, wordList]);
+
+  const recordWordResult = (isCorrect: boolean) => {
+    if (!currentWord) return;
+    practiceMutation.mutate({
+      kanaId: currentWord.entryId,
+      isCorrect,
+      scriptType: guessWordScript(currentWord.kana),
+    });
+  };
+
+  // 单词听写提交：罗马字输入即时转假名比对（规则判定 0ms；主观写作仍走 learning.assess）
+  const handleSubmitWordInput = () => {
+    if (isAnswered || !currentWord) return;
+    const converted = romajiToKana(
+      wordInput.trim(),
+      allKana,
+      scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA'
+    );
+    const isCorrect =
+      converted !== '' && toHiragana(converted) === toHiragana(currentWord.kana);
+    setIsAnswered(true);
+    if (isCorrect) {
+      sound.playCorrect();
+      setDrillStreak((s) => s + 1);
+      toast.success('拼写正确！+1');
+      if ((drillStreak + 1) % 5 === 0) {
+        fireSuccessConfetti();
+      }
+    } else {
+      sound.playMistake();
+      setDrillStreak(0);
+      toast.error(`拼写有误，正确答案为: ${currentWord.kana}`);
+    }
+    recordWordResult(isCorrect);
+  };
+
+  // 词义回想提交
+  const handleSelectMeaningOption = (option: string) => {
+    if (isAnswered || !currentWord) return;
+    setSelectedOption(option);
+    setIsAnswered(true);
+    const correct = currentWord.meanings[0] ?? '';
+    const isCorrect = option === correct;
+    if (isCorrect) {
+      sound.playCorrect();
+      setDrillStreak((s) => s + 1);
+      toast.success('回答正确！+1');
+      if ((drillStreak + 1) % 5 === 0) {
+        fireSuccessConfetti();
+      }
+    } else {
+      sound.playMistake();
+      setDrillStreak(0);
+      toast.error(`回答有误，正确释义为: ${correct}`);
+    }
+    recordWordResult(isCorrect);
+  };
+
+  // 单词一键转 FSRS 生词卡（导出）
+  const handleCollectWord = () => {
+    if (!currentWord) return;
+    collectEntry.mutate(currentWord.entryId, {
+      onSuccess: () => toast.success(`已加入生词本：${currentWord.headword}`),
+      onError: () => toast.error('加入生词本失败，请稍后重试。'),
+    });
+  };
+
+  // 下一词 / 换一批
+  const handleNextWord = () => {
+    sound.playClick();
+    setSelectedOption(null);
+    setIsAnswered(false);
+    setWordInput('');
+    if (wordIndex < wordList.length - 1) {
+      setWordIndex((i) => i + 1);
+    } else {
+      fireSuccessConfetti();
+      toast.success('本轮单词巩固完成！');
+      setWordIndex(0);
+    }
+  };
+
+  const handleRefreshWords = () => {
+    sound.playClick();
+    setWordList([]);
+    setWordIndex(0);
+    setSelectedOption(null);
+    setIsAnswered(false);
+    setWordInput('');
+  };
+
   // 呼出导师深度解析
   const handleAskTutor = (kana: KanaItem) => {
     sound.playClick();
@@ -275,6 +419,8 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                 setIsDrillActive(!isDrillActive);
                 setSelectedOption(null);
                 setIsAnswered(false);
+                setWordIndex(0);
+                setWordInput('');
               }}
               className="px-3.5 py-1.5 text-xs font-semibold gap-1.5 shadow-md"
             >
@@ -331,7 +477,9 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
               <div className="flex items-center gap-2">
                 <Badge variant="amber">考核冲刺</Badge>
                 <span className="text-xs text-stone-500">
-                  第 {drillIndex + 1} / {drillItems.length} 题
+                  {isWordMode
+                    ? <>第 {wordIndex + 1} / {wordList.length} 词</>
+                    : <>第 {drillIndex + 1} / {drillItems.length} 题</>}
                 </span>
               </div>
 
@@ -350,18 +498,151 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     setDrillMode(e.target.value as DrillMode);
                     setSelectedOption(null);
                     setIsAnswered(false);
+                    setWordIndex(0);
+                    setWordInput('');
                   }}
                   className="text-xs rounded-lg border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-2 py-1"
                 >
                   <option value="AUDIO_TO_KANA">听音辨字</option>
                   <option value="KANA_TO_ROMAJI">看字辨音</option>
                   <option value="HIRA_TO_KATA">平片互转</option>
+                  <option value="WORD_DICTATION">单词听写</option>
+                  <option value="WORD_MEANING">词义回想</option>
                 </select>
               </div>
             </div>
 
             {/* 题干区域 */}
-            {currentDrillKana && (
+            {isWordMode ? (
+              <div className="text-center py-6 space-y-4">
+                {!currentWord ? (
+                  <p className="text-xs text-stone-500">
+                    {generateWords.isPending ? '正在从本地词典抽词…' : '暂无可用词语，请先安装日语词典包。'}
+                  </p>
+                ) : drillMode === 'WORD_DICTATION' ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-stone-500">听发音，用罗马字拼出假名（自动转换）：</p>
+                    <button
+                      onClick={() => {
+                        sound.playClick();
+                        void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+                      }}
+                      className="mx-auto w-20 h-20 rounded-full bg-amber-500/15 border-2 border-amber-500/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all text-amber-700 dark:text-amber-300 shadow-sm"
+                    >
+                      <Volume2 className="w-8 h-8" />
+                    </button>
+                    <p className="text-sm text-stone-600 dark:text-stone-300">
+                      词义提示：{currentWord.meanings.join('；')}
+                    </p>
+                    <p className="text-4xl font-serif font-bold text-stone-900 dark:text-stone-100 min-h-[3rem]">
+                      {wordInput
+                        ? romajiToKana(wordInput, allKana, scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA') || '···'
+                        : '···'}
+                    </p>
+                    <div className="flex items-center justify-center gap-2 max-w-md mx-auto">
+                      <input
+                        value={wordInput}
+                        onChange={(e) => setWordInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSubmitWordInput();
+                        }}
+                        disabled={isAnswered}
+                        placeholder="输入罗马字，如 ame（长音用 -，如 konpyu-ta-）"
+                        className="flex-1 rounded-xl border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-800 px-3 py-2 text-sm font-mono"
+                      />
+                      {!isAnswered && (
+                        <Button onClick={handleSubmitWordInput} size="sm" className="bg-amber-600 hover:bg-amber-700 text-white text-xs px-5">
+                          提交
+                        </Button>
+                      )}
+                    </div>
+                    {isAnswered && (
+                      <p className="text-sm text-stone-600 dark:text-stone-300">
+                        正确答案：<span className="font-bold font-serif">{currentWord.kana}</span>
+                        <span className="text-stone-400">（{currentWord.headword}）</span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-xs text-stone-500">看单词，选择正确的中文释义：</p>
+                    <div className="text-6xl font-serif font-bold text-stone-900 dark:text-stone-100">
+                      {currentWord.kana}
+                    </div>
+                    <button
+                      onClick={() => {
+                        sound.playClick();
+                        void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+                      }}
+                      className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
+                    >
+                      🔊 播放发音
+                    </button>
+                    <div className="grid grid-cols-1 gap-3 pt-2 max-w-md mx-auto">
+                      {meaningOptions.map((opt, idx) => {
+                        const correct = currentWord.meanings[0] ?? '';
+                        const isCorrectOpt = opt === correct;
+                        const isSelected = selectedOption === opt;
+                        let btnStyle =
+                          'bg-white dark:bg-stone-800/80 border-stone-200 dark:border-stone-700 hover:border-amber-500/50';
+                        if (isAnswered) {
+                          if (isCorrectOpt) {
+                            btnStyle = 'bg-emerald-500/15 border-emerald-500 text-emerald-800 dark:text-emerald-300 font-bold';
+                          } else if (isSelected) {
+                            btnStyle = 'bg-rose-500/15 border-rose-500 text-rose-800 dark:text-rose-300';
+                          } else {
+                            btnStyle = 'opacity-40 border-stone-200 dark:border-stone-800';
+                          }
+                        }
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => handleSelectMeaningOption(opt)}
+                            disabled={isAnswered}
+                            className={`p-3 rounded-2xl border text-sm transition-all ${btnStyle}`}
+                          >
+                            <span>{opt}</span>
+                            {isAnswered && isCorrectOpt && (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-500 inline ml-2" />
+                            )}
+                            {isAnswered && isSelected && !isCorrectOpt && (
+                              <XCircle className="w-4 h-4 text-rose-500 inline ml-2" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 单词作答后操作区：转生词卡 / 换一批 / 下一词 */}
+                {isAnswered && (
+                  <div className="flex items-center justify-center gap-3 pt-4">
+                    <Button
+                      onClick={handleCollectWord}
+                      disabled={collectEntry.isPending}
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs text-amber-700 dark:text-amber-300"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      转生词卡
+                    </Button>
+                    <Button onClick={handleRefreshWords} variant="outline" size="sm" className="gap-1.5 text-xs">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      换一批
+                    </Button>
+                    <Button
+                      onClick={handleNextWord}
+                      size="sm"
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs px-6"
+                    >
+                      下一词 ➔
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : currentDrillKana && (
               <div className="text-center py-6 space-y-4">
                 {drillMode === 'AUDIO_TO_KANA' ? (
                   <div className="space-y-3">
