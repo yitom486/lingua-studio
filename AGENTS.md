@@ -133,7 +133,6 @@
 | :--- | :--- | :--- | :--- |
 | 静态/硬编码清单 | [`.studio-internal/STATIC-DATA-INVENTORY.md`](.studio-internal/STATIC-DATA-INVENTORY.md) | Mock 数据登记与动态化改造对照 | 清单表项全部动态化闭环后可精简或删除 |
 | AI Native 运行时设计 | [`.studio-internal/AI-NATIVE-RUNTIME-DESIGN.md`](.studio-internal/AI-NATIVE-RUNTIME-DESIGN.md) | 流式对话、参数化工具、ContextSnapshot、导入/批注/入库表、阅读写作新闻双源、双栏可调 UI 等 | D0–D5 里程碑实现并迁入正式 `docs/` 或代码后删除本引用 |
-| 目标语种 UI 壳层 | [`.studio-internal/TARGET-LANGUAGE-UI-SHELL.md`](.studio-internal/TARGET-LANGUAGE-UI-SHELL.md) | `targetLanguage` 与界面母语分离、LearningShell、侧栏/Tab/Query 切换、JA 专属模块、Gemini 实现波次 | G1–G2 验收通过并迁入正式说明后删除本引用 |
 
 实现 Agent **必须先读上述文档再改相关模块**；不得与 `AGENTS.md` §1 铁律冲突。
 
