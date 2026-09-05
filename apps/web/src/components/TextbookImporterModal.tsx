@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
 import { sound } from '../utils/audio.js';
+import { getPlatform } from '../platform/capabilities.js';
 import type { TextbookBook, FuriganaWord } from '../data/textbook-data.js';
 import { SAMPLE_TEXTBOOK_JSON } from '../data/textbook-sample-ast.js';
 import {
@@ -58,16 +59,14 @@ export function TextbookImporterModal({
 
   const handleDownloadTemplate = () => {
     sound.playClick();
-    const blob = new Blob([JSON.stringify(SAMPLE_TEXTBOOK_JSON, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'study-studio-textbook-template.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('已下载教材 AST 模版文件');
+    getPlatform()
+      .downloadFile({
+        filename: 'study-studio-textbook-template.json',
+        content: JSON.stringify(SAMPLE_TEXTBOOK_JSON, null, 2),
+        mimeType: 'application/json',
+      })
+      .then(() => toast.success('已下载教材 AST 模版文件'))
+      .catch(() => toast.error('下载模版失败，请稍后重试'));
   };
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

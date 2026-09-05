@@ -2,6 +2,7 @@ import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Copy, Check, Home, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
+import { getPlatform } from '../../platform/capabilities.js';
 
 export interface ErrorBoundaryProps {
   children: ReactNode;
@@ -68,14 +69,17 @@ Error: ${error?.name}: ${error?.message}
 Stack: ${error?.stack || 'N/A'}
 Component Stack: ${errorInfo?.componentStack || 'N/A'}
 Timestamp: ${new Date().toISOString()}
-UserAgent: ${typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A'}
+UserAgent: ${getPlatform().getUserAgent()}
 `;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(diagnosticText).then(() => {
+    getPlatform()
+      .clipboardWriteText(diagnosticText)
+      .then(() => {
         this.setState({ copied: true });
         setTimeout(() => this.setState({ copied: false }), 2000);
+      })
+      .catch(() => {
+        // 剪贴板不可用时静默失败，不破坏错误诊断 UI
       });
-    }
   };
 
   override render() {
