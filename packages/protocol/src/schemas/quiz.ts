@@ -61,6 +61,27 @@ export const GeneratedQuestionSchema = z.object({
   explanation: z.string(),
   testedSkillId: z.string(),
   difficultyTier: z.number().min(1).max(5).default(3),
+  /**
+   * P5-E8：听写题完整语料（TTS 播 fullJapanese，UI 可展示挖空提示；答案永不入此结构）。
+   */
+  dictation: z
+    .object({
+      fullJapanese: z.string(),
+      speaker: z.string().optional(),
+      chinese: z.string().optional(),
+      furiganaHint: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * P5-E9：阅读块题目携带的篇目引用（Runner 渲染可折叠篇目面板）。
+   */
+  reading: z
+    .object({
+      setId: z.string(),
+      title: z.string(),
+      body: z.string(),
+    })
+    .optional(),
 });
 export type GeneratedQuestion = z.infer<typeof GeneratedQuestionSchema>;
 

@@ -88,6 +88,35 @@ function quizTypeToDbType(t: GeneratedQuestion['type']): string {
 const isVocabBlock = (block: PracticeBlockSpec) =>
   block.kind === 'VOCAB_REVIEW' || block.kind === 'VOCAB_NEW';
 
+/**
+ * P5-E9：READING 块从最近一篇阅读套题装配（篇目随题携带，Runner 渲染可折叠面板）。
+ * 无可用套题时返回空数组，交由后续回退链。
+ */
+async function buildReadingQuestions(
+  repo: DrizzleLearnerRepository,
+  userId: string,
+  block: PracticeBlockSpec,
+  language: 'en' | 'ja' | 'ko'
+): Promise<GeneratedQuestion[]> {
+  const langUpper = language === 'ja' ? 'JA' : language === 'ko' ? 'KO' : 'EN';
+  const setsRes = await repo.listReadingSets(userId, undefined, langUpper);
+  if (!isOk(setsRes)) return [];
+  const set = (setsRes.value ?? []).find((s) => s.questions.length > 0);
+  if (!set) return [];
+  return set.questions.slice(0, block.count).map((rq) => ({
+    id: `read_${rq.id}`,
+    type: 'MULTIPLE_CHOICE' as const,
+    prompt: rq.prompt,
+    content: '',
+    options: rq.options.map((o) => `${o.key}. ${o.text}`),
+    correctAnswer: rq.correctAnswer,
+    explanation: rq.explanation,
+    testedSkillId: `${language === 'ja' ? 'jp' : language}.reading.comprehension`,
+    difficultyTier: set.difficulty,
+    reading: { setId: set.id, title: set.title, body: set.body },
+  }));
+}
+
 /** P5-E7：从 FSRS 闪卡装配词义选择题（front→选 back；干扰项取其他卡的 back）。 */
 export function buildVocabQuestionsFromCards(
   cards: Flashcard[],
@@ -160,6 +189,11 @@ export async function assemblePracticeRun(
         if (cards.length === 0) cards = isOk(cardsRes) ? (cardsRes.value ?? []) : [];
       }
       pushFresh(buildVocabQuestionsFromCards(cards, block.count, run.language));
+    }
+
+    // 1b) READING 块：从最近阅读套题装配（篇目随题携带）
+    if (block.kind === 'READING') {
+      pushFresh(await buildReadingQuestions(repo, userId, block, run.language));
     }
 
     // 2) 题型（+难度）池精选

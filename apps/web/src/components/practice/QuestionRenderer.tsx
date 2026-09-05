@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2 } from 'lucide-react';
+import { Volume2, ChevronDown, ChevronRight, BookOpen } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { speechStudio } from '../../utils/audio.js';
 import type { GeneratedQuestion } from '@study-studio/protocol';
@@ -145,7 +145,36 @@ export function QuestionRenderer({
     );
   }
 
-  // TRANSLATION / WRITING：主观题，按批改模式分流
+  const readingPanel = q.reading ? <ReadingPassagePanel reading={q.reading} /> : null;
+
+  if (q.type === 'MULTIPLE_CHOICE' && q.options) {
+    return (
+      <div className="flex flex-col gap-2">
+        {readingPanel}
+        {q.options.map((opt, i) => {
+          const key = String.fromCharCode(65 + i);
+          const selected = answer === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => update(key)}
+              disabled={disabled}
+              className={`rounded-md border px-3 py-2 text-left text-sm transition ${
+                selected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950' : 'border-slate-200 hover:border-indigo-300 dark:border-slate-700'
+              }`}
+            >
+              <span className="mr-2 font-semibold">{key}.</span>
+              {opt}
+            </button>
+          );
+        })}
+        <Button size="sm" className="mt-1 w-fit" disabled={!answer || disabled || busy} onClick={() => onSubmitObjective(answer)}>
+          提交
+        </Button>
+      </div>
+    );
+  }
   const immediate = gradingMode === 'AI_IMMEDIATE' && Boolean(onSubmitSubjective);
   return (
     <div className="flex flex-col gap-2">
@@ -177,6 +206,30 @@ export function QuestionRenderer({
   );
 }
 
+/** P5-E9：阅读题可折叠篇目面板（正文随题携带，展开即读，避免整页双栏抢占）。 */
+function ReadingPassagePanel({ reading }: { reading: NonNullable<GeneratedQuestion['reading']> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-md border border-sky-500/25 bg-sky-500/5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-sky-800 dark:text-sky-300 cursor-pointer"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <BookOpen className="h-3.5 w-3.5" />
+        <span className="truncate flex-1">篇目 · {reading.title}</span>
+        <span className="text-[10px] text-sky-600/70 dark:text-sky-400/70">{open ? '收起' : '展开阅读'}</span>
+      </button>
+      {open && (
+        <div className="max-h-72 overflow-y-auto whitespace-pre-wrap border-t border-sky-500/20 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+          {reading.body}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** P5-E5：听写题——TTS 播放语料（不剧透正文，正文在 Runner 隐藏），按批改模式提交。 */
 function DictationSubjective({
   question: q,
@@ -201,9 +254,12 @@ function DictationSubjective({
 }) {
   const [playing, setPlaying] = useState(false);
 
+  // P5-E8：优先朗读完整原句（dictation.fullJapanese），无语料时退回挖空展示句
+  const speakText = q.dictation?.fullJapanese || q.content;
+
   const play = () => {
     setPlaying(true);
-    void speechStudio.speak(q.content, {
+    void speechStudio.speak(speakText, {
       lang: TTS_LANG[language],
       onEnd: () => setPlaying(false),
       onError: () => setPlaying(false),
@@ -220,6 +276,9 @@ function DictationSubjective({
         </Button>
         <span className="text-xs text-slate-500">听音频后写出空缺内容；答案不会以文字剧透。</span>
       </div>
+      {q.dictation?.furiganaHint && (
+        <div className="text-[11px] text-slate-400">提示：{q.dictation.furiganaHint}</div>
+      )}
       <textarea
         value={answer}
         onChange={(e) => onChange(e.target.value)}

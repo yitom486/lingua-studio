@@ -224,7 +224,7 @@ export function PracticeRunner({ runId, items, attempts, language, onCompleted }
                 ) : null}
               </div>
               <div className="mb-1 font-medium">{it.question.prompt}</div>
-              {it.question.type !== 'LISTENING_DICTATION' && (
+              {it.question.type !== 'LISTENING_DICTATION' && it.question.content && (
                 <div className="mb-3 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">
                   {it.question.content}
                 </div>

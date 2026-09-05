@@ -239,6 +239,75 @@ describe('practice assembly by block spec (P5-E4)', () => {
     const itemsRes = await repo.getPracticeRunItems(userId, runRes.value.id);
     if (!isOk(itemsRes)) return;
     expect(itemsRes.value.every((it) => it.question.type === 'LISTENING_DICTATION')).toBe(true);
+    // P5-E8：完整语料随题携带（TTS 原句 + 挖空提示），答案不入语料
+    for (const it of itemsRes.value) {
+      expect(it.question.dictation?.fullJapanese).toBeTruthy();
+      expect(it.question.dictation?.fullJapanese).not.toBe(it.question.correctAnswer);
+    }
+  });
+
+  it('assembles READING blocks from the latest reading set with passage attached', async () => {
+    const saveRes = await repo.saveReadingSet(userId, {
+      id: 'rset_1',
+      origin: 'ai',
+      title: 'Morning Routines',
+      topic: 'daily life',
+      difficulty: 2,
+      language: 'EN',
+      sourceLabel: 'offline template',
+      body: 'Every morning, Maya drinks coffee and reads the news before work.',
+      questions: [
+        {
+          id: 'rq1',
+          prompt: 'What does Maya do before work?',
+          options: [
+            { key: 'A', text: 'Drinks coffee and reads the news' },
+            { key: 'B', text: 'Goes running' },
+            { key: 'C', text: 'Watches TV' },
+          ],
+          correctAnswer: 'A',
+          explanation: '文中明确提到。',
+        },
+        {
+          id: 'rq2',
+          prompt: 'When does Maya read the news?',
+          options: [
+            { key: 'A', text: 'In the morning' },
+            { key: 'B', text: 'At night' },
+            { key: 'C', text: 'Never' },
+          ],
+          correctAnswer: 'A',
+          explanation: 'Every morning。',
+        },
+      ],
+      createdAt: new Date().toISOString(),
+    });
+    expect(isOk(saveRes)).toBe(true);
+
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'en',
+      blocks: [
+        { id: 'blk_read', kind: 'READING', count: 2, gradingMode: 'AUTO_IMMEDIATE' },
+      ] satisfies PracticeBlockSpec[],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(2);
+    expect(asm.value.skippedBlocks).toEqual([]);
+
+    const itemsRes = await repo.getPracticeRunItems(userId, runRes.value.id);
+    if (!isOk(itemsRes)) return;
+    for (const it of itemsRes.value) {
+      expect(it.question.type).toBe('MULTIPLE_CHOICE');
+      expect(it.question.reading?.setId).toBe('rset_1');
+      expect(it.question.reading?.title).toBe('Morning Routines');
+      expect(it.question.reading?.body).toContain('Maya');
+      expect(String(it.question.testedSkillId)).toBe('en.reading.comprehension');
+    }
   });
 });
 

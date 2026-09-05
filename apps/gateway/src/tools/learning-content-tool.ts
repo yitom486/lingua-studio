@@ -674,6 +674,13 @@ export class LearningContentTool
       explanation: d.grammarExplanation,
       testedSkillId: d.testedSkillId,
       difficultyTier: difficulty,
+      // P5-E8：完整语料随题走（TTS 播原句；UI 可展示挖空提示）
+      dictation: {
+        fullJapanese: d.fullJapanese,
+        speaker: d.speaker,
+        chinese: d.chinese,
+        furiganaHint: d.furiganaHint,
+      },
     }));
 
     return this.maybeCollect(
