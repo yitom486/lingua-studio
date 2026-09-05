@@ -823,14 +823,22 @@ export const app = new Hono()
       }
     }
   )
-  // P5：装配运行题目（按块从既有资产装配到 practice_collections）
+  // P5-E7：装配运行题目（按块语义：词汇卡/题型池/模板生成补齐/任意题回退）
   .post(
     '/api/practice/runs/:userId/:runId/assemble',
     async (c) => {
       try {
         const userId = c.req.param('userId');
         const runId = c.req.param('runId');
-        const res = await assemblePracticeRun(drizzleRepo, userId, runId);
+        const contentTool = gatewayServer.toolRegistry.get('learning.content');
+        const res = await assemblePracticeRun(
+          drizzleRepo,
+          userId,
+          runId,
+          contentTool
+            ? (contentTool as unknown as Parameters<typeof assemblePracticeRun>[3])
+            : undefined
+        );
         if (isOk(res)) return c.json(res);
         return formatBusinessErrorResponse(c, res.error);
       } catch (e: unknown) {

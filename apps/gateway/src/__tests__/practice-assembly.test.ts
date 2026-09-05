@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { isOk } from '@study-studio/shared';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
-import { assemblePracticeRun, acceptedDbTypesForBlock } from '../services/practice-assembly.js';
-import type { PracticeBlockSpec } from '@study-studio/protocol';
+import {
+  assemblePracticeRun,
+  acceptedDbTypesForBlock,
+  buildVocabQuestionsFromCards,
+} from '../services/practice-assembly.js';
+import { LearningContentTool } from '../tools/learning-content-tool.js';
+import type { Flashcard, PracticeBlockSpec } from '@study-studio/protocol';
 
 describe('practice assembly by block spec (P5-E4)', () => {
   let repo: DrizzleLearnerRepository;
@@ -26,6 +31,10 @@ describe('practice assembly by block spec (P5-E4)', () => {
       difficulty,
       language: 'en',
     });
+  }
+
+  function seedCard(id: string, front: string, back: string, state: Flashcard['fsrs']['state']) {
+    return repo.saveCard(flashcard(id, front, back, state));
   }
 
   it('maps block kinds and explicit formats to accepted db types', () => {
@@ -129,4 +138,120 @@ describe('practice assembly by block spec (P5-E4)', () => {
     const ids = itemsRes.value.map((it) => String(it.question.id)).sort();
     expect(ids).toEqual(['q_hard_1', 'q_hard_2']);
   });
+
+  it('builds vocab multiple-choice questions from FSRS cards', () => {
+    const cards: Flashcard[] = [
+      flashcard('c1', 'elastic', '有弹性的'),
+      flashcard('c2', 'fragile', '易碎的'),
+      flashcard('c3', 'visible', '可见的'),
+      flashcard('c4', 'durable', '耐用的'),
+    ];
+    const qs = buildVocabQuestionsFromCards(cards, 4, 'en');
+    expect(qs.length).toBe(4);
+    for (const q of qs) {
+      expect(q.type).toBe('MULTIPLE_CHOICE');
+      expect(q.options?.length).toBe(4);
+      expect(q.options).toContain(q.correctAnswer);
+      expect(q.testedSkillId).toBe('en.vocab.review');
+    }
+    // 题干为卡正面，答案为对应卡背面
+    expect(qs[0]!.content).toBe('elastic');
+    expect(qs[0]!.correctAnswer).toBe('有弹性的');
+    expect(new Set(qs.map((q) => q.content)).size).toBe(4);
+  });
+
+  it('assembles VOCAB_REVIEW from due cards without touching the question pool', async () => {
+    await seedCard('card_a', 'abundant', '丰富的', 'REVIEW');
+    await seedCard('card_b', 'scarce', '稀缺的', 'REVIEW');
+    await seedCard('card_c', 'tedious', '乏味的', 'REVIEW');
+    await seedCard('card_d', 'vivid', '生动的', 'REVIEW');
+
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'en',
+      blocks: [
+        { id: 'blk_vocab', kind: 'VOCAB_REVIEW', count: 3, gradingMode: 'AUTO_IMMEDIATE', vocabularySource: 'DUE_CARDS' },
+      ] satisfies PracticeBlockSpec[],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(3);
+    expect(asm.value.skippedBlocks).toEqual([]);
+
+    const itemsRes = await repo.getPracticeRunItems(userId, runRes.value.id);
+    if (!isOk(itemsRes)) return;
+    for (const it of itemsRes.value) {
+      expect(it.question.type).toBe('MULTIPLE_CHOICE');
+      expect(String(it.question.id)).toMatch(/^vocab_card_/);
+      expect(String(it.question.testedSkillId)).toBe('en.vocab.review');
+    }
+    const contents = itemsRes.value.map((it) => it.question.content);
+    expect(new Set(contents).size).toBe(3);
+  });
+
+  it('tops up TRANSLATION blocks via template generation when pool lacks the type', async () => {
+    // 池中只有客观题，没有 TRANSLATION 行
+    await seed('CHOICE', 'q_mc_only_1');
+    const tool = new LearningContentTool(repo);
+
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'en',
+      blocks: [
+        { id: 'blk_tr', kind: 'TRANSLATION', count: 2, gradingMode: 'AI_BATCH' },
+      ] satisfies PracticeBlockSpec[],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id, tool);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(2);
+    expect(asm.value.skippedBlocks).toEqual([]);
+
+    const itemsRes = await repo.getPracticeRunItems(userId, runRes.value.id);
+    if (!isOk(itemsRes)) return;
+    // 模板生成的翻译题干（zh→en 方向），而非通用选择题
+    expect(itemsRes.value.every((it) => it.question.type === 'TRANSLATION')).toBe(true);
+  });
+
+  it('tops up DICTATION blocks via dictation templates', async () => {
+    await seed('CHOICE', 'q_mc_dict_seed');
+    const tool = new LearningContentTool(repo);
+
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'en',
+      blocks: [
+        { id: 'blk_dic', kind: 'DICTATION', count: 2, gradingMode: 'AUTO_IMMEDIATE' },
+      ] satisfies PracticeBlockSpec[],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id, tool);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(2);
+
+    const itemsRes = await repo.getPracticeRunItems(userId, runRes.value.id);
+    if (!isOk(itemsRes)) return;
+    expect(itemsRes.value.every((it) => it.question.type === 'LISTENING_DICTATION')).toBe(true);
+  });
 });
+
+function flashcard(id: string, front: string, back: string, state: Flashcard['fsrs']['state'] = 'REVIEW'): Flashcard {
+  return {
+    id,
+    userId: 'p5e4_user',
+    type: 'VOCABULARY',
+    front,
+    back,
+    phonetic: undefined,
+    audioUrl: undefined,
+    tags: [],
+    fsrs: { stability: 1, difficulty: 5, reps: 1, lapses: 0, dueAt: new Date().toISOString(), state },
+  };
+}

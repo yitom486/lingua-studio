@@ -1,20 +1,21 @@
 import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
-import type { GeneratedQuestion, PracticeBlockSpec, PracticePlanRun } from '@study-studio/protocol';
+import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun } from '@study-studio/protocol';
 import type { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
+import type { LearningContentInput, LearningContentOutput } from '../tools/learning-content-tool.js';
 
 /**
  * P5：练习运行题目装配。
  *
- * 从既有学习资产（quiz_questions 池）按块「装配」题目到 practice_collections
- * （关联 plan_run_id/block_id/grading_mode）。这是「装配」而非「生成」——不调用 LLM。
+ * 按块语义装配到 practice_collections（关联 plan_run_id/block_id/grading_mode）。
+ * P5-E7 块语义链（差距 7 核心）：
+ * 1. VOCAB_REVIEW/VOCAB_NEW → 从 FSRS 闪卡装配词义选择题（到期卡优先 / 新卡优先），不复制 FSRS 状态；
+ * 2. QUIZ/TRANSLATION/DICTATION/WRITING → 先按题型（+难度）从 quiz_questions 池精选；
+ * 3. 池不足 → 经 learning.content `generate_for_block` 模板驱动补齐（不调 LLM，语种模板缺失则跳过）；
+ * 4. 仍不足 → 回退同语种任意可用题；
+ * 5. 全链为空 → 记入 skippedBlocks 显式上报（不再静默跳块）。
+ * 6. 跨块去重：同一 run 内同一道题不重复装入。
  *
- * P5-E4 按块规格选题：
- * 1. 块的 questionFormats（或 kind 默认题型）映射为 DB 题型过滤，先按 difficulty 精选；
- * 2. 难度过严时放宽难度但保留题型；题型完全无题时回退同语种任意可用题；
- * 3. 跨块去重：同一 run 内同一道题不重复装入两个块；
- * 4. 题池彻底为空时不再静默跳块，而是记入 skippedBlocks 由 UI 显式提示。
- *
- * 真正的 AI 题目生成仍走 learning.content 工具（差距 4 待接线）。
+ * READING 块 v1 仍回退客观题（阅读篇目套题链路另行接入）。
  */
 
 export interface AssembledBlock {
@@ -30,6 +31,14 @@ export interface AssembleResult {
   /** 因题池为空而未能装配的块（显式上报，UI 据此提示） */
   skippedBlocks: Array<{ blockId: string; kind: string }>;
 }
+
+/** learning.content 工具的结构化最小契约（避免装配层依赖完整 ToolDefinition）。 */
+export type ContentToolLike = {
+  execute(
+    input: LearningContentInput,
+    context: { userId: string; sessionId: string }
+  ): Promise<Result<LearningContentOutput, BusinessError>>;
+};
 
 /** 块规格 → quiz_questions 池可接受的 DB 题型集合。 */
 export function acceptedDbTypesForBlock(block: PracticeBlockSpec): string[] {
@@ -76,10 +85,47 @@ function quizTypeToDbType(t: GeneratedQuestion['type']): string {
   }
 }
 
+const isVocabBlock = (block: PracticeBlockSpec) =>
+  block.kind === 'VOCAB_REVIEW' || block.kind === 'VOCAB_NEW';
+
+/** P5-E7：从 FSRS 闪卡装配词义选择题（front→选 back；干扰项取其他卡的 back）。 */
+export function buildVocabQuestionsFromCards(
+  cards: Flashcard[],
+  count: number,
+  language: 'en' | 'ja' | 'ko'
+): GeneratedQuestion[] {
+  const usable = cards.filter((c) => c.front && c.back);
+  const out: GeneratedQuestion[] = [];
+  const skillPrefix = language === 'ja' ? 'jp' : language;
+  for (let i = 0; i < Math.min(count, usable.length); i++) {
+    const card = usable[i]!;
+    const distractors = usable
+      .filter((c) => c.id !== card.id && c.back !== card.back)
+      .slice(0, 3);
+    if (distractors.length < 2) break;
+    const opts = [card.back, ...distractors.map((d) => d.back)];
+    const rot = i % opts.length;
+    const options = [...opts.slice(rot), ...opts.slice(0, rot)];
+    out.push({
+      id: `vocab_${card.id}`,
+      type: 'MULTIPLE_CHOICE',
+      prompt: '选出正确的词义 / 用法',
+      content: card.front,
+      options,
+      correctAnswer: card.back,
+      explanation: card.tags.filter(Boolean).join(' · ') || '来自你的 FSRS 生词本',
+      testedSkillId: `${skillPrefix}.vocab.review`,
+      difficultyTier: 3,
+    });
+  }
+  return out;
+}
+
 export async function assemblePracticeRun(
   repo: DrizzleLearnerRepository,
   userId: string,
-  runId: string
+  runId: string,
+  contentTool?: ContentToolLike | undefined
 ): Promise<Result<AssembleResult, BusinessError>> {
   const runRes = await repo.getPracticePlanRun(userId, runId);
   if (!isOk(runRes)) return err(runRes.error);
@@ -95,59 +141,79 @@ export async function assemblePracticeRun(
   let totalItems = 0;
 
   for (const block of run.blocks) {
-    const wantedTypes = acceptedDbTypesForBlock(block);
-    const fetchLimit = block.count * 4 + 8;
+    const candidates: GeneratedQuestion[] = [];
+    const pushFresh = (list: GeneratedQuestion[]) => {
+      for (const q of list) {
+        if (!usedQuestionIds.has(q.id)) candidates.push(q);
+      }
+    };
 
-    // 1) 题型 + 难度精选
-    let pool: any[] = [];
-    const typedRes = await repo.getQuestions(userId, fetchLimit, run.language, {
-      types: wantedTypes,
-      difficulty: block.difficulty,
-    });
-    if (isOk(typedRes)) pool = typedRes.value ?? [];
-
-    // 2) 难度过严 → 放宽难度，保留题型
-    if (pool.length < block.count && typeof block.difficulty === 'number') {
-      const relaxedRes = await repo.getQuestions(userId, fetchLimit, run.language, {
-        types: wantedTypes,
+    // 1) VOCAB 块：从 FSRS 闪卡装配（REVIEW→到期卡优先；NEW→新卡优先）
+    if (isVocabBlock(block)) {
+      const cardsRes = await repo.getDueCards(userId, block.count * 4 + 8, {
+        language: run.language,
+        dueOnly: block.kind === 'VOCAB_REVIEW',
       });
-      if (isOk(relaxedRes)) {
-        const relaxedPool = relaxedRes.value ?? [];
-        if (relaxedPool.length > pool.length) pool = relaxedPool;
+      let cards = isOk(cardsRes) ? (cardsRes.value ?? []) : [];
+      if (block.kind === 'VOCAB_NEW') {
+        cards = cards.filter((c) => c.fsrs.state === 'NEW');
+        if (cards.length === 0) cards = isOk(cardsRes) ? (cardsRes.value ?? []) : [];
+      }
+      pushFresh(buildVocabQuestionsFromCards(cards, block.count, run.language));
+    }
+
+    // 2) 题型（+难度）池精选
+    if (candidates.length < block.count) {
+      const wantedTypes = acceptedDbTypesForBlock(block);
+      const fetchLimit = block.count * 4 + 8;
+      const typedRes = await repo.getQuestions(userId, fetchLimit, run.language, {
+        types: wantedTypes,
+        difficulty: block.difficulty,
+      });
+      let pool = isOk(typedRes) ? (typedRes.value ?? []) : [];
+      // 难度过严 → 放宽难度，保留题型
+      if (pool.length < block.count && typeof block.difficulty === 'number') {
+        const relaxedRes = await repo.getQuestions(userId, fetchLimit, run.language, {
+          types: wantedTypes,
+        });
+        if (isOk(relaxedRes)) {
+          const relaxedPool = relaxedRes.value ?? [];
+          if (relaxedPool.length > pool.length) pool = relaxedPool;
+        }
+      }
+      pushFresh(pool.map(mapPoolQuestion));
+    }
+
+    // 3) 模板驱动生成补齐（不调 LLM；模板缺失自动跳过）
+    if (candidates.length < block.count && contentTool && !isVocabBlock(block)) {
+      const genRes = await contentTool.execute(
+        { action: 'generate_for_block', language: run.language, blocks: [block] },
+        { userId, sessionId: 'practice_assembly' }
+      );
+      if (isOk(genRes)) {
+        const first = genRes.value.perBlock?.[0];
+        pushFresh(first?.questions ?? []);
       }
     }
 
-    // 3) 题型无题 → 回退同语种任意可用题
-    if (pool.length === 0) {
-      const anyRes = await repo.getQuestions(userId, fetchLimit, run.language);
-      if (isOk(anyRes)) pool = anyRes.value ?? [];
+    // 4) 同语种任意题兜底
+    if (candidates.length < block.count) {
+      const anyRes = await repo.getQuestions(userId, block.count * 4 + 8, run.language);
+      if (isOk(anyRes)) pushFresh((anyRes.value ?? []).map(mapPoolQuestion));
     }
 
-    const selected = pool.filter((q) => !usedQuestionIds.has(String(q.id))).slice(0, block.count);
+    const selected = candidates.slice(0, block.count);
     if (selected.length === 0) {
       skippedBlocks.push({ blockId: block.id, kind: block.kind });
       continue;
     }
-    for (const q of selected) usedQuestionIds.add(String(q.id));
-
-    // 映射为 GeneratedQuestion（池中题已是结构化题目）
-    const questions: GeneratedQuestion[] = selected.map((q) => ({
-      id: String(q.id),
-      type: mapQuestionType(q.type),
-      prompt: String(q.prompt ?? ''),
-      content: String(q.content ?? ''),
-      options: Array.isArray(q.options) ? (q.options as string[]) : undefined,
-      correctAnswer: String(q.correctAnswer ?? ''),
-      explanation: String(q.explanation ?? ''),
-      testedSkillId: String(q.testedSkillId ?? q.testedSkill ?? 'review'),
-      difficultyTier: typeof q.difficulty === 'number' ? q.difficulty : 3,
-    }));
+    for (const q of selected) usedQuestionIds.add(q.id);
 
     const collectRes = await repo.collectPracticeQuestions({
       userId,
       title: `练习运行 ${runId.slice(-6)} · ${block.kind}`,
       intent: 'GENERATE_QUIZ',
-      questions,
+      questions: selected,
       planRunId: runId,
       blockId: block.id,
       gradingMode: block.gradingMode,
@@ -163,6 +229,21 @@ export async function assemblePracticeRun(
   }
 
   return ok({ run, blocks, totalItems, skippedBlocks });
+}
+
+/** 把 quiz_questions 池行映射为协议 GeneratedQuestion。 */
+function mapPoolQuestion(q: any): GeneratedQuestion {
+  return {
+    id: String(q.id),
+    type: mapQuestionType(q.type),
+    prompt: String(q.prompt ?? ''),
+    content: String(q.content ?? ''),
+    options: Array.isArray(q.options) ? (q.options as string[]) : undefined,
+    correctAnswer: String(q.correctAnswer ?? ''),
+    explanation: String(q.explanation ?? ''),
+    testedSkillId: String(q.testedSkillId ?? q.testedSkill ?? 'review'),
+    difficultyTier: typeof q.difficulty === 'number' ? q.difficulty : 3,
+  };
 }
 
 /** 把 quiz_questions 的 UI 类型映射回协议 QuizQuestionType。 */

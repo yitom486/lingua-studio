@@ -5,7 +5,8 @@ import {
   ToolPermissions,
   ToolLocations,
 } from '@study-studio/tool-core';
-import type { GeneratedQuestion } from '@study-studio/protocol';
+import type { GeneratedQuestion, PracticeBlockSpec } from '@study-studio/protocol';
+import { PracticeBlockSpecSchema } from '@study-studio/protocol';
 import {
   ok,
   err,
@@ -30,6 +31,8 @@ export const LearningContentInputSchema = z.object({
     'kana_drill',
     'generate_passage',
     'generate_writing_prompt',
+    // P5-E7：按练习计划块规格批量生成（模板驱动，不调 LLM；READING 走篇目链路另行接入）
+    'generate_for_block',
   ]),
   count: z.number().int().min(1).max(20).optional(),
   format: z
@@ -53,6 +56,8 @@ export const LearningContentInputSchema = z.object({
   /** Persist into practice_collections / practice_items when true */
   collect: z.boolean().optional(),
   collectionTitle: z.string().optional(),
+  /** generate_for_block：块规格列表（逐块映射到既有生成路径） */
+  blocks: z.array(PracticeBlockSpecSchema).optional(),
 });
 
 export type LearningContentInput = z.infer<typeof LearningContentInputSchema>;
@@ -96,6 +101,13 @@ export interface LearningContentOutput {
     categoryTag: string;
     testedSkillId: string;
     grammarExplanation: string;
+  }> | undefined;
+  /** generate_for_block：按块对齐的生成结果（questions 为空/errorCode 时由装配层回退） */
+  perBlock?: Array<{
+    blockId: string;
+    kind: string;
+    questions?: GeneratedQuestion[];
+    errorCode?: string;
   }> | undefined;
   collectionId?: string | undefined;
 }
@@ -185,6 +197,50 @@ function pickCycled<T>(items: T[], count: number): T[] {
     out.push(items[i % items.length]!);
   }
   return out;
+}
+
+/**
+ * P5-E7：练习计划块规格 → 既有生成路径的合成输入（模板驱动，不调 LLM）。
+ * READING 返回 null：阅读套题走 generate_passage 篇目链路（无独立配题），v1 不在 run 内生成。
+ */
+export function synthesizeContentInputForBlock(
+  block: PracticeBlockSpec,
+  language: 'ja' | 'en' | 'ko'
+): LearningContentInput | null {
+  const base = {
+    count: Math.min(block.count, 20),
+    difficulty: block.difficulty ?? 2,
+    language,
+    ...(block.skillIds && block.skillIds.length > 0 ? { skillIds: block.skillIds } : {}),
+    ...(block.topic ? { topic: block.topic } : {}),
+    collect: false,
+  };
+  switch (block.kind) {
+    case 'QUIZ':
+    case 'VOCAB_REVIEW':
+    case 'VOCAB_NEW': {
+      const quizLike = ['MULTIPLE_CHOICE', 'FILL_IN_BLANK', 'SENTENCE_REORDER'] as const;
+      const formats =
+        block.questionFormats && block.questionFormats.length > 0
+          ? block.questionFormats
+          : (['MULTIPLE_CHOICE'] as const);
+      const format =
+        formats.find((f): f is (typeof quizLike)[number] =>
+          (quizLike as readonly string[]).includes(f)
+        ) ?? 'MULTIPLE_CHOICE';
+      return { ...base, action: 'generate_quiz', format };
+    }
+    case 'DICTATION':
+      return { ...base, action: 'generate_quiz', format: 'LISTENING_DICTATION' };
+    case 'TRANSLATION':
+      return { ...base, action: 'generate_writing_prompt', genre: 'translation' };
+    case 'WRITING':
+      return { ...base, action: 'generate_writing_prompt', genre: 'diary' };
+    case 'READING':
+      return null;
+    default:
+      return null;
+  }
 }
 
 export class LearningContentTool
@@ -281,6 +337,10 @@ export class LearningContentTool
       const difficulty = input.difficulty ?? 2;
       const topic = input.topic;
       const skillId = input.skillIds?.[0];
+
+      if (action === 'generate_for_block') {
+        return this.generateForBlock(input, context, language);
+      }
 
       switch (action) {
         case 'generate_quiz': {
@@ -528,6 +588,47 @@ export class LearningContentTool
       const message = e instanceof Error ? e.message : 'unknown';
       return err(new BusinessError('E_TOOL_EXECUTION', MSG.execFailed(message), 'TOOL_EXECUTION'));
     }
+  }
+
+  /**
+   * P5-E7：按块规格逐块生成题目（复用既有模板生成路径，collect=false 不自动入库）。
+   * 输出按 blockId 对齐；不可生成（READING）或模板缺失时返回 errorCode，由装配层回退。
+   */
+  private async generateForBlock(
+    input: LearningContentInput,
+    context: ToolExecutionContext,
+    language: 'ja' | 'en' | 'ko'
+  ): Promise<Result<LearningContentOutput, BusinessError>> {
+    const blocks = input.blocks;
+    if (!blocks || blocks.length === 0) {
+      return err(new BusinessError('E_INVALID_INPUT', 'generate_for_block 需要 blocks', 'VALIDATION'));
+    }
+    const perBlock: NonNullable<LearningContentOutput['perBlock']> = [];
+    let generated = 0;
+    for (const block of blocks) {
+      const synth = synthesizeContentInputForBlock(block, language);
+      if (!synth) {
+        perBlock.push({ blockId: block.id, kind: block.kind, errorCode: 'E_BLOCK_KIND_NOT_GENERABLE' });
+        continue;
+      }
+      const res = await this.execute(synth, context);
+      if (!isOk(res)) {
+        perBlock.push({ blockId: block.id, kind: block.kind, errorCode: res.error.code });
+        continue;
+      }
+      const questions = res.value.questions ?? [];
+      generated += questions.length;
+      perBlock.push({ blockId: block.id, kind: block.kind, questions });
+    }
+    return ok({
+      action: 'generate_for_block',
+      language,
+      summary:
+        generated > 0
+          ? `\u5df2\u6309\u5757\u89c4\u683c\u751f\u6210 ${generated} \u9053\u7ec3\u4e60\u9898\u3002`
+          : '\u6682\u65e0\u53ef\u751f\u6210\u7684\u5757\u9898\u76ee\uff0c\u8bf7\u68c0\u67e5\u5185\u5bb9\u6a21\u677f\u5e93\u3002',
+      perBlock,
+    });
   }
 
   private async buildDictation(
