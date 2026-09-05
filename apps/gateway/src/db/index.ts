@@ -59,6 +59,20 @@ export function createDrizzleDb(dbOrPath: Database | string = ':memory:'): Drizz
 }
 
 /**
+ * 声调词表标签 → 词典释义：标签形如「中文 (English)」时取英文 gloss（与 JMdict/Kengdic
+ * 英文释义惯例一致），避免「学生 (Student)」这类头词循环定义入库；无括号时保留原文。
+ */
+export function pitchMeaningToGlosses(meaning: string): string[] {
+  const trimmed = meaning.trim();
+  const match = /^(.*)\s*\(([^()]+)\)\s*$/.exec(trimmed);
+  if (match) {
+    const english = match[2]!.trim();
+    if (english) return [english];
+  }
+  return [trimmed];
+}
+
+/**
  * 自动迁移/初始化数据表 DDL
  */
 export function initSchema(sqlite: Database): void {
@@ -860,7 +874,7 @@ export function initSchema(sqlite: Database): void {
             entry.kanji,
             entry.kana,
             entry.romaji,
-            JSON.stringify([entry.meaning]),
+            JSON.stringify(pitchMeaningToGlosses(entry.meaning)),
             JSON.stringify({
               kind: 'TOKYO_PITCH_ACCENT',
               pitchType: entry.pitchType,

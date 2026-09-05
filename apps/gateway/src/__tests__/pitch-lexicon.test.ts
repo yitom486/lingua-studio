@@ -50,6 +50,17 @@ describe('pitch lexicon coach', () => {
     expect(result.value[0]?.sourceLabel).toBe('Study Studio curriculum seed');
   });
 
+  it('seeds dictionary glosses without circular headword echo', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const result = await repo.searchLocalDictionary('ja', '学生');
+    expect(isOk(result)).toBe(true);
+    if (!isOk(result)) return;
+    const seedEntry = result.value.find((e) => e.sourceLabel === 'Study Studio curriculum seed');
+    expect(seedEntry).toBeDefined();
+    // 「学生 (Student)」标签入库时取英文 gloss，避免头词循环定义
+    expect(seedEntry?.meanings).toEqual(['Student']);
+  });
+
   it('only provides an OJAD deep link for a Japanese local-dictionary miss', async () => {
     const hit = await app.request('/api/dictionary/ja?q=%E9%9B%A8');
     expect(hit.status).toBe(200);
