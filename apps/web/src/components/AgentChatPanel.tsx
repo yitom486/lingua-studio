@@ -13,6 +13,7 @@ import {
   Square,
   Trash2,
   GitFork,
+  Minimize2,
   Wrench,
   X,
   Wifi,
@@ -43,6 +44,7 @@ import {
 import { normalizeTrackLanguage } from '../learning/learning-shell.js';
 import {
   useArchiveCodexThreadMutation,
+  useCompactCodexThreadMutation,
   useCodexCollaborationModesQuery,
   useCodexModelsQuery,
   useCodexQueueQuery,
@@ -52,6 +54,7 @@ import {
   useCodexStatusQuery,
   useCodexThreadItemsQuery,
   useCodexThreadsQuery,
+  useCodexRealtimeInvalidation,
   useDeleteCodexQueueItemMutation,
   useForkCodexThreadMutation,
   useQueueCodexMessageMutation,
@@ -151,7 +154,9 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     Boolean(coachThreadId) && Boolean(gateway.isConnected)
   );
   const archiveThread = useArchiveCodexThreadMutation();
+  const compactThread = useCompactCodexThreadMutation();
   const forkThread = useForkCodexThreadMutation();
+  useCodexRealtimeInvalidation();
   const queueMessage = useQueueCodexMessageMutation();
   const deleteQueueItem = useDeleteCodexQueueItemMutation();
   const { data: queueItems = [] } = useCodexQueueQuery(
@@ -759,6 +764,23 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                         type="button"
                         variant="ghost"
                         size="icon"
+                        className="size-6 shrink-0 text-stone-500 hover:text-amber-300"
+                        title="压缩上下文"
+                        disabled={compactThread.isPending}
+                        onClick={() => {
+                          sound.playClick();
+                          compactThread.mutate(t.id, {
+                            onSuccess: () => toast.success('已请求压缩会话上下文'),
+                            onError: () => toast.error('压缩失败'),
+                          });
+                        }}
+                      >
+                        <Minimize2 className="size-3" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
                         className="size-6 shrink-0 text-stone-500 hover:text-sky-300"
                         title="分叉会话"
                         disabled={forkThread.isPending}
@@ -1275,7 +1297,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           </div>
         </div>
         <p className="mt-1.5 px-1 text-[10px] text-stone-600">
-          ~/.codex · queue/start · rateLimits · mcpStatus
+          ~/.codex · queue/changed · compact · rateLimits
           {codexStatus?.message ? ` · ${codexStatus.message}` : ''}
         </p>
       </footer>

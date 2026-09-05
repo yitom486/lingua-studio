@@ -10,6 +10,7 @@ import { generateId } from '@study-studio/shared';
 import { useGatewayStore } from '../stores/useGatewayStore.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import { emitCodexInvalidate } from '../queries/useCodexQueries.js';
 
 export const DEFAULT_GATEWAY_WS_URL = 'ws://localhost:8080/ws';
 export const DEFAULT_GATEWAY_USER_ID = 'student_web_01';
@@ -528,6 +529,14 @@ export class GatewayClient {
             resolver(envelope.payload);
           }
         }
+      } else if (envelope.type === WsEventTypes.AGENT_QUEUE_CHANGED) {
+        const threadId = (envelope.payload as { threadId?: string } | undefined)?.threadId;
+        emitCodexInvalidate({
+          kind: 'queue',
+          ...(threadId ? { threadId } : {}),
+        });
+      } else if (envelope.type === WsEventTypes.AGENT_SKILLS_CHANGED) {
+        emitCodexInvalidate({ kind: 'skills' });
       } else if (envelope.type === WsEventTypes.AGENT_APPROVAL_REQUEST) {
         const p = envelope.payload as {
           approvalId?: string;

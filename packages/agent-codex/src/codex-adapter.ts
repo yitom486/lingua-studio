@@ -45,6 +45,8 @@ export interface CodexAdapterOptions {
   config?: CodexAppServerConfig;
   /** Gateway 注入：执行 Server/Client Tools 并把结果回填 App Server */
   executeTool?: ExternalToolExecutor;
+  /** Gateway 注入：转发 App Server 旁路通知（queue/changed 等） */
+  onNotification?: (method: string, params: unknown) => void;
 }
 
 /** 用户未操作时自动 decline，避免 App Server 审批请求挂死 */
@@ -367,9 +369,23 @@ export class CodexAdapter implements AgentAdapter {
     string,
     { threadId: string; userId: string; toolNameMap?: Map<string, string> }
   >();
+  private notificationUnsub: (() => void) | null = null;
+  private notificationHandler:
+    | ((method: string, params: unknown) => void)
+    | null = null;
 
   constructor(options: CodexAdapterOptions = {}) {
     this.options = options;
+    if (options.onNotification) {
+      this.notificationHandler = options.onNotification;
+    }
+  }
+
+  public setNotificationHandler(
+    handler: ((method: string, params: unknown) => void) | null
+  ): void {
+    this.notificationHandler = handler;
+    this.wireNotificationHandler();
   }
 
   public async createSession(
@@ -505,6 +521,12 @@ export class CodexAdapter implements AgentAdapter {
     return conn.value.archiveThread(threadId);
   }
 
+  public async compactThread(threadId: string): Promise<Result<void, BusinessError>> {
+    const conn = await this.ensureConnection();
+    if (!isOk(conn)) return conn;
+    return conn.value.compactThread(threadId);
+  }
+
   public async forkThread(params: {
     threadId: string;
     ephemeral?: boolean;
@@ -601,8 +623,20 @@ export class CodexAdapter implements AgentAdapter {
     const c = this.connection;
     this.connection = null;
     this.threadBySession.clear();
+    this.notificationUnsub?.();
+    this.notificationUnsub = null;
     if (!c) return ok(undefined);
     return c.close();
+  }
+
+  private wireNotificationHandler(): void {
+    this.notificationUnsub?.();
+    this.notificationUnsub = null;
+    if (!this.connection || !this.notificationHandler) return;
+    const handler = this.notificationHandler;
+    this.notificationUnsub = this.connection.onNotification((method, params) => {
+      handler(method, params);
+    });
   }
 
   private async ensureConnection(): Promise<
@@ -613,6 +647,7 @@ export class CodexAdapter implements AgentAdapter {
     const ready = await conn.connect();
     if (!isOk(ready)) return ready;
     this.connection = conn;
+    this.wireNotificationHandler();
     return ok(conn);
   }
 }

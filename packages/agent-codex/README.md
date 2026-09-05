@@ -47,6 +47,7 @@
 - `GET /api/agent/codex/threads/:id/items` — 会话条目
 - `POST /api/agent/codex/threads/:id/name` — 重命名
 - `POST /api/agent/codex/threads/:id/archive` — 归档
+- `POST /api/agent/codex/threads/:id/compact` — 压缩上下文（`thread/compact/start`）
 - `POST /api/agent/codex/threads/:id/fork` — 分叉会话（`thread/fork`）
 - `GET|POST /api/agent/codex/threads/:id/queue` — 队列列表 / 入队
 - `DELETE /api/agent/codex/threads/:id/queue/:queuedId` — 移出队列项
@@ -56,7 +57,10 @@
 - `GET /api/agent/codex/mcp-servers` — MCP 状态只读（`mcpServerStatus/list`，非学习域工具总线）
 - `GET /api/agent/codex/collaboration-modes` — 协作模式预设
 
-WebSocket：`client.queue.start` → 流式消费队列下一项；turn 完成 payload 含 `queueRemaining`。
+WebSocket：
+- `client.queue.start` → 流式消费队列下一项；turn 完成 payload 含 `queueRemaining`
+- `agent.queue.changed` ← `thread/queue/changed`
+- `agent.skills.changed` ← `skills/changed`
 
 ## 再生协议类型（可选）
 

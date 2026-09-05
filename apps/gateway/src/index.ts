@@ -155,6 +155,14 @@ export const app = new Hono()
     }
     return c.json({ ok: true, threadId });
   })
+  .post('/api/agent/codex/threads/:threadId/compact', async (c) => {
+    const threadId = c.req.param('threadId');
+    const res = await gatewayServer.compactCodexThread(threadId);
+    if (!isOk(res)) {
+      return formatBusinessErrorResponse(c, res.error, 'CODEX_THREAD_COMPACT');
+    }
+    return c.json({ ok: true, threadId });
+  })
   .get('/api/agent/codex/collaboration-modes', async (c) => {
     const res = await gatewayServer.listCodexCollaborationModes();
     if (!isOk(res)) {
@@ -999,14 +1007,23 @@ export function startGatewayServer(port = PORT) {
         try {
           const raw = typeof message === 'string' ? message : message.toString();
           const envelope = JSON.parse(raw) as WsEnvelope;
+          if (envelope.sessionId) {
+            ws.data.sessionId = envelope.sessionId;
+          }
 
           const isStreamingTurn =
             envelope.type === WsEventTypes.CLIENT_TURN_SEND ||
             envelope.type === WsEventTypes.CLIENT_QUEUE_START;
           const res = await gatewayServer.handleClientMessage(envelope, (outEnv) => {
+            if (outEnv.sessionId) {
+              ws.data.sessionId = outEnv.sessionId;
+            }
             ws.send(JSON.stringify(outEnv));
           });
           if (isOk(res)) {
+            if (res.value.sessionId) {
+              ws.data.sessionId = res.value.sessionId;
+            }
             if (!isStreamingTurn) {
               ws.send(JSON.stringify(res.value));
             }
@@ -1049,6 +1066,7 @@ export function startGatewayServer(port = PORT) {
         }
       },
       close(ws) {
+        gatewayServer.unregisterSessionEmit(ws.data.sessionId);
         console.log(`[Gateway WS] Client disconnected`);
       },
     },

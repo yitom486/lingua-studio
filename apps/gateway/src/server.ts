@@ -55,6 +55,8 @@ export class GatewayServer {
   private readonly activeStreamControllers = new Map<string, AbortController>();
   /** 当前 Turn 的 WS 下发器：供 Codex dynamic tool 触发 Client Tools */
   private activeTurnEmit: ((env: WsEnvelope) => void) | undefined;
+  /** sessionId → 持久 WS 下发（旁路通知用） */
+  private readonly sessionEmitters = new Map<string, (env: WsEnvelope) => void>();
 
   constructor(learnerRepo?: LearnerRepository) {
     this.learnerRepo = learnerRepo ?? new DrizzleLearnerRepository(':memory:');
@@ -107,7 +109,77 @@ export class GatewayServer {
         }
         return res.value;
       },
+      onNotification: (method, params) => {
+        this.handleCodexNotification(method, params);
+      },
     });
+  }
+
+  public registerSessionEmit(
+    sessionId: string,
+    emit: (env: WsEnvelope) => void
+  ): void {
+    if (!sessionId) return;
+    this.sessionEmitters.set(sessionId, emit);
+  }
+
+  public unregisterSessionEmit(sessionId: string | undefined): void {
+    if (!sessionId) return;
+    this.sessionEmitters.delete(sessionId);
+  }
+
+  private handleCodexNotification(method: string, params: unknown): void {
+    const p = (params ?? {}) as Record<string, unknown>;
+    if (method === 'thread/queue/changed') {
+      const threadId = p.threadId != null ? String(p.threadId) : '';
+      if (!threadId) return;
+      this.emitToThreadSessions(threadId, {
+        type: WsEventTypes.AGENT_QUEUE_CHANGED,
+        payload: { threadId },
+      });
+      return;
+    }
+    if (method === 'skills/changed') {
+      this.emitToAllSessions({
+        type: WsEventTypes.AGENT_SKILLS_CHANGED,
+        payload: {},
+      });
+    }
+  }
+
+  private emitToThreadSessions(
+    threadId: string,
+    partial: { type: string; payload: Record<string, unknown> }
+  ): void {
+    for (const [sessionId, emit] of this.sessionEmitters) {
+      const sess = this.sessionManager.getSession(sessionId);
+      if (!isOk(sess)) continue;
+      if (sess.value.agentSession?.threadId !== threadId) continue;
+      emit({
+        version: '1.0',
+        id: generateId('note'),
+        sessionId,
+        type: partial.type as (typeof WsEventTypes)[keyof typeof WsEventTypes],
+        payload: partial.payload,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private emitToAllSessions(partial: {
+    type: string;
+    payload: Record<string, unknown>;
+  }): void {
+    for (const [sessionId, emit] of this.sessionEmitters) {
+      emit({
+        version: '1.0',
+        id: generateId('note'),
+        sessionId,
+        type: partial.type as (typeof WsEventTypes)[keyof typeof WsEventTypes],
+        payload: partial.payload,
+        timestamp: Date.now(),
+      });
+    }
   }
 
   /** 本机 Codex 登录态 / 模型清单（HTTP 探测用） */
@@ -137,6 +209,10 @@ export class GatewayServer {
 
   public async archiveCodexThread(threadId: string) {
     return this.agentAdapter.archiveThread(threadId);
+  }
+
+  public async compactCodexThread(threadId: string) {
+    return this.agentAdapter.compactThread(threadId);
   }
 
   public async forkCodexThread(params: {
@@ -224,6 +300,9 @@ export class GatewayServer {
     envelope: WsEnvelope,
     emit?: (env: WsEnvelope) => void
   ): Promise<Result<WsEnvelope, BusinessError>> {
+    if (emit && envelope.sessionId) {
+      this.registerSessionEmit(envelope.sessionId, emit);
+    }
     switch (envelope.type) {
       case WsEventTypes.CLIENT_SESSION_INIT: {
         const payload = envelope.payload as {
@@ -248,6 +327,10 @@ export class GatewayServer {
         // 获取该学习者的最新画像快照
         const snapshotRes = await this.learnerRepo.getProfileSnapshot(payload.userId);
         const snapshot = isOk(snapshotRes) ? snapshotRes.value : undefined;
+
+        if (emit) {
+          this.registerSessionEmit(sessionRes.value.id, emit);
+        }
 
         return ok({
           version: '1.0',

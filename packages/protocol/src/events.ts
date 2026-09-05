@@ -31,6 +31,8 @@ export const WsEventTypes = {
   AGENT_TURN_COMPLETED: 'agent.turn.completed',
   /** Codex thread/queue/changed 转发 */
   AGENT_QUEUE_CHANGED: 'agent.queue.changed',
+  /** Codex skills/changed 转发 */
+  AGENT_SKILLS_CHANGED: 'agent.skills.changed',
   AGENT_ERROR: 'agent.error',
   LEARNER_PROFILE_UPDATED: 'learner.profile.updated',
   LEARNER_DAILY_TASK_UPDATED: 'learner.daily_task.updated',

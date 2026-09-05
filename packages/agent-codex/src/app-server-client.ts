@@ -59,10 +59,23 @@ export class CodexAppServerConnection {
   private activeApprovalPolicy: string;
   /** 正在流式中的 turn id（供 steer / interrupt） */
   private activeTurnId: string | null = null;
+  /** 连接级通知（含 idle 时 queue/changed 等） */
+  private idleNotifyUnsub: (() => void) | null = null;
+  private readonly idleNotifyHandlers = new Set<
+    (method: string, params: unknown) => void
+  >();
 
   constructor(config?: CodexAppServerConfig) {
     this.config = { ...loadCodexConfigFromEnv(), ...config };
     this.activeApprovalPolicy = normalizeApprovalPolicy(this.config.approvalPolicy);
+  }
+
+  /** 订阅 App Server 通知（不限于进行中的 turn） */
+  public onNotification(
+    handler: (method: string, params: unknown) => void
+  ): () => void {
+    this.idleNotifyHandlers.add(handler);
+    return () => this.idleNotifyHandlers.delete(handler);
   }
 
   public setToolCallHandler(handler: ToolCallHandler | null): void {
@@ -170,6 +183,17 @@ export class CodexAppServerConnection {
     if (!isOk(notified)) return notified;
 
     this.initialized = true;
+    if (!this.idleNotifyUnsub) {
+      this.idleNotifyUnsub = this.rpc.onNotification((note) => {
+        for (const h of this.idleNotifyHandlers) {
+          try {
+            h(note.method, note.params);
+          } catch {
+            // 旁路通知失败不拖垮连接
+          }
+        }
+      });
+    }
     return ok(undefined);
   }
 
@@ -598,6 +622,15 @@ export class CodexAppServerConnection {
     return ok(undefined);
   }
 
+  /** thread/compact/start — 压缩上下文（异步，App Server 侧执行） */
+  public async compactThread(threadId: string): Promise<Result<void, BusinessError>> {
+    const ready = await this.connect();
+    if (!isOk(ready)) return ready;
+    const res = await this.rpc.request('thread/compact/start', { threadId });
+    if (!isOk(res)) return res;
+    return ok(undefined);
+  }
+
   /** thread/fork — 从已有会话分叉 */
   public async forkThread(params: {
     threadId: string;
@@ -926,6 +959,9 @@ export class CodexAppServerConnection {
 
   public async close(): Promise<Result<void, BusinessError>> {
     this.initialized = false;
+    this.idleNotifyUnsub?.();
+    this.idleNotifyUnsub = null;
+    this.idleNotifyHandlers.clear();
     return this.rpc.close();
   }
 }

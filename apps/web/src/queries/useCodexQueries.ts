@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { GATEWAY_BASE_URL } from '../lib/api-client.js';
 
 export const CODEX_QUERY_KEYS = {
@@ -12,6 +13,49 @@ export const CODEX_QUERY_KEYS = {
   RATE_LIMITS: ['agent', 'codexRateLimits'] as const,
   MCP_SERVERS: ['agent', 'codexMcpServers'] as const,
 };
+
+type CodexInvalidateListener = (event: {
+  kind: 'queue' | 'skills';
+  threadId?: string;
+}) => void;
+
+const codexInvalidateListeners = new Set<CodexInvalidateListener>();
+
+/** GatewayClient 收到旁路通知时调用 */
+export function emitCodexInvalidate(event: {
+  kind: 'queue' | 'skills';
+  threadId?: string;
+}): void {
+  for (const listener of codexInvalidateListeners) {
+    listener(event);
+  }
+}
+
+/** 订阅 Codex 旁路失效（queue/changed、skills/changed） */
+export function useCodexRealtimeInvalidation(): void {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const listener: CodexInvalidateListener = (event) => {
+      if (event.kind === 'queue') {
+        if (event.threadId) {
+          void qc.invalidateQueries({
+            queryKey: [...CODEX_QUERY_KEYS.QUEUE, event.threadId],
+          });
+        } else {
+          void qc.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.QUEUE });
+        }
+        return;
+      }
+      if (event.kind === 'skills') {
+        void qc.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.SKILLS });
+      }
+    };
+    codexInvalidateListeners.add(listener);
+    return () => {
+      codexInvalidateListeners.delete(listener);
+    };
+  }, [qc]);
+}
 
 export interface CodexAccountStatusDto {
   linked: boolean;
@@ -192,6 +236,19 @@ export function useArchiveCodexThreadMutation() {
   });
 }
 
+export function useCompactCodexThreadMutation() {
+  return useMutation({
+    mutationFn: async (threadId: string) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/agent/codex/threads/${encodeURIComponent(threadId)}/compact`,
+        { method: 'POST' }
+      );
+      if (!res.ok) throw new Error('压缩会话失败');
+      return threadId;
+    },
+  });
+}
+
 export function useRenameCodexThreadMutation() {
   const qc = useQueryClient();
   return useMutation({
@@ -249,7 +306,7 @@ export function useCodexQueueQuery(threadId: string | null, enabled = true) {
       return Array.isArray(data.items) ? data.items : [];
     },
     staleTime: 5_000,
-    refetchInterval: enabled ? 8_000 : false,
+    refetchInterval: enabled ? 30_000 : false,
     retry: 1,
   });
 }
