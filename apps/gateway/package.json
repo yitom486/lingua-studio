@@ -18,6 +18,7 @@
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "test": "bun test",
-    "dictionary:import:oewn": "bun src/scripts/import-oewn.ts"
+    "dictionary:import:oewn": "bun src/scripts/import-oewn.ts",
+    "sidecar:build": "bun scripts/build-sidecar.ts"
   }
 }

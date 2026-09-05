@@ -54,6 +54,15 @@ export class TauriPlatformCapabilities implements PlatformCapabilities {
   }
 }
 
+/**
+ * P4-B：备份桌面端学习数据库（仅 Tauri 壳可用；Web 端无此能力，不进入共享接口）。
+ * 返回用户选择的备份文件路径；UI 层按需调用（设置页后续接入）。
+ */
+export async function backupDesktopDatabase(): Promise<string> {
+  const dest = await tauriInvoke('platform_backup_database');
+  return String(dest);
+}
+
 /** 调用 Tauri 全局 invoke；未注入时抛错以触发回退。 */
 function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   if (typeof window === 'undefined') {
