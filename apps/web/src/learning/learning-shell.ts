@@ -155,3 +155,21 @@ export function getLearningShellConfig(track: string | undefined | null): Learni
   const normalized = normalizeTrackLanguage(track);
   return LEARNING_SHELL_CONFIGS[normalized];
 }
+
+/**
+ * 语境化 Tab 守卫：非法 Tab 不一律跳 fallbackTab，而是按模块语义跳最近的合法工作台。
+ * - JA 专属页（KANA/PITCH/TEXTBOOK/SHADOWING）在 EN/KO 轨道 → 跳回做题；
+ * - KO 未开放的写作/跟读 → 跳回阅读；
+ * - 其余非法 Tab → 轨道 fallbackTab。
+ */
+export function resolveGuardTab(track: TrackLanguage, activeTab: NavigationTab): NavigationTab {
+  const config = LEARNING_SHELL_CONFIGS[track];
+  if (config.allowedTabs.includes(activeTab)) return activeTab;
+  if (activeTab === 'KANA' || activeTab === 'PITCH' || activeTab === 'TEXTBOOK' || activeTab === 'SHADOWING') {
+    return 'QUIZ';
+  }
+  if (activeTab === 'WRITING') {
+    return 'READING';
+  }
+  return config.fallbackTab;
+}

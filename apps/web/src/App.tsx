@@ -22,6 +22,7 @@ import { PracticePlanPanel } from './components/practice/PracticePlanPanel.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useEnsureGateway } from './hooks/useAgentGateway.js';
 import { useLearningShell } from './hooks/useLearningShell.js';
+import { resolveGuardTab } from './learning/learning-shell.js';
 import { useCommandActions, useStartLessonQuiz } from './hooks/useCommandActions.js';
 import { usePreferencesStore } from './stores/usePreferencesStore.js';
 import { useStudySessionStore } from './stores/useStudySessionStore.js';
@@ -84,12 +85,13 @@ export function App() {
     return usePreferencesStore.persist.onFinishHydration(restore);
   }, []);
 
-  // Tab 路由守卫：当目标语种切换后当前活跃 Tab 若不合法，自动降级跳回 fallbackTab
+  // Tab 路由守卫：目标语种切换后当前活跃 Tab 若不合法，按模块语境降级（KANA→QUIZ、WRITING→READING 等）
   useEffect(() => {
-    if (!shell.allowedTabs.includes(activeTab)) {
-      setActiveTab(shell.fallbackTab);
+    const guarded = resolveGuardTab(shell.track, activeTab);
+    if (guarded !== activeTab) {
+      setActiveTab(guarded);
     }
-  }, [activeTab, shell.allowedTabs, shell.fallbackTab, setActiveTab]);
+  }, [activeTab, shell.track, setActiveTab]);
 
   // 切轨道时清空 Agent 灌入的临时题包，避免 EN 题包压住 KO Query 结果
   useEffect(() => {

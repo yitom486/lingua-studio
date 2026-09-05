@@ -2,7 +2,7 @@
  * Target Language UI Shell §7 手测脚本（可对 localhost:8080 实机验收）
  * 运行：bun apps/gateway/scripts/shell-acceptance.mjs
  */
-import { getLearningShellConfig } from '../../web/src/learning/learning-shell.ts';
+import { getLearningShellConfig, resolveGuardTab } from '../../web/src/learning/learning-shell.ts';
 import { findStudyGoalOption } from '../../web/src/data/learner-profile-options.ts';
 import { SIDEBAR_NAV_GROUPS } from '../../web/src/data/sidebar-nav-data.ts';
 
@@ -51,8 +51,7 @@ function visibleNavTabs(track) {
 }
 
 function wouldGuardTab(track, activeTab) {
-  const shell = getLearningShellConfig(track);
-  return shell.allowedTabs.includes(activeTab) ? activeTab : shell.fallbackTab;
+  return resolveGuardTab(track, activeTab);
 }
 
 async function main() {
