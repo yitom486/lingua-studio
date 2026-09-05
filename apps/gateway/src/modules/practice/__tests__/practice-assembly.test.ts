@@ -6,7 +6,7 @@ import {
   acceptedDbTypesForBlock,
   buildVocabQuestionsFromCards,
 } from '../application/practice-assembly.js';
-import { LearningContentTool } from '../../../tools/learning-content-tool.js';
+import { LearningContentTool } from '../../../transport/tools/learning-content-tool.js';
 import type { Flashcard, PracticeBlockSpec } from '@study-studio/protocol';
 
 describe('practice assembly by block spec (P5-E4)', () => {

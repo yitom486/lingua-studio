@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { formatNewsBody } from '../services/news-reading.js';
+import { formatNewsBody } from '../modules/curriculum/application/news-reading.js';
 
 describe('formatNewsBody', () => {
   it('keeps summary + date + tip but does not embed raw source URL', () => {

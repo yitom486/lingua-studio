@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
-import { generateNewsPassage } from '../services/generate-news-passage.js';
-import { fetchRssItems, fetchRssItemsWithFallback } from '../services/news-rss.js';
-import { fetchNewsArticleFullText } from '../services/news-article-fetch.js';
+import { generateNewsPassage } from '../modules/curriculum/application/generate-news-passage.js';
+import { fetchRssItems, fetchRssItemsWithFallback } from '../modules/curriculum/infrastructure/news-rss.js';
+import { fetchNewsArticleFullText } from '../modules/curriculum/infrastructure/news-article-fetch.js';
 import { isOk } from '@study-studio/shared';
 
 /**

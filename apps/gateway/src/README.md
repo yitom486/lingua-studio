@@ -13,7 +13,7 @@
 | `services/` | 领域服务（practice 四个服务 G1 已搬至 `modules/practice/application/`，见其 README） |
 | `repository/` | 持久层实现：`drizzle-learner-repository.ts` 对接 SQLite（`learner-core` 契约的实现方） |
 | `db/` | SQLite 表结构（`schema.ts`）、建表与迁移（`index.ts`） |
-| `tools/` | Server/Client Tool 定义与执行：出题、批改、错题入库等，经 ToolRouter 调度 |
+| `tools/` | 旧位置（已清空，见其 README）：Tool 实现已按域归组到 `modules/*/tools/`，跨域入口与注册在 `transport/tools/` |
 | `errors/` | 错误翻译：底层异常 → `BusinessError`（code/category/retryable/userMessage），禁止原始异常外泄 |
 | `scripts/` | 运维脚本：一键检查、数据维护等 |
 | `__tests__/` | 网关单测：装配、判题、WebSocket、Turn 汇总等 |

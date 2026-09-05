@@ -5,7 +5,7 @@ import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.
 import {
   installDictionaryPackage,
   listDictionaryPackages,
-} from '../../../services/dictionary-packages.js';
+} from '../application/dictionary-packages.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
 // 词典安装任务表：进程级单例（随模块常驻，不随请求重建），G2 迁移时原样搬入本域。

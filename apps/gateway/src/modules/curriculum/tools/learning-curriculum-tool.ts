@@ -7,8 +7,8 @@ import {
 } from '@study-studio/tool-core';
 import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared';
 import type { KanaItem } from '@study-studio/protocol';
-import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
-import { lookupPitchEntries, PITCH_LEXICON, type PitchLexiconEntry } from '../db/seeds/pitch-seed.js';
+import { DrizzleLearnerRepository } from '../../../repository/drizzle-learner-repository.js';
+import { lookupPitchEntries, PITCH_LEXICON, type PitchLexiconEntry } from '../../../db/seeds/pitch-seed.js';
 
 export const LearningCurriculumInputSchema = z.object({
   action: z.enum([

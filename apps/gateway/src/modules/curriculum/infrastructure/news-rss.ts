@@ -2,7 +2,7 @@ import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared'
 import {
   type StudyContentLanguage,
   normalizeContentLanguage,
-} from './learning-language-policy.js';
+} from '../../../services/learning-language-policy.js';
 
 export interface RssItem {
   title: string;

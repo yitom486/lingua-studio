@@ -10,7 +10,7 @@ import {
   buildAnalysisSnapshot,
   __resetAnalysisCacheForTest,
   type AnalysisSnapshot,
-} from '../services/learning-analysis.js';
+} from '../modules/learning-progress/application/learning-analysis.js';
 
 // ---------- mock repo ----------
 function makeMockRepo(opts: {

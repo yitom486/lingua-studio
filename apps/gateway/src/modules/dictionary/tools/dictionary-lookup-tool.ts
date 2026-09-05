@@ -10,8 +10,8 @@ import {
   DrizzleLearnerRepository,
   type LocalDictionaryEntry,
   type TrackLanguage,
-} from '../repository/drizzle-learner-repository.js';
-import { buildOjadSearchUrl } from '../services/dictionary-external-links.js';
+} from '../../../repository/drizzle-learner-repository.js';
+import { buildOjadSearchUrl } from '../application/dictionary-external-links.js';
 
 export const DictionaryLookupInputSchema = z.object({
   language: z.enum(['ja', 'en', 'ko']),

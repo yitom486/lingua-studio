@@ -3,7 +3,7 @@ import {
   resolveResponsesLiteCoach,
   tryKanaCoachReply,
   tryParticleCoachReply,
-} from '../services/responses-lite-coach.js';
+} from '../runtime/responses-lite-coach.js';
 
 describe('responses-lite coach', () => {
   it('hits pitch lexicon for Japanese accent questions', () => {

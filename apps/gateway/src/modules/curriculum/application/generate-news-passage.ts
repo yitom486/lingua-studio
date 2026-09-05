@@ -3,13 +3,13 @@ import {
   fetchRssItemsWithFallback,
   resolveNewsFeedCandidates,
   type RssItem,
-} from './news-rss.js';
-import { fetchNewsArticleFullText } from './news-article-fetch.js';
+} from '../infrastructure/news-rss.js';
+import { fetchNewsArticleFullText } from '../infrastructure/news-article-fetch.js';
 import { buildReadingQuestionsFromNews, formatNewsBody } from './news-reading.js';
 import {
   type StudyContentLanguage,
   normalizeContentLanguage,
-} from './learning-language-policy.js';
+} from '../../../services/learning-language-policy.js';
 
 export interface GeneratedNewsPassage {
   title: string;

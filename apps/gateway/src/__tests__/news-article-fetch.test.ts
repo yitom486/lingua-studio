@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { extractReadablePlainText } from '../services/news-article-fetch.js';
-import { formatNewsBody } from '../services/news-reading.js';
+import { extractReadablePlainText } from '../modules/curriculum/infrastructure/news-article-fetch.js';
+import { formatNewsBody } from '../modules/curriculum/application/news-reading.js';
 
 describe('extractReadablePlainText', () => {
   it('prefers article paragraphs over chrome', () => {

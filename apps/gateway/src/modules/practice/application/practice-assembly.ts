@@ -1,7 +1,7 @@
 import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
 import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun } from '@study-studio/protocol';
 import type { DrizzleLearnerRepository } from '../../../repository/drizzle-learner-repository.js';
-import type { LearningContentInput, LearningContentOutput } from '../../../tools/learning-content-tool.js';
+import type { LearningContentInput, LearningContentOutput } from '../../../transport/tools/learning-content-tool.js';
 
 /**
  * P5：练习运行题目装配。

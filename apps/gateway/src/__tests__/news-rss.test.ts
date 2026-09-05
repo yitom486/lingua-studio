@@ -4,8 +4,8 @@ import {
   resolveNewsFeed,
   resolveNewsFeedCandidates,
   pickLeadSentence,
-} from '../services/news-rss.js';
-import { generateNewsPassage } from '../services/generate-news-passage.js';
+} from '../modules/curriculum/infrastructure/news-rss.js';
+import { generateNewsPassage } from '../modules/curriculum/application/generate-news-passage.js';
 import { DEFAULT_CONTENT_LANGUAGE } from '../services/learning-language-policy.js';
 
 describe('news RSS integration', () => {
@@ -96,7 +96,7 @@ describe('news RSS integration', () => {
   });
 
   it('sanitizeRssText handles real HTML tags inside CDATA', async () => {
-    const { sanitizeRssText } = await import('../services/news-rss.js');
+    const { sanitizeRssText } = await import('../modules/curriculum/infrastructure/news-rss.js');
     const cleaned = sanitizeRssText(
       '<![CDATA[<p>First sentence.</p><p>Second <a href="x">link</a> here.</p>]]>'
     );

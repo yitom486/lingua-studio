@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { isOk, isErr } from '@study-studio/shared';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
-import { LearningPracticeTool } from '../tools/learning-practice-tool.js';
-import { LearningAssessTool } from '../tools/learning-assess-tool.js';
-import { LearningPlanTool } from '../tools/learning-plan-tool.js';
+import { LearningPracticeTool } from '../modules/practice/tools/learning-practice-tool.js';
+import { LearningAssessTool } from '../modules/practice/tools/learning-assess-tool.js';
+import { LearningPlanTool } from '../transport/tools/learning-plan-tool.js';
 import type { PracticeBlockSpec, PracticePlanTemplate } from '@study-studio/protocol';
 
 describe('P5 PhaseB practice tools', () => {

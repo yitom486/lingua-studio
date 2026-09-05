@@ -3,7 +3,7 @@ import { validator } from 'hono/validator';
 import { isOk, BusinessError, generateId } from '@study-studio/shared';
 import { listNewsTopics, type ReadingPassageSet } from '@study-studio/protocol';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
-import { generateNewsPassage } from '../../../services/generate-news-passage.js';
+import { generateNewsPassage } from '../application/generate-news-passage.js';
 import {
   buildEnglishAiReadingPrompt,
   buildKoreanAiReadingPrompt,

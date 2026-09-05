@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { GatewayServer } from '../server.js';
+import { GatewayServer } from '../runtime/gateway-runtime.js';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
 import { WsEventTypes, type WsEnvelope, type TurnExecutionSummary } from '@study-studio/protocol';
 import { isOk, BusinessError } from '@study-studio/shared';
-import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../services/turn-summary-builder.js';
+import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../runtime/turn-summary-builder.js';
 import type { AgentEvent, AgentSession } from '@study-studio/agent-core';
 import type { Result } from '@study-studio/shared';
 import { mapAppServerNotificationToEvents, type CodexAdapter } from '@study-studio/agent-codex';

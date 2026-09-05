@@ -1,5 +1,5 @@
 import type { DrizzleLearnerRepository } from '../../repository/drizzle-learner-repository.js';
-import type { GatewayServer } from '../../server.js';
+import type { GatewayServer } from '../../runtime/gateway-runtime.js';
 
 /**
  * 网关依赖束（G2）：路由只经 deps 访问仓储与运行时，

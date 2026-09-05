@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { GatewayServer } from '../server.js';
+import { GatewayServer } from '../runtime/gateway-runtime.js';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
 import { WsEventTypes, type WsEnvelope } from '@study-studio/protocol';
 import { isOk } from '@study-studio/shared';
-import { LearningContentTool } from '../tools/learning-content-tool.js';
-import { LearningAssessTool } from '../tools/learning-assess-tool.js';
+import { LearningContentTool } from '../transport/tools/learning-content-tool.js';
+import { LearningAssessTool } from '../modules/practice/tools/learning-assess-tool.js';
 
 describe('AI Native Agent Streaming & Parameterized Tools', () => {
   let server: GatewayServer;

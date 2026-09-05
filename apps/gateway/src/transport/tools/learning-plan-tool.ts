@@ -9,8 +9,8 @@ import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared'
 import type { DailyStudyPlan, LearnerRepository } from '@study-studio/learner-core';
 import type { PracticeBlockSpec } from '@study-studio/protocol';
 import { PracticeBlockSpecSchema } from '@study-studio/protocol';
-import { buildAnalysisSnapshot } from '../services/learning-analysis.js';
-import { createProposal, type PracticeProposal } from '../modules/practice/application/practice-proposal.js';
+import { buildAnalysisSnapshot } from '../../modules/learning-progress/application/learning-analysis.js';
+import { createProposal, type PracticeProposal } from '../../modules/practice/application/practice-proposal.js';
 
 export const LearningPlanInputSchema = z.object({
   action: z.enum([

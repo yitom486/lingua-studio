@@ -3,9 +3,9 @@ import {
   installOewnPackage,
   OEWN_2025_URL,
   parseOewnXml,
-} from '../services/dictionary-packages.js';
+} from '../modules/dictionary/application/dictionary-packages.js';
 
-export { parseOewnXml } from '../services/dictionary-packages.js';
+export { parseOewnXml } from '../modules/dictionary/application/dictionary-packages.js';
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');

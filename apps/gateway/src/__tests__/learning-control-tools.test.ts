@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { isOk } from '@study-studio/shared';
 import { DrizzleLearnerRepository } from '../repository/drizzle-learner-repository.js';
-import { LearningProgressTool } from '../tools/learning-progress-tool.js';
-import { LearningCurriculumTool } from '../tools/learning-curriculum-tool.js';
-import { LearningLibraryTool } from '../tools/learning-library-tool.js';
-import { LearningContentTool } from '../tools/learning-content-tool.js';
-import { LearningPlanTool } from '../tools/learning-plan-tool.js';
+import { LearningProgressTool } from '../modules/learning-progress/tools/learning-progress-tool.js';
+import { LearningCurriculumTool } from '../modules/curriculum/tools/learning-curriculum-tool.js';
+import { LearningLibraryTool } from '../modules/library/tools/learning-library-tool.js';
+import { LearningContentTool } from '../transport/tools/learning-content-tool.js';
+import { LearningPlanTool } from '../transport/tools/learning-plan-tool.js';
 
 describe('learning control tools (C1–C3 / D)', () => {
   it('learning.progress records quiz attempt', async () => {

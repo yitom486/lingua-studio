@@ -3,7 +3,7 @@ import { validator } from 'hono/validator';
 import { isOk, BusinessError } from '@study-studio/shared';
 import type { LearnerProfile } from '@study-studio/protocol';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
-import { runLearningAnalysis, buildAnalysisSnapshot } from '../../../services/learning-analysis.js';
+import { runLearningAnalysis, buildAnalysisSnapshot } from '../application/learning-analysis.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
 /** 学习进度域路由：画像、每日任务/计划、学习分析、错题（G2 迁移，行为不变）。 */

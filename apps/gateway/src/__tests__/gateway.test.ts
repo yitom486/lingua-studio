@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { GatewayServer } from '../server.js';
+import { GatewayServer } from '../runtime/gateway-runtime.js';
 import { WsEventTypes, type WsEnvelope } from '@study-studio/protocol';
 import { isOk, isErr } from '@study-studio/shared';
 

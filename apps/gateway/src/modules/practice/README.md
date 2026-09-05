@@ -10,3 +10,9 @@ persistence（G4）暂未搬迁，仍在 `index.ts` / `repository/domains/`。
 | `application/practice-proposal.ts` | AI 建议 propose + 用户确认 apply（TTL、一次性消费；依赖 `services/learning-analysis.js` 的 `AnalysisSnapshot` 类型） |
 | `application/practice-summary.ts` | 运行复盘（只读 run + attempts，AI/local 双源），仅依赖 packages |
 | `__tests__/` | assembly / grading / phase-d 单模块测试；`practice-collect.test.ts` 仍在根 `__tests__`（测 HTTP，需 `app`） |
+| `tools/` | learning-practice、learning-assess、grade-subjective-quiz、generate-adaptive-quiz（G3 已归组，公开 name/schema 不变） |
+| `http/` | 练习域路由（G2 已抽取） |
+
+依赖说明：`application/practice-assembly.ts` 经结构化 `ContentToolLike`
+消费内容生成能力，对 `transport/tools/learning-content-tool.js` 仅为
+`import type`（无运行时依赖）；Tool 与 HTTP 是同一用例的两个入口。
