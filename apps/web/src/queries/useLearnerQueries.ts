@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateId } from '@study-studio/shared';
 import type { FsrsState, SkillMetric, DailyTaskProgress, DailyStudyPlan } from '@study-studio/learner-core';
-import type { KanaItem, ReadingPassageSet, NewsTopic, LearningAnalysisReport } from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet, NewsTopic, LearningAnalysisReport, PracticePlanTemplate, PracticePlanRun, PracticeItemAttempt, PracticeBlockSpec } from '@study-studio/protocol';
 import { toUiQuizType } from '@study-studio/protocol';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { TEXTBOOK_BOOKS, type TextbookBook } from '../data/textbook-data.js';
@@ -32,6 +32,8 @@ export const QUERY_KEYS = {
   DAILY_PLAN: ['learner', 'dailyPlan'] as const,
   LEARNING_ANALYSIS: ['learner', 'analysis'] as const,
   ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
+  PRACTICE_TEMPLATES: ['learner', 'practiceTemplates'] as const,
+  PRACTICE_RUN: ['learner', 'practiceRun'] as const,
 };
 
 /**
@@ -1377,6 +1379,243 @@ export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
       const data = (await res.json()) as { dictationItems?: DictationChallengeItem[] };
       if (!data.dictationItems?.length) throw new Error('听写题为空');
       return data.dictationItems;
+    },
+  });
+}
+
+// ===================== P5：可配置练习计划 =====================
+
+/** 练习计划模板列表 */
+export function usePracticeTemplatesQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+  return useQuery<PracticePlanTemplate[]>({
+    queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId, targetLanguage],
+    queryFn: async () => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/practice/templates/${userId}?lang=${targetLanguage}&includeDisabled=1`
+      );
+      if (!res.ok) throw new Error('加载练习计划模板失败');
+      return (await res.json()) as PracticePlanTemplate[];
+    },
+  });
+}
+
+/** 保存（新建/更新）模板；成功后失效模板列表 */
+export function useSavePracticeTemplateMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (template: PracticePlanTemplate) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(template),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { userMessage?: string } } | null;
+        throw new Error(body?.error?.userMessage ?? '保存模板失败');
+      }
+      return (await res.json()) as PracticePlanTemplate;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId] });
+    },
+  });
+}
+
+/** 删除模板 */
+export function useDeletePracticeTemplateMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (templateId: string) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/practice/templates/${userId}/${encodeURIComponent(templateId)}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) throw new Error('删除模板失败');
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_TEMPLATES, userId] });
+    },
+  });
+}
+
+/** 开始一次练习运行（从模板冻结或一次性自定义块） */
+export function useStartPracticeRunMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { language: 'en' | 'ja' | 'ko'; templateId?: string; blocks?: PracticeBlockSpec[] }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...params }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { userMessage?: string } } | null;
+        throw new Error(body?.error?.userMessage ?? '开始练习失败');
+      }
+      return (await res.json()) as PracticePlanRun;
+    },
+    onSuccess: (run) => {
+      queryClient.setQueryData([...QUERY_KEYS.PRACTICE_RUN, userId, run.id], { run, attempts: [] });
+    },
+  });
+}
+
+/** 读取运行 + 其尝试 */
+export function usePracticeRunQuery(runId: string | null, userId = DEFAULT_USER_ID) {
+  return useQuery<{ run: PracticePlanRun | null; attempts: PracticeItemAttempt[] }>({
+    queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, runId],
+    enabled: Boolean(runId),
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/${userId}/${runId}`);
+      if (!res.ok) throw new Error('加载练习运行失败');
+      return (await res.json()) as { run: PracticePlanRun | null; attempts: PracticeItemAttempt[] };
+    },
+    staleTime: 1000 * 5,
+  });
+}
+
+/** 保存草稿（主观题写到一半） */
+export function useSavePracticeDraftMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { runId: string; itemId: string; userAnswer: string }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...params }),
+      });
+      if (!res.ok) throw new Error('保存草稿失败');
+      return (await res.json()) as PracticeItemAttempt;
+    },
+    onSuccess: (attempt) => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, attempt.runId] });
+    },
+  });
+}
+
+/** 提交客观题（即时自动判定） */
+export function useSubmitObjectiveMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      runId: string;
+      itemId: string;
+      userAnswer: string;
+      isCorrect?: boolean;
+      score?: number;
+      testedSkillId?: string;
+      timeSpentMs?: number;
+    }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/submit-objective`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...params }),
+      });
+      if (!res.ok) throw new Error('提交客观题失败');
+      return (await res.json()) as PracticeItemAttempt;
+    },
+    onSuccess: (attempt) => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, attempt.runId] });
+    },
+  });
+}
+
+/** 提交主观题（已由 learning.assess 批改） */
+export function useSubmitSubjectiveMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      runId: string;
+      itemId: string;
+      userAnswer: string;
+      gradingResult: Record<string, unknown>;
+      timeSpentMs?: number;
+    }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/submit-subjective`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...params }),
+      });
+      if (!res.ok) throw new Error('提交主观题失败');
+      return (await res.json()) as PracticeItemAttempt;
+    },
+    onSuccess: (attempt) => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, attempt.runId] });
+    },
+  });
+}
+
+/** 批量提交（用 learning.assess.grade_batch 的结果） */
+export function useSubmitBatchMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: {
+      runId: string;
+      items: Array<{ itemId: string; userAnswer: string; gradingResult: Record<string, unknown>; timeSpentMs?: number }>;
+    }) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/submit-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...params }),
+      });
+      if (!res.ok) throw new Error('批量提交失败');
+      return (await res.json()) as { attempts: PracticeItemAttempt[]; batchSummary: { total: number; graded: number; correct: number } };
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, variables.runId] });
+    },
+  });
+}
+
+/** 完成运行（原子写学习统计） */
+export function useFinalizePracticeRunMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, runId }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: { userMessage?: string } } | null;
+        throw new Error(body?.error?.userMessage ?? '完成练习失败');
+      }
+      return (await res.json()) as PracticePlanRun;
+    },
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, run.id] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_TASK });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.LEARNING_ANALYSIS });
+    },
+  });
+}
+
+/** 批量主观题评测（复用 learning.assess HTTP 路由，action=grade_batch） */
+export interface AssessBatchResult {
+  results: Array<{ itemId: string; grading: Record<string, unknown> }>;
+  summary: { total: number; correct: number; averageScore: number; commonIssues: string[] };
+}
+export function useGradeBatchMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (items: Array<{
+      itemId: string;
+      prompt: string;
+      standardAnswer: string;
+      userSubmission: string;
+      testedSkillId?: string;
+      language?: 'en' | 'ja' | 'ko';
+    }>) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/learning/assess/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'grade_batch', items }),
+      });
+      if (!res.ok) throw new Error('批量评测失败');
+      return (await res.json()) as AssessBatchResult;
     },
   });
 }
