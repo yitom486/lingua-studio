@@ -28,7 +28,7 @@ interface PracticeRunnerProps {
   items: PracticeRunnerItem[];
   attempts: PracticeItemAttempt[];
   language: 'en' | 'ja' | 'ko';
-  onCompleted?: () => void;
+  onCompleted?: (() => void) | undefined;
 }
 
 type ItemStatus = 'PENDING' | 'DRAFT' | 'SUBMITTED' | 'GRADED';

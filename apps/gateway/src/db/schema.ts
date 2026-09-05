@@ -280,6 +280,10 @@ export const practiceCollections = sqliteTable('practice_collections', {
   intent: text('intent').notNull().default('GENERATE_QUIZ'),
   layoutHint: text('layout_hint'), // 'SPLIT_PASSAGE_QUESTIONS' | 'SINGLE_COLUMN' | null
   sourceRef: text('source_ref'),
+  // P5：关联练习运行/块/批改模式
+  planRunId: text('plan_run_id'),
+  blockId: text('block_id'),
+  gradingMode: text('grading_mode'),
   createdAt: text('created_at').notNull(),
 });
 

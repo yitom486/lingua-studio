@@ -130,6 +130,16 @@ export interface LearnerRepository {
   listPracticeItemAttempts(
     runId: string
   ): Promise<Result<PracticeItemAttempt[], BusinessError>>;
+  /** P5：按 run 聚合所有关联集合的题目。 */
+  getPracticeRunItems(
+    userId: string,
+    runId: string
+  ): Promise<
+    Result<
+      Array<{ itemId: string; blockId: string; gradingMode: string; question: import('@study-studio/protocol').GeneratedQuestion }>,
+      BusinessError
+    >
+  >;
   /** 完成运行：原子地把已批改尝试写入既有 quiz_attempts/错题/打卡，并标记 run COMPLETED。 */
   finalizePracticePlanRun(
     userId: string,

@@ -560,6 +560,9 @@ export class SqliteLearnerRepository implements LearnerRepository {
   public async listPracticeItemAttempts(): Promise<Result<never[], BusinessError>> {
     return ok([]);
   }
+  public async getPracticeRunItems(): Promise<Result<never[], BusinessError>> {
+    return ok([]);
+  }
   public async finalizePracticePlanRun(): Promise<Result<never, BusinessError>> {
     return err(new BusinessError('E_NOT_SUPPORTED', '遗留 SqliteLearnerRepository 不支持练习计划', 'VALIDATION'));
   }

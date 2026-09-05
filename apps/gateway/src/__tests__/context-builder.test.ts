@@ -118,6 +118,7 @@ function mockRepo(overrides: {
     savePracticeItemDraft: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
     submitPracticeItem: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
     listPracticeItemAttempts: async () => ok([]),
+    getPracticeRunItems: async () => ok([]),
     finalizePracticePlanRun: async () => err(new BusinessError('E_NOT_SUPPORTED', '', 'VALIDATION')) as never,
   } as LearnerRepository;
 }

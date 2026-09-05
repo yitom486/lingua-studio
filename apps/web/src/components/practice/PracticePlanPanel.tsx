@@ -5,23 +5,23 @@ import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { usePracticeTemplatesQuery, useDeletePracticeTemplateMutation, useStartPracticeRunMutation } from '../../queries/useLearnerQueries.js';
 import { PracticePlanEditor } from './PracticePlanEditor.js';
+import { PracticeRunWorkbench } from './PracticeRunWorkbench.js';
 import type { PracticePlanTemplate } from '@study-studio/protocol';
 
-/** P5：练习计划面板。模板列表 + 新建/编辑/删除/开始今日运行。 */
+/** P5：练习计划面板。模板列表 + 新建/编辑/删除/开始今日运行；开始后进入运行工作台。 */
 
 interface PracticePlanPanelProps {
   userId: string;
   language: 'en' | 'ja' | 'ko';
-  /** 开始运行后回调（携带 runId，由父组件装配题目并打开 PracticeRunner） */
-  onStartRun?: (runId: string, template: PracticePlanTemplate) => void;
 }
 
-export function PracticePlanPanel({ userId, language, onStartRun }: PracticePlanPanelProps) {
+export function PracticePlanPanel({ userId, language }: PracticePlanPanelProps) {
   const { data: templates = [], isLoading } = usePracticeTemplatesQuery(userId, language);
   const deleteMutation = useDeletePracticeTemplateMutation(userId);
   const startMutation = useStartPracticeRunMutation(userId);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<PracticePlanTemplate | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   const openNew = () => {
     setEditing(null);
@@ -43,11 +43,26 @@ export function PracticePlanPanel({ userId, language, onStartRun }: PracticePlan
     try {
       const run = await startMutation.mutateAsync({ language, templateId: tpl.id });
       toast.success('已开始练习运行');
-      onStartRun?.(run.id, tpl);
+      setActiveRunId(run.id);
     } catch (e) {
       toast.error((e as Error).message);
     }
   };
+
+  if (activeRunId) {
+    return (
+      <PracticeRunWorkbench
+        runId={activeRunId}
+        userId={userId}
+        language={language}
+        onCompleted={() => {
+          toast.success('练习已完成');
+          setActiveRunId(null);
+        }}
+        onExit={() => setActiveRunId(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">

@@ -2571,6 +2571,10 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     layoutHint?: string | undefined;
     sourceRef?: string | undefined;
     questions: GeneratedQuestion[];
+    /** P5：关联练习运行/块/批改模式（可空，向后兼容） */
+    planRunId?: string | undefined;
+    blockId?: string | undefined;
+    gradingMode?: string | undefined;
   }): Promise<Result<{ collection: PracticeCollection; items: PracticeItem[] }, BusinessError>> {
     try {
       const parsed = input.questions.map((q) => {
@@ -2597,6 +2601,9 @@ export class DrizzleLearnerRepository implements LearnerRepository {
         layoutHint: input.layoutHint ?? null,
         sourceRef: input.sourceRef ?? null,
         createdAt,
+        planRunId: input.planRunId ?? null,
+        blockId: input.blockId ?? null,
+        gradingMode: input.gradingMode ?? null,
       });
 
       const items: PracticeItem[] = [];
@@ -3142,6 +3149,40 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       return ok(rows.map((r) => this.mapAttemptRow(r)));
     } catch (error) {
       return err(translateToBusinessError(error, { category: 'DATABASE', action: 'listPracticeItemAttempts', entityId: runId }));
+    }
+  }
+
+  /** P5：按 run 聚合所有关联集合的题目（practice_collections.plan_run_id = runId）。 */
+  public async getPracticeRunItems(
+    userId: string,
+    runId: string
+  ): Promise<Result<Array<{ itemId: string; blockId: string; gradingMode: string; question: GeneratedQuestion }>, BusinessError>> {
+    try {
+      const cols = await this.db
+        .select()
+        .from(practiceCollections)
+        .where(and(eq(practiceCollections.userId, userId), eq(practiceCollections.planRunId, runId)));
+      if (cols.length === 0) return ok([]);
+      const collectionIds = cols.map((c) => c.id);
+      const itemRows = await this.db
+        .select()
+        .from(practiceItems)
+        .where(inArray(practiceItems.collectionId, collectionIds))
+        .orderBy(asc(practiceItems.sortOrder));
+      const colByBlock = new Map(cols.map((c) => [c.id, { blockId: c.blockId ?? '', gradingMode: c.gradingMode ?? 'AUTO_IMMEDIATE' }]));
+      const out = itemRows.map((r) => {
+        const meta = colByBlock.get(r.collectionId) ?? { blockId: '', gradingMode: 'AUTO_IMMEDIATE' };
+        const question = safeJsonParse(r.questionJson) as GeneratedQuestion;
+        return {
+          itemId: r.id,
+          blockId: meta.blockId,
+          gradingMode: meta.gradingMode,
+          question,
+        };
+      });
+      return ok(out);
+    } catch (error) {
+      return err(translateToBusinessError(error, { category: 'DATABASE', action: 'getPracticeRunItems', entityId: runId }));
     }
   }
 

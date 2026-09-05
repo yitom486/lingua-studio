@@ -27,6 +27,7 @@ import {
   listDictionaryPackages,
 } from './services/dictionary-packages.js';
 import { runLearningAnalysis } from './services/learning-analysis.js';
+import { assemblePracticeRun } from './services/practice-assembly.js';
 
 export * from './server.js';
 export * from './session/session-manager.js';
@@ -786,6 +787,33 @@ export const app = new Hono()
       }
     }
   )
+  // P5：装配运行题目（按块从既有资产装配到 practice_collections）
+  .post(
+    '/api/practice/runs/:userId/:runId/assemble',
+    async (c) => {
+      try {
+        const userId = c.req.param('userId');
+        const runId = c.req.param('runId');
+        const res = await assemblePracticeRun(drizzleRepo, userId, runId);
+        if (isOk(res)) return c.json(res);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e: unknown) {
+        return formatBusinessErrorResponse(c, e, 'assemblePracticeRun');
+      }
+    }
+  )
+  // P5：读取运行的所有题目（按 block 聚合）
+  .get('/api/practice/runs/:userId/:runId/items', async (c) => {
+    try {
+      const userId = c.req.param('userId');
+      const runId = c.req.param('runId');
+      const res = await drizzleRepo.getPracticeRunItems(userId, runId);
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e: unknown) {
+      return formatBusinessErrorResponse(c, e, 'getPracticeRunItems');
+    }
+  })
   // 3. FSRS 闪卡存取
   .get('/api/cards/:userId', async (c) => {
     const userId = c.req.param('userId');

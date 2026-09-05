@@ -1619,3 +1619,39 @@ export function useGradeBatchMutation(userId = DEFAULT_USER_ID) {
     },
   });
 }
+
+/** 装配运行题目（按块从既有资产装配到 practice_collections） */
+export function useAssemblePracticeRunMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (runId: string) => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/${userId}/${runId}/assemble`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error('装配练习题目失败');
+      return (await res.json()) as { run: PracticePlanRun; blocks: Array<{ blockId: string; collectionId: string; itemCount: number }>; totalItems: number };
+    },
+    onSuccess: (_data, runId) => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, runId] });
+    },
+  });
+}
+
+/** 读取运行的所有题目（按 block 聚合） */
+export interface PracticeRunnerItemDTO {
+  itemId: string;
+  blockId: string;
+  gradingMode: 'AUTO_IMMEDIATE' | 'AI_IMMEDIATE' | 'AI_BATCH';
+  question: import('@study-studio/protocol').GeneratedQuestion;
+}
+export function usePracticeRunItemsQuery(runId: string | null, userId = DEFAULT_USER_ID) {
+  return useQuery<PracticeRunnerItemDTO[]>({
+    queryKey: [...QUERY_KEYS.PRACTICE_RUN, userId, runId, 'items'],
+    enabled: Boolean(runId),
+    queryFn: async () => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/practice/runs/${userId}/${runId}/items`);
+      if (!res.ok) throw new Error('加载练习题目失败');
+      return (await res.json()) as PracticeRunnerItemDTO[];
+    },
+  });
+}
