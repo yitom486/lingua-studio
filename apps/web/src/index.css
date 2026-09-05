@@ -30,6 +30,34 @@
   animation: shine 1.6s ease-in-out infinite;
 }
 
+@keyframes reply-bar {
+  0%,
+  100% {
+    transform: scaleY(0.28);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.animate-reply-bar {
+  animation: reply-bar 0.85s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+@keyframes reply-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.animate-reply-shimmer {
+  animation: reply-shimmer 1.6s ease-in-out infinite;
+}
+
 .perspective-1000 {
   perspective: 1000px;
 }
