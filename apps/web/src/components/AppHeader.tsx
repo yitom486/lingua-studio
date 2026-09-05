@@ -120,12 +120,7 @@ export function AppHeader({ gateway, onOpenMobileNav }: AppHeaderProps) {
             size="sm"
             onClick={() => {
               sound.playClick();
-              openTutor({
-                questionText: '自由互动学习与答疑',
-                correctAnswer: '开放式交流',
-                skillTag: 'jp.general.consultation',
-                explanation: '随时向 AI 助教提问关于语法辨析、例句造句、阅读理解或备考建议。',
-              });
+              openTutor(null);
             }}
             className="gap-1.5 border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/15 text-amber-900 dark:text-amber-200 font-medium h-8 sm:h-9 px-2.5 sm:px-3 text-xs"
             title="唤起 AI 交互助教"

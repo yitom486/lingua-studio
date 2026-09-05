@@ -86,6 +86,14 @@ export function buildTutorBootstrapPrompt(
   );
 }
 
+export function buildTutorFreeGreeting(track: TrackLanguage): string {
+  const copy = getTutorTrackCopy(track);
+  return (
+    `你好！我是你的${copy.trackName}专属 AI 导师（${copy.levelScheme}）。` +
+    `可以直接问语法辨析、例句造句或备考建议——回复经 Gateway 流式推送。`
+  );
+}
+
 export function buildTutorOpeningGreeting(
   track: TrackLanguage,
   ctx: TutorFocusContext,

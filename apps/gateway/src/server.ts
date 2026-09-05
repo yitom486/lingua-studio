@@ -48,8 +48,8 @@ export class GatewayServer {
   public readonly contextBuilder = new ContextBuilder();
   public readonly toolRegistry = new ToolRegistry();
   public readonly toolRouter = new ToolRouter(this.toolRegistry);
-  public readonly agentAdapter = new CodexAdapter();
-  /** 轻量旁路骨架：未接入路由前勿当默认学习闭环依赖 */
+  public readonly agentAdapter: CodexAdapter;
+  /** 轻量旁路：快问快答；学习闭环默认走 Codex App Server */
   public readonly responsesAdapter = new ResponsesAdapter();
   public readonly learnerRepo: LearnerRepository;
   private readonly activeStreamControllers = new Map<string, AbortController>();
@@ -70,6 +70,27 @@ export class GatewayServer {
     this.toolRegistry.register(new LearningLibraryTool(drizzle));
     this.toolRegistry.register(new UiNavigateTool());
     this.toolRegistry.register(new UiPresentTool());
+
+    this.agentAdapter = new CodexAdapter({
+      executeTool: async (toolName, input, ctx) => {
+        const tool = this.toolRegistry.get(toolName);
+        if (!tool) {
+          throw new BusinessError(
+            'E_TOOL_NOT_FOUND',
+            `未注册工具：${toolName}`,
+            'TOOL_EXECUTION'
+          );
+        }
+        const res = await tool.execute(input as never, {
+          userId: ctx.userId,
+          sessionId: ctx.sessionId,
+        });
+        if (!isOk(res)) {
+          throw res.error;
+        }
+        return res.value;
+      },
+    });
   }
 
   /** 下发 Client Tool 调用（前端执行，Gateway 只做参数校验） */
@@ -661,6 +682,88 @@ export class GatewayServer {
               }
             }
 
+            // learning-loop：优先真实 Codex App Server 流式
+            let streamedFromCodex = false;
+            if (!reply && decision.route === 'learning-loop') {
+              const learningTools = [
+                this.toolRegistry.get('learning.content'),
+                this.toolRegistry.get('learning.assess'),
+                this.toolRegistry.get('learning.curriculum'),
+                this.toolRegistry.get('learning.library'),
+              ].filter(Boolean);
+
+              const sessionRes = await this.agentAdapter.createSession({
+                sessionId: envelope.sessionId,
+                userId,
+                tools: learningTools as any,
+              });
+
+              if (isOk(sessionRes)) {
+                this.sessionManager.attachAgentSession(envelope.sessionId, sessionRes.value);
+                let acc = '';
+                for await (const ev of sessionRes.value.send({
+                  message: userPrompt,
+                  contextSnapshot: snapshot,
+                })) {
+                  if (abortController.signal.aborted) {
+                    await sessionRes.value.interrupt();
+                    break;
+                  }
+                  if (ev.type === 'TEXT_DELTA' && ev.delta) {
+                    acc += ev.delta;
+                    streamedFromCodex = true;
+                    if (emit) {
+                      emit({
+                        version: '1.0',
+                        id: generateId('delta'),
+                        sessionId: envelope.sessionId,
+                        type: WsEventTypes.AGENT_TEXT_DELTA,
+                        payload: { delta: ev.delta, textDelta: ev.delta, source: 'codex' },
+                        timestamp: Date.now(),
+                      });
+                    }
+                  } else if (ev.type === 'REASONING_DELTA' && ev.delta) {
+                    if (emit) {
+                      emit({
+                        version: '1.0',
+                        id: generateId('reason'),
+                        sessionId: envelope.sessionId,
+                        type: WsEventTypes.AGENT_REASONING_DELTA,
+                        payload: { delta: ev.delta },
+                        timestamp: Date.now(),
+                      });
+                    }
+                  } else if (ev.type === 'TOOL_CALL_REQUESTED') {
+                    if (emit) {
+                      emit({
+                        version: '1.0',
+                        id: generateId('tool'),
+                        sessionId: envelope.sessionId,
+                        type: WsEventTypes.AGENT_TOOL_CALL,
+                        payload: {
+                          callId: ev.callId,
+                          toolName: ev.toolName,
+                          arguments: ev.input,
+                        },
+                        timestamp: Date.now(),
+                      });
+                    }
+                  } else if (ev.type === 'COMPLETED' && ev.finalOutput) {
+                    if (!acc) acc = String(ev.finalOutput);
+                  } else if (ev.type === 'ERROR') {
+                    // Codex 失败则回落本地教练，不中断整轮
+                    streamedFromCodex = false;
+                    acc = '';
+                    break;
+                  }
+                }
+                if (acc) {
+                  reply = acc;
+                  streamedFromCodex = true;
+                }
+              }
+            }
+
             if (!reply) {
               reply = buildGenericCoachReply({
                 track,
@@ -668,26 +771,46 @@ export class GatewayServer {
                 focusLabel: snapshot.focus?.skillTag || snapshot.focus?.surface,
               });
             }
-          }
 
-          // 4. 真流式逐块推流 (Text Delta)
-          const chunkSize = 6;
-          for (let i = 0; i < reply.length; i += chunkSize) {
-            if (abortController.signal.aborted) {
-              break;
+            // 非 Codex 真流式时：本地文案假分块推流
+            if (!streamedFromCodex) {
+              const chunkSize = 6;
+              for (let i = 0; i < reply.length; i += chunkSize) {
+                if (abortController.signal.aborted) {
+                  break;
+                }
+                const chunk = reply.slice(i, i + chunkSize);
+                const deltaEnvelope: WsEnvelope = {
+                  version: '1.0',
+                  id: generateId('delta'),
+                  sessionId: envelope.sessionId,
+                  type: WsEventTypes.AGENT_TEXT_DELTA,
+                  payload: { delta: chunk, textDelta: chunk },
+                  timestamp: Date.now(),
+                };
+                if (emit) emit(deltaEnvelope);
+                await new Promise((resolve) => setTimeout(resolve, 20));
+              }
             }
-            const chunk = reply.slice(i, i + chunkSize);
-            const deltaEnvelope: WsEnvelope = {
-              version: '1.0',
-              id: generateId('delta'),
-              sessionId: envelope.sessionId,
-              type: WsEventTypes.AGENT_TEXT_DELTA,
-              payload: { delta: chunk, textDelta: chunk },
-              timestamp: Date.now(),
-            };
-            if (emit) emit(deltaEnvelope);
-            // 微延时模拟真实 LLM Token 流畅推流
-            await new Promise((resolve) => setTimeout(resolve, 20));
+          } else {
+            // 关键词工具已生成整段 reply：假分块推流
+            const chunkSize = 6;
+            for (let i = 0; i < reply.length; i += chunkSize) {
+              if (abortController.signal.aborted) {
+                break;
+              }
+              const chunk = reply.slice(i, i + chunkSize);
+              const deltaEnvelope: WsEnvelope = {
+                version: '1.0',
+                id: generateId('delta'),
+                sessionId: envelope.sessionId,
+                type: WsEventTypes.AGENT_TEXT_DELTA,
+                payload: { delta: chunk, textDelta: chunk },
+                timestamp: Date.now(),
+              };
+              if (emit) emit(deltaEnvelope);
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
           }
         } finally {
           this.activeStreamControllers.delete(envelope.sessionId);
@@ -716,6 +839,10 @@ export class GatewayServer {
         if (controller) {
           controller.abort();
           this.activeStreamControllers.delete(envelope.sessionId);
+        }
+        const sess = this.sessionManager.getSession(envelope.sessionId);
+        if (isOk(sess) && sess.value.agentSession) {
+          void sess.value.agentSession.interrupt();
         }
         return ok({
           version: '1.0',

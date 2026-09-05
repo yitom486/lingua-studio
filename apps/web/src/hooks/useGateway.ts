@@ -17,6 +17,7 @@ export interface StreamTurnOptions {
   contextSnapshot?: any;
   onStart?: () => void;
   onDelta: (delta: string, accumulated: string) => void;
+  onReasoningDelta?: (delta: string, accumulated: string) => void;
   onComplete: (data: { status: 'COMPLETED' | 'INTERRUPTED'; finalOutput: string; toolResults?: any }) => void;
   onError?: (err: any) => void;
 }
@@ -46,9 +47,11 @@ export function useGateway({
   const activeStreamRef = useRef<{
     onStart?: (() => void) | undefined;
     onDelta: (delta: string, accumulated: string) => void;
+    onReasoningDelta?: ((delta: string, accumulated: string) => void) | undefined;
     onComplete: (data: any) => void;
     onError?: ((err: any) => void) | undefined;
     accumulatedText: string;
+    accumulatedReasoning: string;
   } | null>(null);
 
   const connect = useCallback(() => {
@@ -114,6 +117,16 @@ export function useGateway({
               const delta = p?.delta || p?.textDelta || '';
               activeStreamRef.current.accumulatedText += delta;
               activeStreamRef.current.onDelta(delta, activeStreamRef.current.accumulatedText);
+            }
+          } else if (envelope.type === WsEventTypes.AGENT_REASONING_DELTA) {
+            if (activeStreamRef.current) {
+              const p = envelope.payload as any;
+              const delta = p?.delta || '';
+              activeStreamRef.current.accumulatedReasoning += delta;
+              activeStreamRef.current.onReasoningDelta?.(
+                delta,
+                activeStreamRef.current.accumulatedReasoning
+              );
             }
           } else if (envelope.type === WsEventTypes.AGENT_TURN_COMPLETED) {
             if (activeStreamRef.current) {
@@ -398,9 +411,11 @@ export function useGateway({
       activeStreamRef.current = {
         onStart: options.onStart,
         onDelta: options.onDelta,
+        onReasoningDelta: options.onReasoningDelta,
         onComplete: options.onComplete,
         onError: options.onError,
         accumulatedText: '',
+        accumulatedReasoning: '',
       };
 
       const envelope: WsEnvelope = {

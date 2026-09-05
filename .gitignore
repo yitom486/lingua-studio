@@ -2,6 +2,9 @@
 .plan/
 .studio-internal/
 
+# Codex App Server generated protocol dump (optional reference)
+packages/agent-codex/protocol-gen/
+
 
 # Dependencies
 node_modules/

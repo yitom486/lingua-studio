@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { AiTutorDrawer } from './components/AiTutorDrawer.js';
+import { AgentChatPanel } from './components/AgentChatPanel.js';
 import { AppHeader } from './components/AppHeader.js';
 import { AppSidebar } from './components/AppSidebar.js';
 import { AdaptiveQuizWorkbench } from './components/AdaptiveQuizWorkbench.js';
@@ -123,11 +124,25 @@ export function App() {
         actions={commandActions}
       />
       <AiTutorDrawer
-        isOpen={isTutorOpen}
+        isOpen={isTutorOpen && Boolean(tutorContext)}
         onClose={closeTutor}
         context={tutorContext}
         gateway={gateway}
       />
+
+      {/* Codex 风格自由教练窗：无题目上下文时 / 或可并行打开 */}
+      {isTutorOpen && !tutorContext && (
+        <div className="fixed inset-y-3 right-3 z-50 w-[min(100vw-1.5rem,420px)] shadow-2xl">
+          <AgentChatPanel gateway={gateway} className="h-full" />
+          <button
+            type="button"
+            className="absolute top-2 right-2 text-[11px] text-stone-400 hover:text-stone-200 px-2 py-1"
+            onClick={closeTutor}
+          >
+            关闭
+          </button>
+        </div>
+      )}
 
       <AppSidebar
         mobileOpen={mobileNavOpen}

@@ -40,7 +40,7 @@ export interface StudySessionState {
   toggleCommandOpen: () => void;
   setCardFilter: (filter: 'ALL' | 'VOCAB' | 'GRAMMAR' | 'CONFUSION') => void;
   setQuestionIndex: (index: number) => void;
-  openTutor: (ctx: AiTutorContext) => void;
+  openTutor: (ctx?: AiTutorContext | null) => void;
   closeTutor: () => void;
   presentQuiz: (pkg: Omit<PresentedQuizPackage, 'presentedAt'> & { presentedAt?: string }) => void;
   clearPresentedQuiz: () => void;
@@ -75,8 +75,8 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   toggleCommandOpen: () => set((state) => ({ isCommandOpen: !state.isCommandOpen })),
   setCardFilter: (cardFilter) => set({ cardFilter }),
   setQuestionIndex: (questionIndex) => set({ questionIndex }),
-  openTutor: (tutorContext) => set({ isTutorOpen: true, tutorContext }),
-  closeTutor: () => set({ isTutorOpen: false }),
+  openTutor: (tutorContext = null) => set({ isTutorOpen: true, tutorContext: tutorContext ?? null }),
+  closeTutor: () => set({ isTutorOpen: false, tutorContext: null }),
   presentQuiz: (pkg) =>
     set({
       presentedQuiz: {
@@ -97,7 +97,7 @@ export const useStudySessionStore = create<StudySessionState>((set) => ({
   clearPresentedQuiz: () => set({ presentedQuiz: null }),
   applyUiNavigate: (target, openTutor) => {
     if (target === 'TUTOR' || openTutor) {
-      set({ isTutorOpen: true });
+      set({ isTutorOpen: true, tutorContext: null });
       return;
     }
     if (TAB_SET.has(target)) {

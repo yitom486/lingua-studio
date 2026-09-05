@@ -21,6 +21,7 @@ export const WsEventTypes = {
   // Gateway -> Client
   AGENT_TURN_START: 'agent.turn.start',
   AGENT_TEXT_DELTA: 'agent.text.delta',
+  AGENT_REASONING_DELTA: 'agent.reasoning.delta',
   AGENT_TOOL_CALL: 'agent.tool.call',
   AGENT_APPROVAL_REQUEST: 'agent.approval.request',
   AGENT_TURN_COMPLETED: 'agent.turn.completed',

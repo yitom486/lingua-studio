@@ -37,6 +37,7 @@ interface MessageItem {
   text: string;
   timestamp: string;
   isStreaming?: boolean;
+  reasoning?: string;
 }
 
 interface AiTutorDrawerProps {
@@ -105,6 +106,13 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
         onDelta: (_delta, accumulated) => {
           setMessages((prev) =>
             prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulated } : m))
+          );
+        },
+        onReasoningDelta: (_delta, accumulated) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId ? { ...m, reasoning: accumulated } : m
+            )
           );
         },
         onComplete: (data) => {
@@ -378,6 +386,11 @@ export function AiTutorDrawer({ isOpen, onClose, context, gateway }: AiTutorDraw
                           : 'bg-amber-500 text-stone-950 font-medium rounded-tr-none shadow-sm'
                       }`}
                     >
+                      {isAi && msg.reasoning ? (
+                        <div className="mb-2 text-[11px] text-stone-500 dark:text-stone-400 border-l-2 border-amber-500/40 pl-2 whitespace-pre-wrap font-sans">
+                          {msg.reasoning}
+                        </div>
+                      ) : null}
                       {msg.text}
                       {msg.isStreaming && (
                         <span className="inline-block w-1.5 h-4 ml-1 bg-amber-500 animate-pulse align-middle" />

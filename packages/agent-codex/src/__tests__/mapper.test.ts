@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { mapCodexItemToAgentEvent, CodexAdapter } from '../index.js';
-import { isOk } from '@study-studio/shared';
+import {
+  mapCodexItemToAgentEvent,
+  mapAppServerNotificationToEvents,
+  CodexAdapter,
+  loadCodexConfigFromEnv,
+} from '../index.js';
+import { isErr } from '@study-studio/shared';
 
 describe('Agent Codex - Mapper & Adapter', () => {
   it('should map message_delta correctly', () => {
@@ -40,22 +45,52 @@ describe('Agent Codex - Mapper & Adapter', () => {
     }
   });
 
-  it('should create session and stream events', async () => {
-    const adapter = new CodexAdapter();
-    const sessionRes = await adapter.createSession({
-      sessionId: 'test_sess',
-      userId: 'u1',
+  it('maps App Server agentMessage delta notifications', () => {
+    const events = mapAppServerNotificationToEvents('item/agentMessage/delta', {
+      delta: 'こんにちは',
     });
+    expect(events).toEqual([{ type: 'TEXT_DELTA', delta: 'こんにちは' }]);
+  });
 
-    expect(isOk(sessionRes)).toBe(true);
-    if (isOk(sessionRes)) {
-      const session = sessionRes.value;
-      const events = [];
-      for await (const ev of session.send({ message: '出题' })) {
-        events.push(ev);
-      }
-      expect(events.length).toBeGreaterThan(0);
-      expect(events[0]?.type).toBe('REASONING_STARTED');
+  it('maps App Server reasoning text deltas', () => {
+    const events = mapAppServerNotificationToEvents('item/reasoning/summaryTextDelta', {
+      delta: 'think…',
+    });
+    expect(events).toEqual([{ type: 'REASONING_DELTA', delta: 'think…' }]);
+  });
+
+  it('maps dynamicToolCall started to TOOL_CALL_REQUESTED', () => {
+    const events = mapAppServerNotificationToEvents('item/started', {
+      item: {
+        type: 'dynamicToolCall',
+        id: 'item_1',
+        tool: 'learning.content',
+        arguments: { action: 'explain' },
+      },
+    });
+    expect(events[0]).toEqual({
+      type: 'TOOL_CALL_REQUESTED',
+      callId: 'item_1',
+      toolName: 'learning.content',
+      input: { action: 'explain' },
+    });
+  });
+
+  it('respects STUDY_STUDIO_CODEX=0 without spawning process', async () => {
+    const prev = process.env.STUDY_STUDIO_CODEX;
+    process.env.STUDY_STUDIO_CODEX = '0';
+    try {
+      const cfg = loadCodexConfigFromEnv();
+      expect(cfg.enabled).toBe(false);
+      const adapter = new CodexAdapter({ config: cfg });
+      const sessionRes = await adapter.createSession({
+        sessionId: 'test_sess',
+        userId: 'u1',
+      });
+      expect(isErr(sessionRes)).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.STUDY_STUDIO_CODEX;
+      else process.env.STUDY_STUDIO_CODEX = prev;
     }
   });
 });
