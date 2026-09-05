@@ -92,6 +92,13 @@ interface AgentChatPanelProps {
   onClose?: () => void;
 }
 
+type CodexTurnHealth =
+  | { state: 'idle' }
+  | { state: 'running' }
+  | { state: 'healthy' }
+  | { state: 'fallback'; message: string }
+  | { state: 'failed'; message: string };
+
 const FALLBACK_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const;
 
 const APPROVAL_OPTIONS: Array<{ value: string; label: string }> = [
@@ -144,7 +151,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const copy = getTutorTrackCopy(track);
   const queryClient = useQueryClient();
 
-  const { data: codexStatus } = useCodexStatusQuery();
+  const { data: codexStatus, refetch: refetchCodexStatus } = useCodexStatusQuery();
   const { data: models = [], isFetching: modelsLoading } = useCodexModelsQuery(
     Boolean(gateway.isConnected)
   );
@@ -175,6 +182,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
   const [historyOpen, setHistoryOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [composerSettingsOpen, setComposerSettingsOpen] = useState(false);
+  const [codexTurnHealth, setCodexTurnHealth] = useState<CodexTurnHealth>({ state: 'idle' });
+  const lastCoachPromptRef = useRef<string | null>(null);
   const queueDrainRef = useRef(false);
 
   const selectedModel = useMemo(
@@ -187,6 +196,37 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     if (fromModel?.length) return fromModel;
     return [...FALLBACK_EFFORTS];
   }, [selectedModel]);
+
+  const recordCodexTurnCompletion = useCallback(
+    (data: {
+      status?: 'COMPLETED' | 'INTERRUPTED' | 'FAILED';
+      source?: string;
+      codexOutcome?: 'streamed' | 'fallback' | 'not_requested';
+      codexFailureMessage?: string;
+    }) => {
+      if (data.status === 'INTERRUPTED') {
+        setCodexTurnHealth({ state: 'idle' });
+        return;
+      }
+      if (data.codexOutcome === 'streamed' || data.source === 'codex') {
+        setCodexTurnHealth({ state: 'healthy' });
+        return;
+      }
+      if (data.codexOutcome === 'fallback') {
+        setCodexTurnHealth({
+          state: 'fallback',
+          message: data.codexFailureMessage || 'Codex 本轮未完成，已使用本地学习提示。',
+        });
+        void refetchCodexStatus();
+        return;
+      }
+      if (data.status === 'FAILED') {
+        setCodexTurnHealth({ state: 'failed', message: '本轮请求未完成，请重试。' });
+        void refetchCodexStatus();
+      }
+    },
+    [refetchCodexStatus]
+  );
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -355,6 +395,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         },
       ]);
       setBusy(true);
+      setCodexTurnHealth({ state: 'running' });
 
       const finish = (data: {
         finalOutput?: string;
@@ -363,6 +404,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         queueRemaining?: number;
       }) => {
         queueDrainRef.current = false;
+        recordCodexTurnCompletion(data);
         if (data.threadId) {
           setCoachThreadId(data.threadId);
           void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
@@ -459,6 +501,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           queueDrainRef.current = false;
           const e = err as { userMessage?: string; message?: string } | undefined;
           const msg = e?.userMessage || e?.message || '队列消费失败';
+          setCodexTurnHealth({ state: 'failed', message: msg });
+          void refetchCodexStatus();
           setMessages((prev) =>
             prev.map((m) => (m.id === aiId ? { ...m, text: msg, streaming: false } : m))
           );
@@ -470,7 +514,14 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         setBusy(false);
       }
     },
-    [gateway, coachApprovalPolicy, setCoachThreadId, queryClient]
+    [
+      gateway,
+      coachApprovalPolicy,
+      setCoachThreadId,
+      queryClient,
+      recordCodexTurnCompletion,
+      refetchCodexStatus,
+    ]
   );
 
   const send = useCallback(
@@ -501,9 +552,12 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
         { id: aiId, role: 'assistant', text: '', reasoning: '', streaming: true, toolCalls: [] },
       ]);
       setBusy(true);
+      setCodexTurnHealth({ state: 'running' });
+      lastCoachPromptRef.current = text;
 
       if (!gateway.isConnected) {
         const offline = buildTutorOfflineReply(track, text);
+        setCodexTurnHealth({ state: 'failed', message: 'Gateway 未连接，无法请求 Codex。' });
         setMessages((prev) =>
           prev.map((m) => (m.id === aiId ? { ...m, text: offline, streaming: false } : m))
         );
@@ -588,6 +642,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           );
         },
         onComplete: (data) => {
+          recordCodexTurnCompletion(data);
           if (data.threadId) {
             setCoachThreadId(data.threadId);
             void queryClient.invalidateQueries({ queryKey: CODEX_QUERY_KEYS.THREADS });
@@ -618,6 +673,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           const e = err as { userMessage?: string; message?: string } | undefined;
           const msg =
             e?.userMessage || e?.message || '导师服务暂时不可用，请稍后重试。';
+          setCodexTurnHealth({ state: 'failed', message: msg });
+          void refetchCodexStatus();
           setMessages((prev) =>
             prev.map((m) => (m.id === aiId ? { ...m, text: msg, streaming: false } : m))
           );
@@ -639,8 +696,16 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
       setCoachThreadId,
       queryClient,
       startQueuedTurn,
+      recordCodexTurnCompletion,
+      refetchCodexStatus,
     ]
   );
+
+  const retryLastCodexTurn = useCallback(() => {
+    const prompt = lastCoachPromptRef.current;
+    if (!prompt || busy) return;
+    void send(prompt);
+  }, [busy, send]);
 
   const respondApproval = (
     approvalId: string,
@@ -673,6 +738,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
     queueDrainRef.current = false;
     gateway.interruptTurn('coach');
     setBusy(false);
+    setCodexTurnHealth({ state: 'idle' });
     setMessages((prev) =>
       prev.map((m) => (m.streaming ? { ...m, streaming: false } : m))
     );
@@ -720,13 +786,61 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 title={codexStatus?.message}
               >
                 <KeyRound className="size-3" />
-                Codex 已联动
+                Codex 已登录
               </span>
             ) : (
               <span className="text-[10px] text-amber-500/90" title={codexStatus?.message}>
                 待 login
               </span>
             )}
+            {codexTurnHealth.state !== 'idle' ? (
+              <span
+                className={`inline-flex items-center gap-1 text-[10px] ${
+                  codexTurnHealth.state === 'healthy'
+                    ? 'text-emerald-400'
+                    : codexTurnHealth.state === 'running'
+                      ? 'text-sky-400'
+                      : codexTurnHealth.state === 'fallback'
+                        ? 'text-amber-400'
+                        : 'text-rose-400'
+                }`}
+                title={
+                  codexTurnHealth.state === 'fallback' || codexTurnHealth.state === 'failed'
+                    ? codexTurnHealth.message
+                    : undefined
+                }
+              >
+                <span
+                  className={`size-1.5 rounded-full ${
+                    codexTurnHealth.state === 'healthy'
+                      ? 'bg-emerald-400'
+                      : codexTurnHealth.state === 'running'
+                        ? 'bg-sky-400 animate-pulse'
+                        : codexTurnHealth.state === 'fallback'
+                          ? 'bg-amber-400'
+                          : 'bg-rose-400'
+                  }`}
+                />
+                {codexTurnHealth.state === 'healthy'
+                  ? '本轮正常'
+                  : codexTurnHealth.state === 'running'
+                    ? '请求中'
+                    : codexTurnHealth.state === 'fallback'
+                      ? '本轮已回退'
+                      : '本轮失败'}
+              </span>
+            ) : null}
+            {(codexTurnHealth.state === 'fallback' || codexTurnHealth.state === 'failed') &&
+            lastCoachPromptRef.current ? (
+              <button
+                type="button"
+                className="text-[10px] font-medium text-sky-400 hover:text-sky-300"
+                disabled={busy}
+                onClick={retryLastCodexTurn}
+              >
+                重试 Codex
+              </button>
+            ) : null}
             {typeof rateLimits?.primaryUsedPercent === 'number' ? (
               <span
                 className="inline-flex items-center gap-1 text-[10px] text-stone-500"
@@ -1125,16 +1239,26 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 />
               </div>
             )}
+            {(() => {
+              const waitingFirstToken =
+                m.role !== 'user' &&
+                Boolean(m.streaming) &&
+                !m.text.trim() &&
+                !m.reasoning &&
+                !m.toolCalls?.length;
+              return (
             <div
-              className={`relative max-w-[88%] overflow-hidden rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${
+              className={`relative max-w-[88%] rounded-2xl text-[13px] leading-relaxed ${
                 m.role === 'user'
-                  ? 'bg-sky-700/25 border border-sky-600/30 text-stone-50'
-                  : m.streaming
-                    ? 'border border-sky-500/25 bg-stone-900/40 text-stone-200'
-                    : 'bg-transparent text-stone-200'
+                  ? 'bg-sky-700/25 border border-sky-600/30 px-3 py-2 text-stone-50'
+                  : waitingFirstToken
+                    ? 'px-1 py-1 text-stone-200'
+                    : m.streaming
+                      ? 'overflow-hidden border border-sky-500/25 bg-stone-900/40 px-3 py-2 text-stone-200'
+                      : 'px-3 py-2 bg-transparent text-stone-200'
               }`}
             >
-              {m.role !== 'user' && m.streaming ? (
+              {m.role !== 'user' && m.streaming && !waitingFirstToken ? (
                 <BorderBeam
                   size={140}
                   duration={7}
@@ -1153,7 +1277,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
               ) : null}
               {m.role === 'user' ? (
                 <div className="whitespace-pre-wrap">{stripTranscriptNoise(m.text)}</div>
-              ) : m.streaming && !m.text.trim() && !m.reasoning && !m.toolCalls?.length ? (
+              ) : waitingFirstToken ? (
                 <StreamingReplyPlaceholder />
               ) : (
                 <div className="whitespace-pre-wrap">
@@ -1169,6 +1293,8 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
                 </div>
               ) : null}
             </div>
+              );
+            })()}
               </>
             )}
           </div>

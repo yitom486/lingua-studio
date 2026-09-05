@@ -62,6 +62,10 @@ export interface StreamTurnOptions {
     finalOutput: string;
     toolResults?: unknown;
     source?: string;
+    /** 本轮是否由 Codex 流式完成，或因 Codex 失败回退。 */
+    codexOutcome?: 'streamed' | 'fallback' | 'not_requested';
+    /** 仅在 Codex 回退时提供的面向用户的错误说明。 */
+    codexFailureMessage?: string;
     model?: string;
     threadId?: string;
     queueRemaining?: number;

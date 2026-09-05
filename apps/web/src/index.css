@@ -30,32 +30,20 @@
   animation: shine 1.6s ease-in-out infinite;
 }
 
-@keyframes reply-bar {
+@keyframes reply-char-bounce {
   0%,
+  55%,
   100% {
-    transform: scaleY(0.28);
+    transform: translateY(0);
   }
-  50% {
-    transform: scaleY(1);
-  }
-}
-
-.animate-reply-bar {
-  animation: reply-bar 0.85s ease-in-out infinite;
-  transform-origin: bottom;
-}
-
-@keyframes reply-shimmer {
-  0% {
-    transform: translateX(-120%);
-  }
-  100% {
-    transform: translateX(220%);
+  28% {
+    transform: translateY(-5px);
   }
 }
 
-.animate-reply-shimmer {
-  animation: reply-shimmer 1.6s ease-in-out infinite;
+.animate-reply-char {
+  display: inline-block;
+  animation: reply-char-bounce 0.9s ease-in-out infinite;
 }
 
 .perspective-1000 {

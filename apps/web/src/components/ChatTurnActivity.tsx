@@ -152,65 +152,38 @@ export function StreamingReplyPlaceholder() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       setHintIndex((i) => (i + 1) % STREAMING_HINTS.length);
-    }, 1700);
+    }, 1800);
     return () => window.clearInterval(timer);
   }, []);
 
   const hint = STREAMING_HINTS[hintIndex] ?? STREAMING_HINTS[0];
 
   return (
-    <div className="space-y-2.5 py-0.5" aria-live="polite" aria-busy="true">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-4 items-end gap-[3px]" aria-hidden>
-          {[0, 1, 2, 3, 4].map((i) => (
+    <p
+      className="flex items-center overflow-visible py-0.5 text-[12px] leading-6 text-stone-400"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={hint}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          className="inline-flex"
+        >
+          {Array.from(hint).map((ch, i) => (
             <span
-              key={i}
-              className="animate-reply-bar w-[3px] rounded-full bg-sky-400/90"
-              style={{
-                height: '100%',
-                animationDelay: `${i * 0.11}s`,
-                opacity: 0.55 + i * 0.08,
-              }}
-            />
-          ))}
-        </span>
-        <span className="relative h-5 min-w-0 flex-1 overflow-hidden">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={hint}
-              initial={{ y: 16, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: -16, opacity: 0 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute inset-0 text-[12px] text-stone-400"
+              key={`${hint}-${i}`}
+              className="animate-reply-char"
+              style={{ animationDelay: `${i * 0.07}s` }}
             >
-              {hint}
-              <span className="ml-0.5 inline-flex gap-0.5 align-middle">
-                <span className="size-1 animate-bounce rounded-full bg-sky-400 [animation-delay:-0.22s]" />
-                <span className="size-1 animate-bounce rounded-full bg-sky-400 [animation-delay:-0.11s]" />
-                <span className="size-1 animate-bounce rounded-full bg-sky-400" />
-              </span>
-            </motion.span>
-          </AnimatePresence>
-        </span>
-      </div>
-      <div className="space-y-1.5" aria-hidden>
-        {[
-          'w-[94%]',
-          'w-[72%]',
-          'w-[84%]',
-        ].map((width, i) => (
-          <div
-            key={width}
-            className={`relative h-1.5 overflow-hidden rounded-full bg-stone-800/90 ${width}`}
-          >
-            <span
-              className="animate-reply-shimmer absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-sky-300/35 to-transparent"
-              style={{ animationDelay: `${i * 0.18}s` }}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
+              {ch}
+            </span>
+          ))}
+        </motion.span>
+      </AnimatePresence>
+    </p>
   );
 }
