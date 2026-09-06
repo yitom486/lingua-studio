@@ -149,12 +149,24 @@ export function SystemSettingsPopover() {
     }
   }, [gender, speechLang, preferredURI, langVoices.length, setPreferredVoice]);
 
+  /** 音色 id 取短名（ja-JP-DaichiNeural → Daichi），顶栏按钮跟着桶走，不写死 */
+  const shortVoiceNameOf = (voiceId: string): string => {
+    const m = voiceId.match(/-([A-Za-z]+)Neural$/);
+    return m?.[1] ?? (voiceId || '');
+  };
+  const femaleBucketVoiceId = editEngine === 'azure-speech' ? editFemaleVoiceId : '';
+  const maleBucketVoiceId = editEngine === 'azure-speech' ? editMaleVoiceId : '';
+  const femaleChipLabel = `女声${femaleBucketVoiceId ? `（${shortVoiceNameOf(femaleBucketVoiceId)}）` : ''}`;
+  const maleChipLabel = `男声${maleBucketVoiceId ? `（${shortVoiceNameOf(maleBucketVoiceId)}）` : ''}`;
+
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
     setGender(newGender);
     // 风格归属当前性别桶的音色，切性别即重置；两桶各自保留互不干扰
     setEditStyle('');
-    toast.success(`已切换至：${getPersonaLabel(speechLang, newGender)}`);
+    toast.success(
+      newGender === 'MALE' ? `已切换至：${maleChipLabel}` : `已切换至：${femaleChipLabel}`
+    );
   };
 
   // 切语种时清空跨语种残留的显式音色/风格（两桶 + OpenAI 单值；挂载时不动）
@@ -178,8 +190,22 @@ export function SystemSettingsPopover() {
     }
   };
 
+  /** 三处同源的实际生效描述：引擎行、试听、试播验证 */
+  const describeEffectiveVoice = (): string => {
+    if (!editEngine || editEngine === 'system') {
+      return activeSystemVoice?.name || '系统默认';
+    }
+    if (editEngine === 'azure-speech') {
+      return effectiveAzureVoice
+        ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.id}`
+        : '按语种自动';
+    }
+    return editVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）');
+  };
+
   const handlePreview = () => {
     sound.playClick();
+    toast.message(`试听：${describeEffectiveVoice()}`);
     speak(getPreviewText(speechLang, gender), { lang: speechLang, gender, rate });
   };
 
@@ -264,12 +290,7 @@ export function SystemSettingsPopover() {
     setTestingNeural(true);
     persistNeuralForm();
     // 报出实际试播的音色：所见即所听，对不上立刻能发现
-    const testDesc =
-      editEngine === 'azure-speech'
-        ? (effectiveAzureVoice
-            ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.id}`
-            : '按语种自动')
-        : (editVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）'));
+    const testDesc = describeEffectiveVoice();
     toast.message(`正在试播：${testDesc}`);
     void speak(getPreviewText(speechLang, gender), {
       lang: speechLang,
@@ -499,7 +520,7 @@ export function SystemSettingsPopover() {
                     : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800/60 text-stone-600 dark:text-stone-400'
                 }`}
               >
-                <span className="truncate">女声</span>
+                <span className="truncate">{femaleChipLabel}</span>
                 {gender === 'FEMALE' && <Check className="w-3 h-3 text-amber-500" />}
               </button>
               <button
@@ -511,7 +532,7 @@ export function SystemSettingsPopover() {
                     : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800/60 text-stone-600 dark:text-stone-400'
                 }`}
               >
-                <span className="truncate">男声</span>
+                <span className="truncate">{maleChipLabel}</span>
                 {gender === 'MALE' && <Check className="w-3 h-3 text-amber-500" />}
               </button>
             </div>
@@ -519,16 +540,7 @@ export function SystemSettingsPopover() {
             <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-400 truncate">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               <span className="truncate">
-                {(() => {
-                  // 与下方神经语音区同源（编辑态），所见即实际生效
-                  if (!editEngine || editEngine === 'system') {
-                    return `当前引擎: ${activeSystemVoice?.name || '系统默认 · 随语种自动匹配'}`;
-                  }
-                  if (editEngine === 'azure-speech') {
-                    return `当前引擎: Azure · ${effectiveAzureVoice ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.id}` : '按语种自动'}`;
-                  }
-                  return `当前引擎: 兼容端点 · ${editVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）')}`;
-                })()}
+                当前引擎: {editEngine && editEngine !== 'system' ? `${editEngine === 'azure-speech' ? 'Azure' : '兼容端点'} · ` : ''}{describeEffectiveVoice()}
               </span>
             </div>
 
