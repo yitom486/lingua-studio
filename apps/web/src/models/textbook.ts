@@ -64,6 +64,8 @@ export interface TextbookLesson {
 
 export interface TextbookBook {
   id: string;
+  /** Gateway documents 行 id（已入库教材才有；未入库的新导入 AST 为空） */
+  documentId?: string;
   language?: 'JA' | 'EN' | 'KO';
   title: string;
   shortTitle: string;

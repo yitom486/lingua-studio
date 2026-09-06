@@ -28,6 +28,7 @@ import { TextbookImporterModal } from './TextbookImporterModal.js';
 import {
   useTextbooksQuery,
   useImportTextbookMutation,
+  useEnrichLessonMutation,
 } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
@@ -55,6 +56,7 @@ export function TextbookCurriculum({
 }: TextbookCurriculumProps) {
   const { data: booksList = [] } = useTextbooksQuery();
   const importTextbook = useImportTextbookMutation();
+  const enrichLesson = useEnrichLessonMutation();
   const [selectedBookId, setSelectedBookId] = useState<string>('');
   const [selectedLessonId, setSelectedLessonId] = useState<string>('');
   const [lessonSubTab, setLessonSubTab] = useState<'READER' | 'VOCAB' | 'GRAMMAR'>('READER');
@@ -297,16 +299,49 @@ export function TextbookCurriculum({
               </div>
 
               {/* 针对本课出题按钮 */}
-              <ShimmerButton
-                onClick={() => {
-                  sound.playClick();
-                  onStartLessonQuiz(currentLesson.id, currentLesson.title);
-                }}
-                className="px-4 py-2 text-xs font-semibold flex items-center gap-2 shadow-md shrink-0"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                <span>启动本课专属自测 (AI 出题)</span>
-              </ShimmerButton>
+              <div className="flex items-center gap-2 shrink-0">
+                {currentLesson.vocabularies.length === 0 && currentBook.documentId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={enrichLesson.isPending}
+                    onClick={() => {
+                      sound.playClick();
+                      enrichLesson.mutate(
+                        { documentId: currentBook.documentId as string, lessonId: currentLesson.id },
+                        {
+                          onSuccess: (r) => {
+                            sound.playCorrect();
+                            toast.success(
+                              `AI 抽取完成：生词 ${r.vocabularies} · 文法 ${r.grammarPoints}` +
+                                (r.dropped > 0 ? `（丢弃可疑 ${r.dropped} 条）` : '')
+                            );
+                          },
+                          onError: (e) => {
+                            sound.playMistake();
+                            toast.error(e instanceof Error ? e.message : '抽生词失败');
+                          },
+                        }
+                      );
+                    }}
+                    className="gap-1.5"
+                    title="AI 按本课课文抽生词与文法（非法条目自动丢弃）"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{enrichLesson.isPending ? '抽取中…' : 'AI 抽生词'}</span>
+                  </Button>
+                )}
+                <ShimmerButton
+                  onClick={() => {
+                    sound.playClick();
+                    onStartLessonQuiz(currentLesson.id, currentLesson.title);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold flex items-center gap-2 shadow-md shrink-0"
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>启动本课专属自测 (AI 出题)</span>
+                </ShimmerButton>
+              </div>
             </div>
 
             {/* 子选项卡：交互精读与原版排版 | 核心词汇 | 核心语法 */}

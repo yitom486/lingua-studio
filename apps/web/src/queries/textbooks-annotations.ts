@@ -30,7 +30,7 @@ export function useTextbooksQuery(userId = DEFAULT_USER_ID) {
                 try {
                   const parsed = JSON.parse(doc.astJson);
                   if (parsed && parsed.id && Array.isArray(parsed.lessons)) {
-                    dynamicBooks.push(parsed as TextbookBook);
+                    dynamicBooks.push({ ...(parsed as TextbookBook), documentId: doc.id });
                   }
                 } catch {
                   // ignore corrupt ast
@@ -202,6 +202,55 @@ export function useImportPdfMutation(userId = DEFAULT_USER_ID) {
     },
     onError: (e) => {
       logger.debug('[useImportPdfMutation] pdf import failed', e);
+    },
+  });
+}
+
+export interface EnrichLessonResult {
+  enrichedLessons: number;
+  vocabularies: number;
+  grammarPoints: number;
+  dropped: number;
+}
+
+/**
+ * AI 抽生词：POST /api/documents/:userId/:documentId/enrich { lessonId? }。
+ * 网关侧调模型抽取 + 接地校验后写回课文 AST；前端失效教材查询重拉。
+ * 无模型连接时网关返回 E_ENRICH_NO_ADAPTER，这里只透出 userMessage。
+ */
+export function useEnrichLessonMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { documentId: string; lessonId?: string }): Promise<EnrichLessonResult> => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(vars.documentId)}/enrich`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vars.lessonId ? { lessonId: vars.lessonId } : {}),
+        }
+      );
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `抽生词失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const p = (payload ?? {}) as Partial<EnrichLessonResult>;
+      return {
+        enrichedLessons: Number(p.enrichedLessons ?? 0),
+        vocabularies: Number(p.vocabularies ?? 0),
+        grammarPoints: Number(p.grammarPoints ?? 0),
+        dropped: Number(p.dropped ?? 0),
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TEXTBOOKS });
+    },
+    onError: (e) => {
+      logger.debug('[useEnrichLessonMutation] enrich failed', e);
     },
   });
 }
