@@ -5,14 +5,13 @@
 
 import { logger } from '@study-studio/shared';
 import {
-  buildOpenAiSpeechPayload,
   isHttpEndpoint,
   normalizeTtsTrackLanguage,
-  openAiSpeechHeaders,
   resolveTtsSpeakRequest,
   scoreVoiceName,
   type TtsPurpose,
 } from '@study-studio/tts-core';
+import { GATEWAY_BASE_URL } from '../lib/api-client.js';
 
 export type TtsGender = 'FEMALE' | 'MALE';
 export type SupportedLanguage = 'JA' | 'EN' | 'KO';
@@ -160,6 +159,9 @@ class SpeechStudioEngine {
   private customPluginApiKey: string = '';
   /** 外挂端点音色 id（空则按性别回填 alloy/echo）。 */
   private customPluginVoiceId: string = '';
+  /** 网关代理服务商与 Azure 区域（official/openai 兼容走 baseUrl）。 */
+  private proxyProvider: 'openai-compatible' | 'azure-speech' = 'openai-compatible';
+  private proxyRegion: string = '';
   private listeners: Set<() => void> = new Set();
   private voices: SpeechSynthesisVoice[] = [];
 
@@ -231,6 +233,19 @@ class SpeechStudioEngine {
   public setCustomPluginAuth(apiKey: string, voiceId: string) {
     this.customPluginApiKey = (apiKey ?? '').trim();
     this.customPluginVoiceId = (voiceId ?? '').trim();
+    this.notify();
+  }
+
+  public getProxyConfig() {
+    return {
+      provider: this.proxyProvider,
+      region: this.proxyRegion,
+    };
+  }
+
+  public setProxyConfig(provider: 'openai-compatible' | 'azure-speech', region: string) {
+    this.proxyProvider = provider;
+    this.proxyRegion = (region ?? '').trim();
     this.notify();
   }
 
@@ -387,48 +402,25 @@ class SpeechStudioEngine {
       this.notify();
     };
 
-    // 1. 若配置并启用了本地小外挂（如 Piper / Kokoro / OpenAI 兼容 TTS 端点）
-    if (this.isCustomPluginEnabled && isHttpEndpoint(this.customPluginUrl)) {
-      try {
-        const payload = buildOpenAiSpeechPayload(text, {
-          voice: this.customPluginVoiceId || request.neural.voiceId,
-          gender,
-          bcp47: request.bcp47,
-        });
-        const res = await fetch(this.customPluginUrl, {
-          method: 'POST',
-          headers: openAiSpeechHeaders(this.customPluginApiKey),
-          body: JSON.stringify(payload),
-        });
-        if (res.status === 401 || res.status === 403) {
+    // 1. 小外挂优先：经网关代理直调第三方（浏览器不直连第三方，无 CORS 问题；
+    //    Key 随本次请求发往本机网关，网关不落盘）。失败回退系统音色，401/403 明错。
+    if (this.isCustomPluginEnabled) {
+      const proxyOk = await this.tryGatewayProxy(text, {
+        lang,
+        gender,
+        rate,
+        voiceId: options?.neural?.voiceId,
+        onEnd: () => {
           cleanup();
-          options?.onError?.(
-            new Error('小外挂鉴权失败（401/403），请检查 API Key 是否正确。')
-          );
-          return;
-        }
-        if (res.ok) {
-          const blob = await res.blob();
-          const audioUrl = URL.createObjectURL(blob);
-          const audio = new Audio(audioUrl);
-          this.currentAudio = audio;
-          audio.playbackRate = rate;
-          audio.onended = () => {
-            URL.revokeObjectURL(audioUrl);
-            cleanup();
-            options?.onEnd?.();
-          };
-          audio.onerror = (e) => {
-            URL.revokeObjectURL(audioUrl);
-            cleanup();
-            options?.onError?.(e);
-          };
-          await audio.play();
-          return;
-        }
-      } catch (e) {
-        logger.debug('[SpeechStudio] 小外挂服务未响应，平滑降级为系统高清音色:', e);
-      }
+          options?.onEnd?.();
+        },
+        onError: (e) => {
+          cleanup();
+          options?.onError?.(e);
+        },
+      });
+      // proxyOk=true 已播完直接返回；auth 错误已通知调用方；其余失败回退系统音色
+      if (proxyOk !== 'fallback') return;
     }
 
     // 2. 原生 Web Speech 引擎优选播放
@@ -438,23 +430,57 @@ class SpeechStudioEngine {
       return;
     }
 
+    this.speakWithSystemVoice(text, {
+      lang,
+      gender,
+      rate,
+      bcp47: request.bcp47,
+      pitch: request.pitch,
+      hasNamed,
+      preferredVoiceURI: options?.preferredVoiceURI,
+      onEnd: () => {
+        cleanup();
+        options?.onEnd?.();
+      },
+      onError: (e) => {
+        cleanup();
+        options?.onError?.(e);
+      },
+    });
+  }
+
+  /** Web Speech 直播报（代理失败/解码失败时的回退路径也走这里）。 */
+  private speakWithSystemVoice(
+    text: string,
+    args: {
+      lang: SupportedLanguage;
+      gender: TtsGender;
+      rate: number;
+      bcp47: string;
+      pitch: number;
+      hasNamed: boolean;
+      preferredVoiceURI?: string | null | undefined;
+      onEnd: () => void;
+      onError: (e: unknown) => void;
+    }
+  ) {
     try {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       this.currentUtterance = utterance; // 防止垃圾回收导致发音被掐断
 
-      const voice = this.getBestVoice(lang, gender, options?.preferredVoiceURI);
+      const voice = this.getBestVoice(args.lang, args.gender, args.preferredVoiceURI);
       if (voice) {
         utterance.voice = voice;
         utterance.lang = voice.lang;
       } else {
-        utterance.lang = request.bcp47;
+        utterance.lang = args.bcp47;
       }
 
-      utterance.rate = rate;
+      utterance.rate = args.rate;
       // 无具名男声时大幅降调（Chrome 常只有一条 Google US English 女声）
       utterance.pitch =
-        gender === 'FEMALE' ? request.pitch : hasNamed ? request.pitch : 0.55;
+        args.gender === 'FEMALE' ? args.pitch : args.hasNamed ? args.pitch : 0.55;
 
       utterance.onstart = () => {
         this.isSpeaking = true;
@@ -462,19 +488,16 @@ class SpeechStudioEngine {
       };
 
       utterance.onend = () => {
-        cleanup();
-        options?.onEnd?.();
+        args.onEnd();
       };
 
       utterance.onerror = (e) => {
-        cleanup();
-        options?.onError?.(e);
+        args.onError(e);
       };
 
       window.speechSynthesis.speak(utterance);
     } catch (err) {
-      cleanup();
-      options?.onError?.(err);
+      args.onError(err);
     }
   }
 
@@ -494,6 +517,97 @@ class SpeechStudioEngine {
       this.isSpeaking = false;
       this.currentText = '';
       this.notify();
+    }
+  }
+
+  /**
+   * 经本机网关代理合成并播放。返回值语义：
+   * - 'played'：代理播完（调用方直接返回）；
+   * - 'auth-error'：401/403 已通知调用方（调用方直接返回，不回退）；
+   * - 'fallback'：代理不可用/失败，调用方回退系统音色。
+   */
+  private async tryGatewayProxy(
+    text: string,
+    args: {
+      lang: SupportedLanguage;
+      gender: TtsGender;
+      rate: number;
+      voiceId?: string | undefined;
+      onEnd: () => void;
+      onError: (e: unknown) => void;
+    }
+  ): Promise<'played' | 'auth-error' | 'fallback'> {
+    const provider = this.proxyProvider;
+    const baseUrl = this.customPluginUrl.trim();
+    const region = this.proxyRegion.trim();
+    // 配置不全直接回退（保存/验证环节会给出明确指引）
+    if (provider === 'azure-speech') {
+      if (!region || !this.customPluginApiKey) return 'fallback';
+    } else if (!isHttpEndpoint(baseUrl)) {
+      return 'fallback';
+    }
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/tts/synthesize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          text,
+          trackLanguage: args.lang.toLowerCase(),
+          ...(provider === 'openai-compatible' ? { baseUrl } : { region }),
+          ...(this.customPluginApiKey ? { apiKey: this.customPluginApiKey } : {}),
+          voice: this.customPluginVoiceId || args.voiceId || undefined,
+          rate: args.rate,
+          gender: args.gender,
+        }),
+      });
+      if (!res.ok) {
+        let userMessage = 'TTS 代理合成失败，已回退系统音色。';
+        try {
+          const body = (await res.json()) as {
+            error?: { userMessage?: string; code?: string };
+          };
+          if (body?.error?.userMessage) userMessage = body.error.userMessage;
+          if (body?.error?.code === 'E_TTS_AUTH') {
+            args.onError(new Error(userMessage));
+            return 'auth-error';
+          }
+        } catch {
+          // 非 JSON 错误体，按普通失败回退
+        }
+        logger.debug('[SpeechStudio] 网关 TTS 代理失败，回退系统音色:', userMessage);
+        return 'fallback';
+      }
+      const blob = await res.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      const audio = new Audio(audioUrl);
+      this.currentAudio = audio;
+      audio.playbackRate = 1;
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        args.onEnd();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(audioUrl);
+        logger.debug('[SpeechStudio] 代理音频解码失败，回退系统音色');
+        this.currentAudio = null;
+        this.speakWithSystemVoice(text, {
+          lang: args.lang,
+          gender: args.gender,
+          rate: args.rate,
+          bcp47: args.lang === 'JA' ? 'ja-JP' : args.lang === 'KO' ? 'ko-KR' : 'en-US',
+          pitch: args.gender === 'FEMALE' ? 1.08 : 0.88,
+          hasNamed: this.hasNamedGenderVoice(args.lang, args.gender),
+          preferredVoiceURI: null,
+          onEnd: args.onEnd,
+          onError: args.onError,
+        });
+      };
+      await audio.play();
+      return 'played';
+    } catch (e) {
+      logger.debug('[SpeechStudio] 网关 TTS 代理未响应，回退系统音色:', e);
+      return 'fallback';
     }
   }
 }

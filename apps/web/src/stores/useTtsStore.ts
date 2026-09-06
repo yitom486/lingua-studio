@@ -24,6 +24,8 @@ export function voicePrefKey(lang: SupportedLanguage, gender: TtsGender): VoiceP
   return `${lang}_${gender}`;
 }
 
+export type TtsProxyProvider = 'openai-compatible' | 'azure-speech';
+
 export interface TtsStoreState {
   // 持久化字段
   gender: TtsGender;
@@ -34,6 +36,10 @@ export interface TtsStoreState {
   customPluginApiKey: string;
   /** 外挂端点音色 id（空则按性别回填）。 */
   customPluginVoiceId: string;
+  /** 网关代理的 TTS 服务商（启用小外挂时生效）。 */
+  proxyProvider: TtsProxyProvider;
+  /** Azure Speech 区域（如 japaneast）。 */
+  proxyRegion: string;
   /** 按语种+性别记住用户手动选择的系统音色 URI */
   preferredVoices: Partial<Record<VoicePrefKey, string>>;
 
@@ -46,6 +52,8 @@ export interface TtsStoreState {
   setRate: (rate: number) => void;
   setCustomPluginConfig: (url: string, enabled: boolean) => void;
   setCustomPluginAuth: (apiKey: string, voiceId: string) => void;
+  setProxyProvider: (provider: TtsProxyProvider) => void;
+  setProxyRegion: (region: string) => void;
   setPreferredVoice: (lang: SupportedLanguage, gender: TtsGender, voiceURI: string | null) => void;
   speak: (text: string, options?: SpeakOptions) => Promise<void>;
   stop: () => void;
@@ -86,6 +94,8 @@ export const useTtsStore = create<TtsStoreState>()(
         isCustomPluginEnabled: speechStudio.getCustomPluginConfig().enabled,
         customPluginApiKey: speechStudio.getCustomPluginAuth().apiKey,
         customPluginVoiceId: speechStudio.getCustomPluginAuth().voiceId,
+        proxyProvider: speechStudio.getProxyConfig().provider,
+        proxyRegion: speechStudio.getProxyConfig().region,
         preferredVoices: {},
         isSpeaking: speechStudio.getIsSpeaking(),
         currentText: speechStudio.getCurrentText(),
@@ -108,6 +118,16 @@ export const useTtsStore = create<TtsStoreState>()(
         setCustomPluginAuth: (apiKey: string, voiceId: string) => {
           speechStudio.setCustomPluginAuth(apiKey, voiceId);
           set({ customPluginApiKey: apiKey, customPluginVoiceId: voiceId });
+        },
+
+        setProxyProvider: (provider: TtsProxyProvider) => {
+          speechStudio.setProxyConfig(provider, get().proxyRegion);
+          set({ proxyProvider: provider });
+        },
+
+        setProxyRegion: (region: string) => {
+          speechStudio.setProxyConfig(get().proxyProvider, region);
+          set({ proxyRegion: region });
         },
 
         setPreferredVoice: (lang, gender, voiceURI) => {
@@ -156,6 +176,8 @@ export const useTtsStore = create<TtsStoreState>()(
         isCustomPluginEnabled: state.isCustomPluginEnabled,
         customPluginApiKey: state.customPluginApiKey,
         customPluginVoiceId: state.customPluginVoiceId,
+        proxyProvider: state.proxyProvider,
+        proxyRegion: state.proxyRegion,
         preferredVoices: state.preferredVoices,
       }),
       onRehydrateStorage: () => (state) => {
@@ -164,6 +186,7 @@ export const useTtsStore = create<TtsStoreState>()(
           speechStudio.setRate(state.rate);
           speechStudio.setCustomPluginConfig(state.customPluginUrl, state.isCustomPluginEnabled);
           speechStudio.setCustomPluginAuth(state.customPluginApiKey, state.customPluginVoiceId);
+          speechStudio.setProxyConfig(state.proxyProvider, state.proxyRegion);
         }
       },
     }

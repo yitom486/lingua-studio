@@ -11,6 +11,7 @@
     { "path": "../../packages/learner-core" },
     { "path": "../../packages/agent-core" },
     { "path": "../../packages/tool-core" },
+    { "path": "../../packages/tts-core" },
     { "path": "../../packages/agent-codex" }
   ],
   "include": ["src/**/*"]

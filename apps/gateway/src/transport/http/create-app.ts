@@ -12,6 +12,7 @@ import { createPracticeRoutes } from '../../modules/practice/http/practice-route
 import { createReviewRoutes } from '../../modules/review/http/review-routes.js';
 import { createLibraryRoutes } from '../../modules/library/http/library-routes.js';
 import { createCurriculumRoutes } from '../../modules/curriculum/http/curriculum-routes.js';
+import { createTtsRoutes } from '../../modules/tts/http/tts-routes.js';
 
 /**
  * 应用构建工厂（G2）：只组装路由，不创建 DB/Adapter/监听。
@@ -47,6 +48,7 @@ export function createApp(deps: GatewayDeps) {
     .route('/', createReviewRoutes(deps))
     .route('/', createLibraryRoutes(deps))
     .route('/', createCurriculumRoutes(deps))
+    .route('/', createTtsRoutes())
     .route('/', createLearningCompatRoutes(deps));
 }
 

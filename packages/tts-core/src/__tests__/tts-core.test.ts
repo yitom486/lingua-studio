@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import {
   __resetTtsEnginesForTest,
+  AZURE_DEFAULT_VOICES,
+  azureTtsEndpoint,
+  azureTtsHeaders,
   bcp47ForTrack,
+  buildAzureSsml,
   buildOpenAiSpeechPayload,
   getActiveTtsEngine,
   isHttpEndpoint,
@@ -162,5 +166,32 @@ describe('openai-compatible plugin endpoint', () => {
     expect(isHttpEndpoint('file:///etc/passwd')).toBe(false);
     expect(isHttpEndpoint('javascript:alert(1)')).toBe(false);
     expect(isHttpEndpoint('')).toBe(false);
+  });
+});
+
+describe('azure speech helpers', () => {
+  it('exposes per-track default neural voices', () => {
+    expect(AZURE_DEFAULT_VOICES.ja).toBe('ja-JP-NanamiNeural');
+    expect(AZURE_DEFAULT_VOICES.ko).toBe('ko-KR-SunHiNeural');
+    expect(AZURE_DEFAULT_VOICES.en).toBe('en-US-JennyNeural');
+  });
+
+  it('builds the regional REST endpoint', () => {
+    expect(azureTtsEndpoint('japaneast')).toBe(
+      'https://japaneast.tts.speech.microsoft.com/cognitiveservices/v1'
+    );
+    expect(azureTtsHeaders(' key123 ')['Ocp-Apim-Subscription-Key']).toBe('key123');
+    expect(azureTtsHeaders('key123')['Content-Type']).toBe('application/ssml+xml');
+  });
+
+  it('builds SSML with escaped text and percent prosody', () => {
+    const ssml = buildAzureSsml('あ & <お>', { trackLanguage: 'ja', rate: 0.75 });
+    expect(ssml).toContain('ja-JP-NanamiNeural');
+    expect(ssml).toContain('rate="75%"');
+    expect(ssml).toContain('あ &amp; &lt;お&gt;');
+    expect(ssml).not.toContain('<お>');
+    const custom = buildAzureSsml('hi', { voice: 'en-US-GuyNeural' });
+    expect(custom).toContain('en-US-GuyNeural');
+    expect(custom).not.toContain('rate=');
   });
 });
