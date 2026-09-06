@@ -65,6 +65,25 @@ export function PitchAccentCoach({ onOpenTutor }: PitchAccentCoachProps) {
   const safeIndex = Math.min(selectedWordIndex, Math.max(words.length - 1, 0));
   const currentWord: PitchLexiconItem | undefined = words[safeIndex] ?? words[0];
 
+  // 注意：所有 Hook 必须在 early return 之前调用（Rules of Hooks）。
+  // 之前 useEffect 写在下方 !currentWord return 之后，首屏词表未到时少调一个 Hook，
+  // 数据到达后多调一个 → React 抛“Rendered more hooks than during the previous render”，
+  // ErrorBoundary 接住显示你看到的红框；点重载时缓存已就绪所以正常。
+  useEffect(() => {
+    return () => {
+      if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {
+        // 卸载时尽力停止录音，忽略边缘异常
+      }
+      mediaRecorderRef.current = null;
+      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
+    };
+  }, []);
+
   if (!currentWord) {
     return (
       <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-10 border border-amber-900/10 dark:border-amber-500/15 shadow-sm text-center space-y-3">
@@ -265,21 +284,6 @@ export function PitchAccentCoach({ onOpenTutor }: PitchAccentCoachProps) {
       analyserRef.current = null;
     }
   };
-
-  useEffect(() => {
-    return () => {
-      if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
-      try {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-      } catch {
-        // 卸载时尽力停止录音，忽略边缘异常
-      }
-      mediaRecorderRef.current = null;
-      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
-    };
-  }, []);
 
   return (
     <div className="space-y-6">
