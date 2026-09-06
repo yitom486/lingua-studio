@@ -25,7 +25,8 @@ export function useAzureVoicesQuery(params: {
   enabled: boolean;
 }) {
   const { region, apiKey, track, enabled } = params;
-  const trackLanguage = normalizeTrackLanguage(track);
+  // speechLang 是大写的 JA/KO/EN，web 版 normalizeTrackLanguage 大小写敏感，先转小写
+  const trackLanguage = normalizeTrackLanguage(track?.toLowerCase());
   return useQuery<AzureVoiceOption[]>({
     queryKey: [...QUERY_KEYS.TTS_VOICES, trackLanguage, region],
     enabled: enabled && region.trim().length > 0,

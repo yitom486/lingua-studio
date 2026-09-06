@@ -311,6 +311,24 @@ export function SystemSettingsPopover() {
   ).filter((v) => v.id.toLowerCase().startsWith(speechLang.toLowerCase()));
   const selectedVoice = azureVoiceOptions.find((v) => v.id === editVoiceId);
   const voiceStyles = selectedVoice?.styles ?? [];
+  /** 按性别分组展示（音色多时一眼定位；__group_ 为纯展示头，选中时忽略） */
+  const groupedVoiceOptions: Array<
+    | { kind: 'header'; key: string; label: string }
+    | { kind: 'voice'; voice: AzureVoiceOption }
+  > = [
+    ...(azureVoiceOptions.some((v) => v.gender === 'FEMALE')
+      ? [{ kind: 'header' as const, key: '__group_FEMALE', label: '女声' }]
+      : []),
+    ...azureVoiceOptions
+      .filter((v) => v.gender === 'FEMALE')
+      .map((voice) => ({ kind: 'voice' as const, voice })),
+    ...(azureVoiceOptions.some((v) => v.gender === 'MALE')
+      ? [{ kind: 'header' as const, key: '__group_MALE', label: '男声' }]
+      : []),
+    ...azureVoiceOptions
+      .filter((v) => v.gender === 'MALE')
+      .map((voice) => ({ kind: 'voice' as const, voice })),
+  ];
   /** 当前实际生效的 Azure 音色：显式选择优先，否则跟随男女声 */
   const effectiveAzureVoice =
     selectedVoice ??
@@ -647,7 +665,7 @@ export function SystemSettingsPopover() {
                     <Select
                       value={editVoiceId || '__auto'}
                       onValueChange={(v) => {
-                        if (!v) return;
+                        if (!v || v.startsWith('__group_')) return;
                         sound.playClick();
                         if (v === '__auto') {
                           setEditVoiceId('');
@@ -671,11 +689,19 @@ export function SystemSettingsPopover() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
-                        {azureVoiceOptions.map((v) => (
-                          <SelectItem key={v.id} value={v.id}>
-                            {v.label} · {v.id}
-                          </SelectItem>
-                        ))}
+                        {groupedVoiceOptions.map((row) =>
+                          row.kind === 'header' ? (
+                            <SelectItem key={row.key} value={row.key} disabled>
+                              <span className="text-[10px] font-bold text-stone-400">
+                                —— {row.label} ——
+                              </span>
+                            </SelectItem>
+                          ) : (
+                            <SelectItem key={row.voice.id} value={row.voice.id}>
+                              {row.voice.label} · {row.voice.id}
+                            </SelectItem>
+                          )
+                        )}
                       </SelectContent>
                     </Select>
                     {voiceStyles.length > 0 ? (
@@ -710,7 +736,7 @@ export function SystemSettingsPopover() {
                     )}
                     {remoteVoices.length > 0 && (
                       <p className="text-[10px] text-emerald-600 dark:text-emerald-400 leading-relaxed">
-                        已加载 {remoteVoices.length} 个云端音色（含各音色可用风格）。
+                        已加载 {remoteVoices.length} 个{speechLang === 'JA' ? '日语' : speechLang === 'KO' ? '韩语' : '英语'}云端音色（含各音色可用风格）。
                       </p>
                     )}
                     </>
