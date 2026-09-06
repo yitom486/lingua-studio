@@ -26,6 +26,32 @@ function pitchLabelOf(pronunciation: unknown): string | null {
   return typeof label === 'string' && label ? label : null;
 }
 
+type LookupEntry = {
+  id: string;
+  headword: string;
+  reading?: string;
+  partOfSpeech?: string;
+  pronunciation?: Record<string, unknown>;
+  frequency?: number;
+  inflectionNote?: string;
+  meanings: string[];
+  sourceLabel: string;
+};
+
+/** 按来源分组（保序；网关已按优先级/词频排好，组内不再重排）。 */
+function groupEntriesBySource(entries: LookupEntry[]): Array<{ source: string; entries: LookupEntry[] }> {
+  const groups: Array<{ source: string; entries: LookupEntry[] }> = [];
+  for (const entry of entries) {
+    const last = groups[groups.length - 1];
+    if (last && last.source === entry.sourceLabel) {
+      last.entries.push(entry);
+    } else {
+      groups.push({ source: entry.sourceLabel, entries: [entry] });
+    }
+  }
+  return groups;
+}
+
 /**
  * 可嵌入任意学习工作台的词典入口。它只组合 Query 与领域 Mutation，
  * 不拥有词典、FSRS 或每日统计的业务规则。
@@ -117,8 +143,13 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
               暂时无法查询本地词典，请检查 Gateway 连接后重试。
             </p>
           ) : lookup.data?.entries.length ? (
-            <div className="space-y-2">
-              {lookup.data.entries.map((entry) => (
+            <div className="space-y-3">
+              {groupEntriesBySource(lookup.data.entries).map((group) => (
+                <div key={group.source} className="space-y-2">
+                  <p className="text-[11px] font-bold text-stone-500 dark:text-stone-400">
+                    {group.source} · {group.entries.length} 条
+                  </p>
+                  {group.entries.map((entry) => (
                 <div
                   key={entry.id}
                   className="flex flex-col gap-2 rounded-xl bg-amber-50/70 p-3 dark:bg-amber-500/10 sm:flex-row sm:items-center sm:justify-between"
@@ -142,6 +173,11 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                           </Badge>
                         ) : null;
                       })()}
+                      {typeof entry.frequency === 'number' && (
+                        <Badge variant="secondary" className="font-mono" title="词频（数字越小越常用）">
+                          #{entry.frequency}
+                        </Badge>
+                      )}
                     </div>
                     {entry.inflectionNote && (
                       <p className="mt-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
@@ -168,6 +204,8 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                     )}
                     加入生词本
                   </Button>
+                </div>
+                  ))}
                 </div>
               ))}
             </div>

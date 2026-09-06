@@ -42,7 +42,8 @@ import {
 import {
   useDictionaryPackagesQuery,
   useInstallDictionaryPackageMutation,
-  useInstallCustomDictionaryMutation,  useAzureVoicesQuery,
+  useInstallCustomDictionaryMutation,
+  useUpdateDictionaryPackageMutation,  useAzureVoicesQuery,
   useInvalidateTtsVoices,
   type AzureVoiceOption,
 } from '../queries/useLearnerQueries.js';
@@ -107,6 +108,7 @@ export function SystemSettingsPopover() {
   const preferredURI = preferredVoices[prefKey] ?? null;
   const dictionaryPackages = useDictionaryPackagesQuery(open);
   const installDictionaryPackage = useInstallDictionaryPackageMutation();
+  const updateDictionaryPackage = useUpdateDictionaryPackageMutation();
   const installCustomDictionary = useInstallCustomDictionaryMutation();
   const [customDictLicenseOk, setCustomDictLicenseOk] = useState(false);
   const [customDictLang, setCustomDictLang] = useState<'ja' | 'en' | 'ko'>(shell.track);
@@ -881,9 +883,42 @@ export function SystemSettingsPopover() {
                         </p>
                       </div>
                       {dictionary.installed ? (
-                        <Badge variant="outline" className="shrink-0 border-emerald-500/30 text-[10px] text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="mr-1 h-3 w-3" />已安装
-                        </Badge>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-[11px]"
+                            disabled={!isConnected || updateDictionaryPackage.isPending}
+                            title="优先（查词排序提前）"
+                            onClick={() => {
+                              sound.playClick();
+                              updateDictionaryPackage.mutate({
+                                packageId: dictionary.id,
+                                priority: (dictionary.priority ?? 0) + 1,
+                              });
+                            }}
+                          >
+                            ↑
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 gap-1 px-2 text-[11px]"
+                            disabled={!isConnected || updateDictionaryPackage.isPending}
+                            title={dictionary.enabled === false ? '已禁用，点击启用' : '已启用，点击禁用'}
+                            onClick={() => {
+                              sound.playClick();
+                              updateDictionaryPackage.mutate({
+                                packageId: dictionary.id,
+                                enabled: !(dictionary.enabled ?? true),
+                              });
+                            }}
+                          >
+                            {dictionary.enabled === false ? '已禁用' : '已启用'}
+                          </Button>
+                        </div>
                       ) : (
                         <Button
                           type="button"

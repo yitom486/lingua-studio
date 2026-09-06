@@ -10,6 +10,7 @@ import {
   backfillPitchPronunciation,
   insertEntries,
   listDictionaryPackages,
+  recordDictionarySource,
   type DictionaryPackage,
   type DictionaryPackageManifest,
   type ParsedEntry,
@@ -179,19 +180,39 @@ function parseTermBank(raw: unknown, skipped: { media: number }): TermRow[] {
 }
 
 type PitchMeta = { reading: string; pitches: unknown };
+type FreqMeta = { reading: string; frequency: number };
+
+/** 词频归一化：数字 / {reading, frequency} / 数字字符串；其余丢弃 */
+function extractFrequency(data: unknown): FreqMeta | null {
+  if (typeof data === 'number' && Number.isFinite(data)) {
+    return { reading: '', frequency: data };
+  }
+  if (!isRecord(data)) return null;
+  const reading = typeof data['reading'] === 'string' ? (data['reading'] as string) : '';
+  const f = data['frequency'];
+  if (typeof f === 'number' && Number.isFinite(f)) return { reading, frequency: f };
+  if (typeof f === 'string' && f.trim() !== '' && Number.isFinite(Number(f))) {
+    return { reading, frequency: Number(f) };
+  }
+  return null;
+}
 
 function parseTermMetaBank(
   raw: unknown
-): { pitch: Map<string, PitchMeta[]>; freqCount: number } {
+): { pitch: Map<string, PitchMeta[]>; freq: Map<string, FreqMeta[]>; freqCount: number } {
   const pitch = new Map<string, PitchMeta[]>();
+  const freq = new Map<string, FreqMeta[]>();
   let freqCount = 0;
-  if (!Array.isArray(raw)) return { pitch, freqCount };
+  if (!Array.isArray(raw)) return { pitch, freq, freqCount };
   for (const entry of raw) {
     if (!Array.isArray(entry) || entry.length < 3) continue;
     const [term, mode, data] = entry as unknown[];
     if (typeof term !== 'string' || !term) continue;
     if (mode === 'freq') {
+      const parsed = extractFrequency(data);
+      if (!parsed) continue;
       freqCount++;
+      freq.set(term, [...(freq.get(term) ?? []), parsed]);
       continue;
     }
     if (mode !== 'pitch' || !isRecord(data)) continue;
@@ -202,7 +223,7 @@ function parseTermMetaBank(
     list.push({ reading, pitches });
     pitch.set(term, list);
   }
-  return { pitch, freqCount };
+  return { pitch, freq, freqCount };
 }
 
 type KanjiRow = { character: string; reading: string; meanings: string[] };
@@ -240,8 +261,12 @@ function parseIndex(raw: unknown): YomitanIndex | null {
 export interface YomitanPitchRow {
   term: string;
   reading: string;
-  /** { reading, positions: number[], label: '⓪' | '①/②' ... } */
-  pitchJson: string;
+  /** 声调 JSON（无则 null；与词频同行共存） */
+  pitchJson: string | null;
+  /** 词频 JSON（无则 null） */
+  freqJson: string | null;
+  /** 词频数值（专供排序；无则 null） */
+  freqValue: number | null;
 }
 
 export interface YomitanParsed {
@@ -307,13 +332,17 @@ export function parseYomitanDictionary(
   const skipped = { media: 0 };
   const entries: ParsedEntry[] = [];
   const pitchByTerm = new Map<string, PitchMeta[]>();
+  const freqByTerm = new Map<string, FreqMeta[]>();
   let freqCount = 0;
 
   for (const name of metaFiles) {
-    const { pitch, freqCount: f } = parseTermMetaBank(decodeBank(name));
-    freqCount += f;
-    for (const [term, list] of pitch) {
+    const parsed = parseTermMetaBank(decodeBank(name));
+    freqCount += parsed.freqCount;
+    for (const [term, list] of parsed.pitch) {
       pitchByTerm.set(term, [...(pitchByTerm.get(term) ?? []), ...list]);
+    }
+    for (const [term, list] of parsed.freq) {
+      freqByTerm.set(term, [...(freqByTerm.get(term) ?? []), ...list]);
     }
   }
 
@@ -350,26 +379,48 @@ export function parseYomitanDictionary(
     }
   }
 
-  // 声调覆盖行：同一词多读音各记一行（meta-only 包的全部价值在此）
+  // 元数据覆盖行：声调 + 词频按 (term, reading) 合并为一行
+  // （同一读音多条取首个；不同 source 互不覆盖，PK 含 source_id）
   const pitchRows: YomitanPitchRow[] = [];
-  for (const [term, list] of pitchByTerm) {
-    for (const p of list) {
-      const positions = (Array.isArray(p.pitches) ? p.pitches : [])
-        .map((item) =>
-          typeof item === 'number'
-            ? item
-            : isRecord(item) && typeof item['position'] === 'number'
-              ? (item['position'] as number)
-              : null
-        )
-        .filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0);
-      if (positions.length === 0) continue;
+  const terms = new Set([...pitchByTerm.keys(), ...freqByTerm.keys()]);
+  for (const term of terms) {
+    const byReading = new Map<string, { pitch: PitchMeta[]; freq: FreqMeta[] }>();
+    for (const p of pitchByTerm.get(term) ?? []) {
+      const slot = byReading.get(p.reading) ?? { pitch: [], freq: [] };
+      slot.pitch.push(p);
+      byReading.set(p.reading, slot);
+    }
+    for (const f of freqByTerm.get(term) ?? []) {
+      const slot = byReading.get(f.reading) ?? { pitch: [], freq: [] };
+      slot.freq.push(f);
+      byReading.set(f.reading, slot);
+    }
+    for (const [reading, slot] of byReading) {
+      let pitchJson: string | null = null;
+      for (const p of slot.pitch) {
+        const positions = (Array.isArray(p.pitches) ? p.pitches : [])
+          .map((item) =>
+            typeof item === 'number'
+              ? item
+              : isRecord(item) && typeof item['position'] === 'number'
+                ? (item['position'] as number)
+                : null
+          )
+          .filter((n): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0);
+        if (positions.length > 0) {
+          pitchJson = JSON.stringify({
+            pitch: { reading: p.reading, positions, label: pitchPositionsLabel(positions) },
+          });
+          break;
+        }
+      }
+      const freq = slot.freq[0];
       pitchRows.push({
         term,
-        reading: p.reading,
-        pitchJson: JSON.stringify({
-          pitch: { reading: p.reading, positions, label: pitchPositionsLabel(positions) },
-        }),
+        reading,
+        pitchJson,
+        freqJson: freq ? JSON.stringify({ reading: freq.reading, frequency: freq.frequency }) : null,
+        freqValue: freq ? freq.frequency : null,
       });
     }
   }
@@ -431,11 +482,21 @@ export function upsertPitchRows(
 ): { pitchRows: number; backfilled: number } {
   sqlite.prepare('DELETE FROM dictionary_term_meta WHERE source_id = ?').run(manifest.id);
   const insert = sqlite.prepare(`
-    INSERT OR REPLACE INTO dictionary_term_meta (term, reading, language, pitch_json, source_id, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO dictionary_term_meta
+      (term, reading, language, pitch_json, freq_json, freq_value, source_id, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const row of rows) {
-    insert.run(row.term, row.reading, manifest.language, row.pitchJson, manifest.id, now);
+    insert.run(
+      row.term,
+      row.reading,
+      manifest.language,
+      row.pitchJson,
+      row.freqJson,
+      row.freqValue,
+      manifest.id,
+      now
+    );
   }
   const backfilled = backfillPitchPronunciation(sqlite, manifest.language);
   return { pitchRows: rows.length, backfilled };
@@ -566,6 +627,9 @@ export async function installYomitanFromBytes(
     try {
       if (parsed.entries.length > 0) {
         insertEntries(sqlite, manifest, parsed.entries, now);
+      } else {
+        // meta-only 包：无词条可写，但来源行必须登记（否则装完查无此包）
+        recordDictionarySource(sqlite, manifest, parsed.pitchRows.length, now);
       }
       if (parsed.pitchRows.length > 0) {
         upsertPitchRows(sqlite, manifest, parsed.pitchRows, now);

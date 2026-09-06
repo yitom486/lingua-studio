@@ -31,6 +31,23 @@ export function createDictionaryRoutes(deps: GatewayDeps) {
     if (isOk(result)) return c.json(result.value);
     return formatBusinessErrorResponse(c, result.error, 'dictionaryPackageInstall');
   })
+  // 词典包配置（开关 / 排序权重），即时影响查词过滤与排序。
+  .patch('/api/dictionary/packages/:packageId', async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => null)) as {
+        enabled?: unknown;
+        priority?: unknown;
+      } | null;
+      const patch: { enabled?: boolean; priority?: number } = {};
+      if (body && typeof body.enabled === 'boolean') patch.enabled = body.enabled;
+      if (body && typeof body.priority === 'number') patch.priority = body.priority;
+      const res = await deps.repo.updateDictionarySourceConfig(c.req.param('packageId'), patch);
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error, 'dictionaryPackageConfig');
+    } catch (e) {
+      return formatBusinessErrorResponse(c, e, 'dictionaryPackageConfig');
+    }
+  })
   // 自备 Yomitan 词典包安装（bank v3 zip）：multipart 文件直传 或 JSON { url } 下载。
   // 许可证由用户声明（未验证），安装行 license_note 如实标注，不伪装合规。
   .post('/api/dictionary/packages/custom', async (c) => {

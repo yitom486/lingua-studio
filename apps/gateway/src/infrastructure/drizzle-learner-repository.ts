@@ -48,6 +48,7 @@ import {
   sampleLocalDictionaryEntries as sampleLocalDictionaryEntriesDomain,
   recordDictionarySearch as recordDictionarySearchDomain,
   getDictionarySearchHistory as getDictionarySearchHistoryDomain,
+  updateDictionarySourceConfig as updateDictionarySourceConfigDomain,
 } from '../modules/dictionary/persistence/dictionary.js';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
@@ -217,6 +218,17 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     limit = 10
   ): Promise<Result<DictionarySearchRecord[], BusinessError>> {
     return getDictionarySearchHistoryDomain(this.deps, userId, language, limit);
+  }
+
+  /**
+   * 词典包配置更新（开关 / 排序权重）。
+   * 实现已下沉 dictionary 域，此处仅委托。
+   */
+  public async updateDictionarySourceConfig(
+    sourceId: string,
+    patch: { enabled?: boolean; priority?: number }
+  ): Promise<Result<{ id: string; enabled: boolean; priority: number }, BusinessError>> {
+    return updateDictionarySourceConfigDomain(this.deps, sourceId, patch);
   }
 
   /**

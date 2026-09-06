@@ -211,6 +211,8 @@ export type DictionaryLookupResult = {
     licenseNote: string;
     /** 活用形还原注记（直击中时无） */
     inflectionNote?: string;
+    /** 词频（数字越小越常用；无词频数据时无） */
+    frequency?: number;
   }>;
   externalLookup?: {
     provider: 'OJAD';
@@ -235,6 +237,9 @@ export type DictionaryPackageInfo = {
   installerReady?: boolean;
   entryCount?: number;
   installedAt?: string;
+  /** 用户开关（默认启用）；排序权重（越大越前）。 */
+  enabled?: boolean;
+  priority?: number;
 };
 
 export type DictionaryEntryCollection = {
@@ -337,7 +342,32 @@ export function useInstallCustomDictionaryMutation() {
   });
 }
 
-/** 收集本地词典条目为用户生词卡；界面不直接构造或持久化 FSRS 状态。 */
+/** 词典包配置（开关 / 排序权重），即时影响查词过滤与排序。 */
+export function useUpdateDictionaryPackageMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { packageId: string; enabled?: boolean; priority?: number }) => {
+      const body: Record<string, boolean | number> = {};
+      if (vars.enabled !== undefined) body['enabled'] = vars.enabled;
+      if (vars.priority !== undefined) body['priority'] = vars.priority;
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/dictionary/packages/${encodeURIComponent(vars.packageId)}`,
+        { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(payload?.error?.userMessage ?? '词典配置更新失败。');
+      }
+      return (await response.json()) as { id: string; enabled: boolean; priority: number };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'packages'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DICTIONARY });
+    },
+  });
+}
 export function useCollectDictionaryEntryMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();
   return useMutation({

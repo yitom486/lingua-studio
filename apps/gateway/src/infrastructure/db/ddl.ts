@@ -265,7 +265,9 @@ export function initSchema(sqlite: Database): void {
       license_url TEXT NOT NULL,
       attribution TEXT NOT NULL,
       entry_count INTEGER NOT NULL DEFAULT 0,
-      imported_at TEXT NOT NULL
+      imported_at TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      priority INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS dictionary_term_meta (
@@ -273,6 +275,8 @@ export function initSchema(sqlite: Database): void {
       reading TEXT NOT NULL DEFAULT '',
       language TEXT NOT NULL,
       pitch_json TEXT,
+      freq_json TEXT,
+      freq_value INTEGER,
       source_id TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (term, reading, source_id)
@@ -289,7 +293,6 @@ export function initSchema(sqlite: Database): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_dictionary_history_user_lang ON dictionary_search_history(user_id, language, created_at);
-
     -- 全文搜索（FTS5）：释义/词面/读音联合索引；经触发器与词条表同步。
     -- bun 内置 SQLite 含 FTS5；缺失时由 ensureDictionaryFts 回退纯 LIKE（读侧永不抛）。
     CREATE VIRTUAL TABLE IF NOT EXISTS local_dictionary_fts USING fts5(
@@ -411,6 +414,11 @@ export function initSchema(sqlite: Database): void {
     'ALTER TABLE practice_collections ADD COLUMN grading_mode TEXT',
     // P6-1：模板排程（可空，缺省每日适用）
     'ALTER TABLE practice_plan_templates ADD COLUMN schedule_json TEXT',
+    // 词典配置与词频：开关/优先级默认启用，词频列可空（旧行缺省无词频）
+    'ALTER TABLE dictionary_sources ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1',
+    'ALTER TABLE dictionary_sources ADD COLUMN priority INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE dictionary_term_meta ADD COLUMN freq_json TEXT',
+    'ALTER TABLE dictionary_term_meta ADD COLUMN freq_value INTEGER',
   ];
   for (const sql of alterStatements) {
     try {

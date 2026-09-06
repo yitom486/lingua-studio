@@ -2,6 +2,7 @@ import { eq, and, or, like, sql } from 'drizzle-orm';
 import {
   ok,
   err,
+  isOk,
   type Result,
   BusinessError,
   translateToBusinessError,
@@ -9,7 +10,7 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { Flashcard } from '@study-studio/protocol';
-import { localDictionaryEntries, flashcards, dictionarySearchHistory } from '../../../infrastructure/db/index.js';
+import { localDictionaryEntries, flashcards, dictionarySearchHistory, dictionarySources, dictionaryTermMeta } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
 import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
@@ -32,6 +33,8 @@ export interface LocalDictionaryEntry {
   licenseNote: string;
   /** 活用形还原注记（如「食べた」→「食べる（た形）」），直击中时为空 */
   inflectionNote?: string | undefined;
+  /** 词频（数字越小越常用；无词频数据时为空） */
+  frequency?: number | undefined;
 }
 
 /** 词典资产被收集为用户 FSRS 生词卡后的领域结果；不依赖任何具体界面。 */
@@ -104,38 +107,43 @@ export async function searchLocalDictionary(
       )
       .limit(Math.min(Math.max(limit, 1), 50));
 
-  const direct = rows.map(toLocalDictionaryEntry);
-  if (direct.length > 0) return ok(direct);
+    const direct = rows.map(toLocalDictionaryEntry);
+    if (direct.length > 0) return ok(await rankDictionaryEntries(deps, direct));
 
-  // 日语直击为空时尝试活用形还原（食べた→食べる）：候选逐个精确查，命中即注记来源
-  if (language === 'ja' && /[぀-ヿｦ-ﾟ一-鿿]/.test(normalized)) {
-    for (const candidate of deinflectJa(normalized)) {
-      const hitRows = await deps.db
-        .select()
-        .from(localDictionaryEntries)
-        .where(
-          and(
-            eq(localDictionaryEntries.language, language),
-            or(
-              eq(localDictionaryEntries.headword, candidate.base),
-              eq(localDictionaryEntries.reading, candidate.base)
+    // 日语直击为空时尝试活用形还原（食べた→食べる）：候选逐个精确查，命中即注记来源
+    if (language === 'ja' && /[぀-ヿｦ-ﾟ一-鿿]/.test(normalized)) {
+      for (const candidate of deinflectJa(normalized)) {
+        const hitRows = await deps.db
+          .select()
+          .from(localDictionaryEntries)
+          .where(
+            and(
+              eq(localDictionaryEntries.language, language),
+              or(
+                eq(localDictionaryEntries.headword, candidate.base),
+                eq(localDictionaryEntries.reading, candidate.base)
+              )
             )
           )
-        )
-        .limit(Math.min(Math.max(limit, 1), 50));
-      if (hitRows.length > 0) {
-        return ok(
-          hitRows.map((row) => ({
-            ...toLocalDictionaryEntry(row),
-            inflectionNote: `「${normalized}」活用自「${candidate.base}」（${candidate.note}）`,
-          }))
-        );
+          .limit(Math.min(Math.max(limit, 1), 50));
+        if (hitRows.length > 0) {
+          return ok(
+            await rankDictionaryEntries(
+              deps,
+              hitRows.map((row) => ({
+                ...toLocalDictionaryEntry(row),
+                inflectionNote: `「${normalized}」活用自「${candidate.base}」（${candidate.note}）`,
+              }))
+            )
+          );
+        }
       }
     }
-  }
 
-  // 释义全文搜索（FTS5）：按中文/关键词找释义；FTS 不可用时静默空结果
-  return searchDictionaryMeanings(deps, language, normalized, limit);
+    // 释义全文搜索（FTS5）：按中文/关键词找释义；FTS 不可用时静默空结果
+    const meanings = await searchDictionaryMeanings(deps, language, normalized, limit);
+    if (!isOk(meanings)) return meanings;
+    return ok(await rankDictionaryEntries(deps, meanings.value));
   } catch (error) {
     return err(
       translateToBusinessError(error, {
@@ -148,9 +156,81 @@ export async function searchLocalDictionary(
 }
 
 /**
- * 释义全文搜索（FTS5 + bm25 排序）：中文关键词/例句片段找词。
- * FTS 不可用或语法异常时返回空（调用方已跑过直查与还原，不抛错）。
+ * 查词后处理：开关过滤 + 优先级/词频排序（内存内完成，源表极小）。
+ * - 未在 dictionary_sources 登记者：一律保留（种子/旧数据不受影响）；
+ * - enabled=0 的来源：条目过滤；
+ * - 排序：来源 priority 降序 → 词频升序（NULL 最后）→ 原顺序稳定。
  */
+export async function rankDictionaryEntries(
+  deps: RepoDeps,
+  entries: LocalDictionaryEntry[]
+): Promise<LocalDictionaryEntry[]> {
+  if (entries.length === 0) return entries;
+  let sourceRows: Array<{ id: string; enabled: number; priority: number }>;
+  try {
+    sourceRows = await deps.db
+      .select({
+        id: dictionarySources.id,
+        enabled: dictionarySources.enabled,
+        priority: dictionarySources.priority,
+      })
+      .from(dictionarySources);
+  } catch {
+    return entries;
+  }
+  const config = new Map(sourceRows.map((r) => [r.id, r]));
+  // entry.id 形如 <sourceId>:<localId>，据此前缀判定来源；无前缀的一律保留
+  const withSource = entries.map((entry, index) => {
+    const sep = entry.id.indexOf(':');
+    const sourceId = sep > 0 ? entry.id.slice(0, sep) : undefined;
+    return { entry, index, sourceId };
+  });
+  const filtered = withSource.filter(({ sourceId }) => {
+    if (!sourceId) return true;
+    const conf = config.get(sourceId);
+    return !conf || conf.enabled !== 0;
+  });
+  // 词频：按（词面，读音）取最小值
+  let freqByKey = new Map<string, number>();
+  try {
+    const terms = [...new Set(filtered.map(({ entry }) => entry.headword))];
+    if (terms.length > 0) {
+      const placeholders = terms.map(() => '?').join(',');
+      const rows = deps.sqlite
+        .query(`SELECT term, reading, MIN(freq_value) AS f FROM dictionary_term_meta WHERE term IN (${placeholders}) GROUP BY term, reading`)
+        .all(...terms) as Array<{ term: string; reading: string; f: number | null }>;
+      for (const r of rows) {
+        if (typeof r.f === 'number') freqByKey.set(`${r.term}\n${r.reading}`, r.f);
+      }
+    }
+  } catch {
+    freqByKey = new Map();
+  }
+  const freqOf = (e: LocalDictionaryEntry): number | null => {
+    const reading = e.reading ?? '';
+    return freqByKey.get(`${e.headword}\n${reading}`) ?? freqByKey.get(`${e.headword}\n`) ?? null;
+  };
+  const decorated = filtered.map(({ entry, index, sourceId }) => {
+    const conf = sourceId ? config.get(sourceId) : undefined;
+    const frequency = freqOf(entry);
+    return {
+      entry: frequency === null ? entry : { ...entry, frequency },
+      index,
+      priority: conf?.priority ?? 0,
+      frequency,
+    };
+  });
+  decorated.sort((a, b) => {
+    if (b.priority !== a.priority) return b.priority - a.priority;
+    if (a.frequency !== null && b.frequency !== null && a.frequency !== b.frequency) {
+      return a.frequency - b.frequency;
+    }
+    if (a.frequency !== null) return -1;
+    if (b.frequency !== null) return 1;
+    return a.index - b.index;
+  });
+  return decorated.map((d) => d.entry);
+}
 export async function searchDictionaryMeanings(
   deps: RepoDeps,
   language: TrackLanguage,
@@ -290,10 +370,59 @@ export async function getDictionarySearchHistory(
   }
 }
 /**
+ * 词典包配置更新（用户开关 enabled / 排序权重 priority）。
+ * 不存在的 id 返回 E_NOT_FOUND；只更新传入字段。
+ */
+export async function updateDictionarySourceConfig(
+  deps: RepoDeps,
+  sourceId: string,
+  patch: { enabled?: boolean; priority?: number }
+): Promise<Result<{ id: string; enabled: boolean; priority: number }, BusinessError>> {
+  try {
+    if (patch.enabled === undefined && patch.priority === undefined) {
+      return err(new BusinessError('E_INVALID_INPUT', '请提供 enabled 或 priority', 'VALIDATION'));
+    }
+    if (patch.priority !== undefined && (!Number.isInteger(patch.priority) || patch.priority < 0 || patch.priority > 999)) {
+      return err(new BusinessError('E_INVALID_INPUT', 'priority 必须为 0–999 整数', 'VALIDATION'));
+    }
+    const existing = await deps.db
+      .select()
+      .from(dictionarySources)
+      .where(eq(dictionarySources.id, sourceId))
+      .limit(1);
+    if (existing.length === 0) {
+      return err(new BusinessError('E_NOT_FOUND', '词典包不存在', 'LEARNER_STATE'));
+    }
+    if (patch.enabled !== undefined) {
+      await deps.db
+        .update(dictionarySources)
+        .set({ enabled: patch.enabled ? 1 : 0 })
+        .where(eq(dictionarySources.id, sourceId));
+    }
+    if (patch.priority !== undefined) {
+      await deps.db
+        .update(dictionarySources)
+        .set({ priority: patch.priority })
+        .where(eq(dictionarySources.id, sourceId));
+    }
+    const updated = await deps.db
+      .select({ enabled: dictionarySources.enabled, priority: dictionarySources.priority })
+      .from(dictionarySources)
+      .where(eq(dictionarySources.id, sourceId))
+      .limit(1);
+    const row = updated[0];
+    return ok({ id: sourceId, enabled: (row?.enabled ?? 1) !== 0, priority: row?.priority ?? 0 });
+  } catch (error) {
+    return err(
+      translateToBusinessError(error, { category: 'DATABASE', action: 'updateDictionarySourceConfig', entityId: sourceId })
+    );
+  }
+}
+
+/**
  * 随机抽取本地词典条目（假名单词听写等“系统随机出题”场景用）。
  * 返回原始条目；假名可用性等过滤由调用方按需完成。
- */
-export async function sampleLocalDictionaryEntries(
+ */export async function sampleLocalDictionaryEntries(
   deps: RepoDeps,
   language: TrackLanguage,
   limit = 10

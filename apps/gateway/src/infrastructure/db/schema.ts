@@ -364,6 +364,10 @@ export const dictionarySources = sqliteTable('dictionary_sources', {
   attribution: text('attribution').notNull(),
   entryCount: integer('entry_count').notNull().default(0),
   importedAt: text('imported_at').notNull(),
+  /** 用户开关（0=禁用，查词时过滤）；默认启用 */
+  enabled: integer('enabled').notNull().default(1),
+  /** 排序权重（越大越前；默认 0） */
+  priority: integer('priority').notNull().default(0),
 });
 
 /**
@@ -376,6 +380,10 @@ export const dictionarySources = sqliteTable('dictionary_sources', {
     reading: text('reading').notNull().default(''),
     language: text('language').notNull(),
     pitchJson: text('pitch_json'),
+    /** 词频（数字越小越常用；Yomitan freq 覆盖层） */
+    freqJson: text('freq_json'),
+    /** 词频数值（专供排序，NULL 表未知） */
+    freqValue: integer('freq_value'),
     sourceId: text('source_id').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

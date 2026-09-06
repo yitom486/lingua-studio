@@ -141,7 +141,7 @@ describe('yomitan bank v3 解析（clean-room）', () => {
     expect(taberu?.partOfSpeech).toBe('一段动词');
     // 声调走覆盖行（安装时回填），解析阶段只出 pitchRows
     const amePitch = parsed.pitchRows.find((r) => r.term === '雨');
-    expect(JSON.parse(amePitch!.pitchJson)).toMatchObject({ pitch: { label: '①' } });
+    expect(JSON.parse(amePitch?.pitchJson ?? '{}')).toMatchObject({ pitch: { label: '①' } });
     expect(parsed.stats.pitchMeta).toBe(2);
     expect(parsed.stats.freqMeta).toBe(1);
     expect(parsed.stats.mediaSkipped).toBe(1);
@@ -241,7 +241,25 @@ describe('yomitan 安装（事务替换 + 声调回填）', () => {
     expect(isOk(second)).toBe(true);
   });
 
-  it('backfill 不覆盖已有发音、不猜读音', () => {    const sqlite = memDb();
+  it('meta-only 安装登记来源行（否则装完查无此包）', async () => {
+    const sqlite = memDb();
+    const metaOnly = buildStoredZip([
+      { name: 'index.json', content: JSON.stringify({ title: 'MetaOnly', format: 3, revision: 'm1' }) },
+      {
+        name: 'term_meta_bank_1.json',
+        content: JSON.stringify([['雨', 'pitch', { reading: 'あめ', pitches: [{ position: 2 }] }]]),
+      },
+    ]);
+    const res = await installYomitanFromBytes(sqlite, { ...meta, id: 'yomitan-meta-src' }, metaOnly);
+    expect(isOk(res)).toBe(true);
+    const row = sqlite
+      .query<{ entry_count: number }, [string]>('SELECT entry_count FROM dictionary_sources WHERE id = ?')
+      .get('yomitan-meta-src');
+    expect(row?.entry_count).toBe(1);
+  });
+
+  it('backfill 不覆盖已有发音、不猜读音', () => {
+    const sqlite = memDb();
     const now = new Date().toISOString();
     sqlite.prepare(`INSERT INTO local_dictionary_entries (
       id, language, headword, reading, romanization, meanings_json,

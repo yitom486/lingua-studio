@@ -126,9 +126,13 @@ export type DictionaryPackage = {
   installerReady: boolean;
   entryCount?: number | undefined;
   installedAt?: string | undefined;
+  /** 用户开关（默认启用）；排序权重（越大越前，默认 0） */
+  enabled?: boolean | undefined;
+  priority?: number | undefined;
 };
 
-export type ParsedEntry = {  id: string;
+export type ParsedEntry = {
+  id: string;
   headword: string;
   /** 日语包：假名读音（kana reading），写入 reading 列供读音检索；其他包可空 */
   reading?: string | undefined;
@@ -141,6 +145,8 @@ type InstalledSourceRow = {
   id: string;
   entry_count: number;
   imported_at: string;
+  enabled: number | null;
+  priority: number | null;
 };
 
 type Fetcher = typeof fetch;
@@ -421,6 +427,21 @@ export function insertEntries(
       now
     );
   }
+  recordDictionarySource(sqlite, manifest, entries.length, now);
+  // 词条入库后自动回填已安装的声调覆盖层（同一事务；无覆盖层时为 no-op）
+  backfillPitchPronunciation(sqlite, manifest.language);
+}
+
+/**
+ * 仅登记来源行（meta-only 包：无词条可写，但来源/数量必须可追溯）。
+ * 调用方负责事务。
+ */
+export function recordDictionarySource(
+  sqlite: Database,
+  manifest: DictionaryPackageManifest,
+  entryCount: number,
+  now: string
+): void {
   sqlite.prepare('DELETE FROM dictionary_sources WHERE id = ?').run(manifest.id);
   sqlite.prepare(`
     INSERT INTO dictionary_sources (
@@ -435,11 +456,9 @@ export function insertEntries(
     manifest.licenseName,
     manifest.licenseUrl,
     manifest.attribution,
-    entries.length,
+    entryCount,
     now
   );
-  // 词条入库后自动回填已安装的声调覆盖层（同一事务；无覆盖层时为 no-op）
-  backfillPitchPronunciation(sqlite, manifest.language);
 }
 
 /**
@@ -522,7 +541,7 @@ async function installFromManifest(
 export function listDictionaryPackages(sqlite: Database): DictionaryPackage[] {
   const installedRows = sqlite
     .query<InstalledSourceRow, []>(
-      'SELECT id, entry_count, imported_at FROM dictionary_sources'
+      'SELECT id, entry_count, imported_at, enabled, priority FROM dictionary_sources'
     )
     .all();
   const installedMap = new Map(installedRows.map((r) => [r.id, r]));
@@ -545,6 +564,8 @@ export function listDictionaryPackages(sqlite: Database): DictionaryPackage[] {
     if (installed) {
       pkg.entryCount = installed.entry_count;
       pkg.installedAt = installed.imported_at;
+      pkg.enabled = (installed.enabled ?? 1) !== 0;
+      pkg.priority = installed.priority ?? 0;
     }
     return pkg;
   });
