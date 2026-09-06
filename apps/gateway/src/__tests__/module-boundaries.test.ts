@@ -37,6 +37,8 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   `modules/practice/__tests__/practice-phase-d.test.ts -> ${LP_APP}`,
   'modules/practice/application/practice-assembly.ts -> transport/tools/learning-content-tool.js',
   'modules/practice/__tests__/practice-assembly.test.ts -> transport/tools/learning-content-tool.js',
+  // Yomitan zip 解包复用 library 的 archive.ts（纯函数，无状态；避免重复实现）。
+  'modules/dictionary/application/yomitan.ts -> modules/library/application/pdf-import/archive.js',
 ]);
 
 function collectTs(dir: string, out: string[] = []): string[] {

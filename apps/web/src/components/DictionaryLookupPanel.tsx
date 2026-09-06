@@ -14,6 +14,15 @@ type DictionaryLookupPanelProps = {
   helper: string;
 };
 
+/** pronunciation.pitch.label 安全抽取（结构不对返回 null，不抛）。 */
+function pitchLabelOf(pronunciation: unknown): string | null {
+  if (typeof pronunciation !== 'object' || pronunciation === null) return null;
+  const pitch: unknown = (pronunciation as { pitch?: unknown }).pitch;
+  if (typeof pitch !== 'object' || pitch === null) return null;
+  const label: unknown = (pitch as { label?: unknown }).label;
+  return typeof label === 'string' && label ? label : null;
+}
+
 /**
  * 可嵌入任意学习工作台的词典入口。它只组合 Query 与领域 Mutation，
  * 不拥有词典、FSRS 或每日统计的业务规则。
@@ -95,7 +104,20 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                         </span>
                       )}
                       {entry.partOfSpeech && <Badge variant="outline">{entry.partOfSpeech}</Badge>}
+                      {(() => {
+                        const label = pitchLabelOf(entry.pronunciation);
+                        return label ? (
+                          <Badge variant="amber" className="font-mono">
+                            声调 {label}
+                          </Badge>
+                        ) : null;
+                      })()}
                     </div>
+                    {entry.inflectionNote && (
+                      <p className="mt-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300">
+                        {entry.inflectionNote}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-stone-600 dark:text-stone-300">
                       {entry.meanings.join('；')}
                     </p>

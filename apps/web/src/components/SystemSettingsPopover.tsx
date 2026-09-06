@@ -42,7 +42,7 @@ import {
 import {
   useDictionaryPackagesQuery,
   useInstallDictionaryPackageMutation,
-  useAzureVoicesQuery,
+  useInstallCustomDictionaryMutation,  useAzureVoicesQuery,
   useInvalidateTtsVoices,
   type AzureVoiceOption,
 } from '../queries/useLearnerQueries.js';
@@ -107,6 +107,9 @@ export function SystemSettingsPopover() {
   const preferredURI = preferredVoices[prefKey] ?? null;
   const dictionaryPackages = useDictionaryPackagesQuery(open);
   const installDictionaryPackage = useInstallDictionaryPackageMutation();
+  const installCustomDictionary = useInstallCustomDictionaryMutation();
+  const [customDictLicenseOk, setCustomDictLicenseOk] = useState(false);
+  const [customDictLang, setCustomDictLang] = useState<'ja' | 'en' | 'ko'>(shell.track);
   // 可安装包以 Gateway 目录为准（oewn-2025 / jmdict-e / kengdic-2021…），前端不写死 id。
   const installableDictionaries = dictionaryPackages.data?.packages ?? [];
   const dictionaryLangLabel = (language: string): string =>
@@ -392,6 +395,30 @@ export function SystemSettingsPopover() {
         toast.error(error instanceof Error ? error.message : '词典包安装失败，请稍后重试。');
       },
     });
+  };
+
+  const handleCustomDictionaryFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || installCustomDictionary.isPending) return;
+    if (!customDictLicenseOk) {
+      toast.error('请先勾选许可证确认，再安装自备词典。');
+      return;
+    }
+    sound.playClick();
+    installCustomDictionary.mutate(
+      { file, language: customDictLang },
+      {
+        onSuccess: (installed) => {
+          toast.success(
+            `自备词典已安装：${installed.entryCount?.toLocaleString() ?? ''} 条（许可证未验证）`
+          );
+        },
+        onError: (error) => {
+          toast.error(error instanceof Error ? error.message : '自备词典安装失败。');
+        },
+      }
+    );
   };
 
   const handleBackupDatabase = async () => {
@@ -883,6 +910,48 @@ export function SystemSettingsPopover() {
             ) : (
               <p className="text-[11px] text-stone-500">正在读取词典包状态…</p>
             )}
+            <div className="rounded-xl border border-dashed border-stone-300/80 p-2.5 dark:border-stone-700">
+              <p className="text-[11px] font-medium text-stone-700 dark:text-stone-300">
+                自备 Yomitan 词典包（bank v3 .zip）
+              </p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg bg-amber-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-amber-700">
+                  <Download className="h-3 w-3" />
+                  {installCustomDictionary.isPending ? '安装中…' : '选择 zip 安装'}
+                  <input
+                    type="file"
+                    accept=".zip"
+                    className="hidden"
+                    disabled={installCustomDictionary.isPending}
+                    onChange={handleCustomDictionaryFile}
+                  />
+                </label>
+                <Select
+                  value={customDictLang}
+                  onValueChange={(v) => {
+                    if (v === 'ja' || v === 'en' || v === 'ko') setCustomDictLang(v);
+                  }}
+                >
+                  <SelectTrigger className="h-7 w-20 text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ja">日语</SelectItem>
+                    <SelectItem value="en">英语</SelectItem>
+                    <SelectItem value="ko">韩语</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="mt-1.5 flex cursor-pointer items-start gap-1.5 text-[10px] leading-relaxed text-stone-500">
+                <input
+                  type="checkbox"
+                  checked={customDictLicenseOk}
+                  onChange={(e) => setCustomDictLicenseOk(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>我确认有权使用该词典并接受其许可证（网关如实标注“未验证”）。</span>
+              </label>
+            </div>
           </div>
 
           <div className="h-px bg-stone-100 dark:bg-stone-800/80" />

@@ -30,6 +30,8 @@ export interface LocalDictionaryEntry {
   partOfSpeech?: string | undefined;
   sourceLabel: string;
   licenseNote: string;
+  /** 活用形还原注记（如「食べた」→「食べる（た形）」），直击中时为空 */
+  inflectionNote?: string | undefined;
 }
 
 /** 词典资产被收集为用户 FSRS 生词卡后的领域结果；不依赖任何具体界面。 */
@@ -72,6 +74,8 @@ function toLocalDictionaryEntry(row: LocalDictionaryRow): LocalDictionaryEntry {
   return entry;
 }
 
+import { deinflectJa } from './deinflect.js';
+
 /**
  * 查询本地、可再分发的词典资产。第三方词典只可作为外链兜底，绝不在此抓取。
  */
@@ -101,7 +105,34 @@ export async function searchLocalDictionary(
       )
       .limit(Math.min(Math.max(limit, 1), 50));
 
-    return ok(rows.map(toLocalDictionaryEntry));
+    const direct = rows.map(toLocalDictionaryEntry);
+    if (direct.length > 0 || language !== 'ja') return ok(direct);
+
+    // 日语直击为空时尝试活用形还原（食べた→食べる）：候选逐个精确查，命中即注记来源
+    for (const candidate of deinflectJa(normalized)) {
+      const hitRows = await deps.db
+        .select()
+        .from(localDictionaryEntries)
+        .where(
+          and(
+            eq(localDictionaryEntries.language, language),
+            or(
+              eq(localDictionaryEntries.headword, candidate.base),
+              eq(localDictionaryEntries.reading, candidate.base)
+            )
+          )
+        )
+        .limit(Math.min(Math.max(limit, 1), 50));
+      if (hitRows.length > 0) {
+        return ok(
+          hitRows.map((row) => ({
+            ...toLocalDictionaryEntry(row),
+            inflectionNote: `「${normalized}」活用自「${candidate.base}」（${candidate.note}）`,
+          }))
+        );
+      }
+    }
+    return ok(direct);
   } catch (error) {
     return err(
       translateToBusinessError(error, {

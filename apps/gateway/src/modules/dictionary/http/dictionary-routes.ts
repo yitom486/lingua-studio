@@ -1,11 +1,11 @@
 ﻿import { Hono } from 'hono';
-import { validator } from 'hono/validator';
 import { isOk, BusinessError } from '@study-studio/shared';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import {
   installDictionaryPackage,
   listDictionaryPackages,
 } from '../application/dictionary-packages.js';
+import { buildCustomMeta, installYomitanFromBytes } from '../application/yomitan.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
 // 词典安装任务表：进程级单例（随模块常驻，不随请求重建），G2 迁移时原样搬入本域。
@@ -30,6 +30,117 @@ export function createDictionaryRoutes(deps: GatewayDeps) {
     const result = await task;
     if (isOk(result)) return c.json(result.value);
     return formatBusinessErrorResponse(c, result.error, 'dictionaryPackageInstall');
+  })
+  // 自备 Yomitan 词典包安装（bank v3 zip）：multipart 文件直传 或 JSON { url } 下载。
+  // 许可证由用户声明（未验证），安装行 license_note 如实标注，不伪装合规。
+  .post('/api/dictionary/packages/custom', async (c) => {
+    try {
+      const contentType = c.req.header('content-type') ?? '';
+      let zipBytes: Uint8Array | null = null;
+      let language: string | undefined;
+      let title: string | undefined;
+      let sourceUrl: string | undefined;
+      let licenseName: string | undefined;
+      let attribution: string | undefined;
+      if (contentType.includes('application/json')) {
+        const body = (await c.req.json().catch(() => null)) as {
+          url?: unknown;
+          filePath?: unknown;
+          language?: unknown;
+          title?: unknown;
+          licenseName?: unknown;
+          attribution?: unknown;
+        } | null;
+        if (typeof body?.language === 'string') language = body.language;
+        if (typeof body?.title === 'string') title = body.title;
+        if (typeof body?.licenseName === 'string') licenseName = body.licenseName;
+        if (typeof body?.attribution === 'string') attribution = body.attribution;
+        if (typeof body?.filePath === 'string' && body.filePath) {
+          // 大 zip 本地直读（同 multipart 百 MB 教训：不走 HTTP 拷贝）
+          const { promises: fsp } = await import('node:fs');
+          const { default: path } = await import('node:path');
+          if (!path.isAbsolute(body.filePath) || path.extname(body.filePath).toLowerCase() !== '.zip') {
+            return formatBusinessErrorResponse(
+              c,
+              new BusinessError('E_INVALID_INPUT', '只接受本机 .zip 绝对路径', 'VALIDATION')
+            );
+          }
+          try {
+            const stat = await fsp.stat(body.filePath);
+            if (!stat.isFile() || stat.size === 0 || stat.size > 500 * 1024 * 1024) {
+              return formatBusinessErrorResponse(
+                c,
+                new BusinessError('E_INVALID_INPUT', '本地文件无效或过大（上限 500MB）', 'VALIDATION')
+              );
+            }
+            zipBytes = new Uint8Array(await fsp.readFile(body.filePath));
+          } catch {
+            return formatBusinessErrorResponse(
+              c,
+              new BusinessError('E_INVALID_INPUT', '本地文件不存在或无权读取', 'VALIDATION')
+            );
+          }
+        } else {
+          if (typeof body?.url !== 'string' || !body.url) {
+            return formatBusinessErrorResponse(
+              c,
+              new BusinessError('E_INVALID_INPUT', 'JSON 模式请提供 url 或 filePath', 'VALIDATION')
+            );
+          }
+          sourceUrl = body.url;
+          const response = await fetch(body.url);
+          if (!response.ok) {
+            return formatBusinessErrorResponse(
+              c,
+              new BusinessError('E_INVALID_INPUT', `词典下载失败（HTTP ${response.status}）`, 'NETWORK')
+            );
+          }
+          zipBytes = new Uint8Array(await response.arrayBuffer());
+        }
+      } else {
+        const body = await c.req.parseBody();
+        const file = body['file'];
+        if (!(file instanceof File)) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '请用 file 字段上传 .zip 词典包', 'VALIDATION')
+          );
+        }
+        if (file.size === 0 || file.size > 500 * 1024 * 1024) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '词典包过大（上限 500MB）', 'VALIDATION')
+          );
+        }
+        const field = (k: string) => {
+          const v = body[k];
+          return typeof v === 'string' && v ? v : undefined;
+        };
+        language = field('language');
+        title = field('title');
+        licenseName = field('licenseName');
+        attribution = field('attribution');
+        zipBytes = new Uint8Array(await file.arrayBuffer());
+      }
+      if (language !== 'en' && language !== 'ja' && language !== 'ko') {
+        return formatBusinessErrorResponse(
+          c,
+          new BusinessError('E_INVALID_INPUT', 'language 必须为 en/ja/ko', 'VALIDATION')
+        );
+      }
+      const meta = buildCustomMeta(zipBytes, {
+        language,
+        ...(title ? { title } : {}),
+        ...(sourceUrl ? { sourceUrl } : {}),
+        ...(licenseName ? { licenseName } : {}),
+        ...(attribution ? { attribution } : {}),
+      });
+      const result = await installYomitanFromBytes(deps.repo.getRawDb(), meta, zipBytes);
+      if (isOk(result)) return c.json(result.value);
+      return formatBusinessErrorResponse(c, result.error, 'dictionaryCustomInstall');
+    } catch (e) {
+      return formatBusinessErrorResponse(c, e, 'dictionaryCustomInstall');
+    }
   })
   // 本地词典优先；仅在日语本地未命中时提供 OJAD 外链，不代理或抓取 OJAD。
   .get('/api/dictionary/:language', async (c) => {

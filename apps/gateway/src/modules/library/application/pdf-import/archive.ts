@@ -1,4 +1,4 @@
-import { gunzipSync, inflateSync } from 'node:zlib';
+import { gunzipSync, inflateRawSync, inflateSync } from 'node:zlib';
 import { BusinessError } from '@study-studio/shared';
 
 /**
@@ -137,10 +137,15 @@ function extractZipInner(input: Uint8Array, eocd: number): ArchiveEntry[] {
     if (method === 0) {
       data = comp;
     } else if (method === 8) {
+      // 真实世界 zip（7z/Info-ZIP）存裸 deflate 流；Node deflateSync 产 zlib 包裹流；两者都接受
       try {
         data = inflateSync(comp);
       } catch {
-        throw new BusinessError('E_RUNTIME_EXTRACT', '构件包 deflate 解压失败', 'TOOL_EXECUTION');
+        try {
+          data = inflateRawSync(comp);
+        } catch {
+          throw new BusinessError('E_RUNTIME_EXTRACT', '构件包 deflate 解压失败', 'TOOL_EXECUTION');
+        }
       }
     } else {
       throw new BusinessError(

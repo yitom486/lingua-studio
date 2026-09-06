@@ -20,9 +20,12 @@ export const JMDICT_E_SOURCE_ID = 'jmdict-e';
 export const KENGDIC_URL =
   'https://raw.githubusercontent.com/garfieldnate/kengdic/master/kengdic.tsv';
 export const KENGDIC_SOURCE_ID = 'kengdic-2021';
+export const KANJIUM_PITCH_URL =
+  'https://raw.githubusercontent.com/yomidevs/yomitan/dictionaries/kanjium_pitch_accents.zip';
+export const KANJIUM_PITCH_SOURCE_ID = 'kanjium-pitch';
 
 /** 解析器种类：决定 installDictionaryPackage 调用哪个安装器 */
-export type DictionaryPackageParser = 'oewn-xml' | 'jmdict-xml' | 'kengdic-tsv';
+export type DictionaryPackageParser = 'oewn-xml' | 'jmdict-xml' | 'kengdic-tsv' | 'yomitan-zip';
 
 /** 受类型约束的包元数据 manifest */
 export interface DictionaryPackageManifest {
@@ -90,6 +93,21 @@ export const DICTIONARY_PACKAGE_CATALOG: DictionaryPackageManifest[] = [
     minEntryCount: 50_000,
     installerReady: true,
   },
+  {
+    id: KANJIUM_PITCH_SOURCE_ID,
+    language: 'ja',
+    provider: 'Kanjium 声调（Uros Ozvatic，经 Yomitan 打包）',
+    version: 'pitch1',
+    sourceUrl: KANJIUM_PITCH_URL,
+    licenseName: '上游声明（Kanjium）',
+    licenseUrl: 'https://github.com/mifunetoshiro/kanjium',
+    attribution:
+      '声调数据来自 Kanjium（Uros Ozvatic），经 Yomitan bank v3 打包；以声调覆盖层形式回填已有日语词条，不新增无释义词条。',
+    description: '日语声调覆盖层（约 12 万条读音声调）。安装后已装词条自动带声调；后装词条自动回填。',
+    parser: 'yomitan-zip',
+    minEntryCount: 100_000,
+    installerReady: true,
+  },
 ];
 
 export type DictionaryPackage = {
@@ -110,8 +128,7 @@ export type DictionaryPackage = {
   installedAt?: string | undefined;
 };
 
-type ParsedEntry = {
-  id: string;
+export type ParsedEntry = {  id: string;
   headword: string;
   /** 日语包：假名读音（kana reading），写入 reading 列供读音检索；其他包可空 */
   reading?: string | undefined;
@@ -374,7 +391,7 @@ async function loadJmdictXml(fetcher: Fetcher): Promise<string> {
 // 通用安装：事务替换，失败不改库
 // ---------------------------------------------------------------------------
 
-function insertEntries(
+export function insertEntries(
   sqlite: Database,
   manifest: DictionaryPackageManifest,
   entries: ParsedEntry[],
@@ -421,6 +438,38 @@ function insertEntries(
     entries.length,
     now
   );
+  // 词条入库后自动回填已安装的声调覆盖层（同一事务；无覆盖层时为 no-op）
+  backfillPitchPronunciation(sqlite, manifest.language);
+}
+
+/**
+ * 声调回填：把 dictionary_term_meta 的声调写到尚无发音的词条 pronunciation_json。
+ * 匹配规则（不猜）：词条读音非空时必须与 meta 读音一致；词条无读音时按“meta 读音 = 词面”匹配
+ *（假名 luc词）；其余一律跳过。返回回填条数。
+ */
+export function backfillPitchPronunciation(sqlite: Database, language: string): number {
+  const result = sqlite
+    .prepare(
+      `
+      UPDATE local_dictionary_entries AS e SET pronunciation_json = (
+        SELECT m.pitch_json FROM dictionary_term_meta AS m
+        WHERE m.term = e.headword
+          AND m.language = e.language
+          AND m.reading = COALESCE(NULLIF(e.reading, ''), e.headword)
+        LIMIT 1
+      )
+      WHERE e.language = ?
+        AND (e.pronunciation_json IS NULL OR e.pronunciation_json = '')
+        AND EXISTS (
+          SELECT 1 FROM dictionary_term_meta AS m
+          WHERE m.term = e.headword
+            AND m.language = e.language
+            AND m.reading = COALESCE(NULLIF(e.reading, ''), e.headword)
+        )
+      `
+    )
+    .run(language);
+  return Number(result.changes ?? 0);
 }
 
 async function installFromManifest(
@@ -528,6 +577,11 @@ export async function installDictionaryPackage(
   }
   if (manifest.parser === 'jmdict-xml') {
     return installFromManifest(sqlite, manifest, fetcher, () => loadJmdictXml(fetcher), parseJmdictXml);
+  }
+  if (manifest.parser === 'yomitan-zip') {
+    // 动态导入避免与 yomitan.ts 的静态循环（yomitan 单向静态依赖本模块）。
+    const { installYomitanFromUrl } = await import('./yomitan.js');
+    return installYomitanFromUrl(sqlite, manifest, fetcher);
   }
   return err(
     new BusinessError('E_UNSUPPORTED', `解析器「${manifest.parser}」尚未实现。`, 'AGENT_RUNTIME')

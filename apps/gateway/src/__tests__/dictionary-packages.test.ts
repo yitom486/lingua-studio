@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import {
   DICTIONARY_PACKAGE_CATALOG,
+  KANJIUM_PITCH_SOURCE_ID,
   KENGDIC_SOURCE_ID,
   JMDICT_E_SOURCE_ID,
   OEWN_2025_SOURCE_ID,
@@ -89,11 +90,23 @@ describe('P3-A 词典包 manifest/catalog', () => {
 
     for (const m of DICTIONARY_PACKAGE_CATALOG) {
       expect(m.licenseName.length).toBeGreaterThan(0);
-      expect(m.licenseUrl.startsWith('https://creativecommons.org/')).toBe(true);
+      // CC 系走 creativecommons 链接；上游声明类（如 Kanjium）必须指向可核查的上游地址
+      if (m.licenseName.startsWith('上游声明')) {
+        expect(m.licenseUrl.startsWith('https://github.com/')).toBe(true);
+      } else {
+        expect(m.licenseUrl.startsWith('https://creativecommons.org/')).toBe(true);
+      }
       expect(m.attribution.length).toBeGreaterThan(0);
       expect(m.sourceUrl.startsWith('http')).toBe(true);
-      expect(['oewn-xml', 'jmdict-xml', 'kengdic-tsv']).toContain(m.parser);
+      expect(['oewn-xml', 'jmdict-xml', 'kengdic-tsv', 'yomitan-zip']).toContain(m.parser);
     }
+  });
+
+  it('Kanjium 声调覆盖层已登记且可安装（yomitan-zip 解析器）', () => {
+    const kanjium = DICTIONARY_PACKAGE_CATALOG.find((m) => m.id === KANJIUM_PITCH_SOURCE_ID);
+    expect(kanjium).toBeDefined();
+    expect(kanjium?.installerReady).toBe(true);
+    expect(kanjium?.language).toBe('ja');
   });
 
   it('JMdict manifest 已登记且 installerReady=true（XML 解析器已实现）', () => {

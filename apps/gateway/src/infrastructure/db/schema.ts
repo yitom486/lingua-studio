@@ -367,6 +367,26 @@ export const dictionarySources = sqliteTable('dictionary_sources', {
 });
 
 /**
+ * 词条级元数据覆盖层（如 Yomitan term_meta_bank 声调）。
+ * 与词条表分离：meta 包可独立安装/重装；词条安装时自动回填 pronunciation。
+ */
+export const dictionaryTermMeta = sqliteTable(
+  'dictionary_term_meta',
+  {
+    term: text('term').notNull(),
+    reading: text('reading').notNull().default(''),
+    language: text('language').notNull(),
+    pitchJson: text('pitch_json'),
+    sourceId: text('source_id').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.term, table.reading, table.sourceId] }),
+    termLangIdx: index('idx_dictionary_term_meta_term_lang').on(table.term, table.language),
+  })
+);
+
+/**
  * learning.content 离线/冷启动内容模板库（工具运行时只读，不在 TS 内硬编码题干）
  */
 export const learningContentTemplates = sqliteTable(

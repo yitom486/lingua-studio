@@ -208,6 +208,8 @@ export type DictionaryLookupResult = {
     partOfSpeech?: string;
     sourceLabel: string;
     licenseNote: string;
+    /** 活用形还原注记（直击中时无） */
+    inflectionNote?: string;
   }>;
   externalLookup?: {
     provider: 'OJAD';
@@ -276,6 +278,54 @@ export function useInstallDictionaryPackageMutation() {
           error?: { userMessage?: string };
         } | null;
         throw new Error(body?.error?.userMessage ?? '词典包安装失败，请检查网络后重试。');
+      }
+      return (await response.json()) as DictionaryPackageInfo;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'packages'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DICTIONARY });
+    },
+  });
+}
+
+/**
+ * 自备 Yomitan 词典包安装（bank v3 zip）：本地文件直传，或同机路径/直链。
+ * 许可证由用户声明（网关如实标注“未验证”），大 zip 走本地路径避免上传 OOM。
+ */
+export function useInstallCustomDictionaryMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars:
+        | { file: File; language: 'en' | 'ja' | 'ko' }
+        | { filePath: string; language: 'en' | 'ja' | 'ko' }
+        | { url: string; language: 'en' | 'ja' | 'ko' }
+    ): Promise<DictionaryPackageInfo> => {
+      const language = vars.language;
+      const response = await ('file' in vars
+        ? (async () => {
+            const form = new FormData();
+            form.append('file', vars.file, vars.file.name);
+            form.append('language', language);
+            return fetch(`${GATEWAY_BASE_URL}/api/dictionary/packages/custom`, {
+              method: 'POST',
+              body: form,
+            });
+          })()
+        : fetch(`${GATEWAY_BASE_URL}/api/dictionary/packages/custom`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              language,
+              ...('filePath' in vars ? { filePath: vars.filePath } : {}),
+              ...('url' in vars ? { url: vars.url } : {}),
+            }),
+          }));
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '自备词典安装失败，请检查文件后重试。');
       }
       return (await response.json()) as DictionaryPackageInfo;
     },

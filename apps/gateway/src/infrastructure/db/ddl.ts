@@ -268,6 +268,17 @@ export function initSchema(sqlite: Database): void {
       imported_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS dictionary_term_meta (
+      term TEXT NOT NULL,
+      reading TEXT NOT NULL DEFAULT '',
+      language TEXT NOT NULL,
+      pitch_json TEXT,
+      source_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (term, reading, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dictionary_term_meta_term_lang ON dictionary_term_meta(term, language);
+
     CREATE TABLE IF NOT EXISTS learning_content_templates (
       id TEXT PRIMARY KEY,
       language TEXT NOT NULL,
