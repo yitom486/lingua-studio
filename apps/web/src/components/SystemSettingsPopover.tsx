@@ -205,6 +205,8 @@ export function SystemSettingsPopover() {
 
   const handlePreview = () => {
     sound.playClick();
+    // 先落盘再播：否则下拉改了没点保存，试听用的还是旧桶，可复现“换哪个都一个声”
+    persistNeuralForm();
     toast.message(`试听：${describeEffectiveVoice()}`);
     speak(getPreviewText(speechLang, gender), { lang: speechLang, gender, rate });
   };
