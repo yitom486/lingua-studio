@@ -279,6 +279,36 @@ export function initSchema(sqlite: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_dictionary_term_meta_term_lang ON dictionary_term_meta(term, language);
 
+    CREATE TABLE IF NOT EXISTS dictionary_search_history (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      language TEXT NOT NULL,
+      query TEXT NOT NULL,
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      top_entry_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dictionary_history_user_lang ON dictionary_search_history(user_id, language, created_at);
+
+    -- 全文搜索（FTS5）：释义/词面/读音联合索引；经触发器与词条表同步。
+    -- bun 内置 SQLite 含 FTS5；缺失时由 ensureDictionaryFts 回退纯 LIKE（读侧永不抛）。
+    CREATE VIRTUAL TABLE IF NOT EXISTS local_dictionary_fts USING fts5(
+      entry_id UNINDEXED,
+      headword,
+      reading,
+      meanings,
+      tokenize = 'unicode61 remove_diacritics 0'
+    );
+    CREATE TRIGGER IF NOT EXISTS trg_dict_fts_insert AFTER INSERT ON local_dictionary_entries
+    BEGIN
+      INSERT INTO local_dictionary_fts (entry_id, headword, reading, meanings)
+      VALUES (NEW.id, NEW.headword, COALESCE(NEW.reading, ''), NEW.meanings_json);
+    END;
+    CREATE TRIGGER IF NOT EXISTS trg_dict_fts_delete AFTER DELETE ON local_dictionary_entries
+    BEGIN
+      DELETE FROM local_dictionary_fts WHERE entry_id = OLD.id;
+    END;
+
     CREATE TABLE IF NOT EXISTS learning_content_templates (
       id TEXT PRIMARY KEY,
       language TEXT NOT NULL,
@@ -409,5 +439,51 @@ export function initSchema(sqlite: Database): void {
     );
   } catch {
     /* ignore */
+  }
+
+  ensureDictionaryFts(sqlite);
+}
+
+/**
+ * 词典 FTS 自检与回填（initSchema 末尾调用）。
+ * - FTS 虚拟表 + 触发器由上方 DDL 常驻；稳态增删自动同步；
+ * - 存量库（触发器建成前已有词条）按计数比对触发一次性重建；
+ * - FTS5 不可用时静默跳过，查询侧回退 LIKE（读侧永不抛）。
+ */
+export function ensureDictionaryFts(sqlite: Database): { enabled: boolean; rebuilt: number } {
+  let entryCount = 0;
+  try {
+    entryCount = (
+      sqlite.query('SELECT COUNT(*) AS n FROM local_dictionary_entries').get() as { n: number }
+    ).n;
+  } catch {
+    return { enabled: false, rebuilt: 0 };
+  }
+  let ftsCount = -1;
+  try {
+    ftsCount = (
+      sqlite.query('SELECT COUNT(*) AS n FROM local_dictionary_fts').get() as { n: number }
+    ).n;
+  } catch {
+    return { enabled: false, rebuilt: 0 };
+  }
+  if (ftsCount === entryCount) return { enabled: true, rebuilt: 0 };
+  try {
+    sqlite.run('DELETE FROM local_dictionary_fts');
+    const rows = sqlite.query(
+      'SELECT id, headword, reading, meanings_json FROM local_dictionary_entries'
+    ).all() as Array<{ id: string; headword: string; reading: string | null; meanings_json: string }>;
+    const insert = sqlite.prepare(
+      'INSERT INTO local_dictionary_fts (entry_id, headword, reading, meanings) VALUES (?, ?, ?, ?)'
+    );
+    const tx = sqlite.transaction((list: typeof rows) => {
+      for (const r of list) {
+        insert.run(r.id, r.headword, r.reading ?? '', r.meanings_json);
+      }
+    });
+    tx(rows);
+    return { enabled: true, rebuilt: rows.length };
+  } catch {
+    return { enabled: false, rebuilt: 0 };
   }
 }

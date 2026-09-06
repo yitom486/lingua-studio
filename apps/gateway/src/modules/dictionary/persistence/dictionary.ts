@@ -9,7 +9,7 @@ import {
   nowIso,
 } from '@study-studio/shared';
 import type { Flashcard } from '@study-studio/protocol';
-import { localDictionaryEntries, flashcards } from '../../../infrastructure/db/index.js';
+import { localDictionaryEntries, flashcards, dictionarySearchHistory } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
 import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
@@ -42,8 +42,7 @@ export interface DictionaryEntryCollection {
 
 type LocalDictionaryRow = typeof localDictionaryEntries.$inferSelect;
 
-/** DB 行 → 领域条目（读侧永不抛；meanings 解析失败回退空数组）。 */
-function toLocalDictionaryEntry(row: LocalDictionaryRow): LocalDictionaryEntry {
+/** DB 行 → 领域条目（读侧永不抛；meanings 解析失败回退空数组）。 */function toLocalDictionaryEntry(row: LocalDictionaryRow): LocalDictionaryEntry {
   let meanings: string[] = [];
   try {
     const parsed: unknown = JSON.parse(row.meaningsJson);
@@ -105,10 +104,11 @@ export async function searchLocalDictionary(
       )
       .limit(Math.min(Math.max(limit, 1), 50));
 
-    const direct = rows.map(toLocalDictionaryEntry);
-    if (direct.length > 0 || language !== 'ja') return ok(direct);
+  const direct = rows.map(toLocalDictionaryEntry);
+  if (direct.length > 0) return ok(direct);
 
-    // 日语直击为空时尝试活用形还原（食べた→食べる）：候选逐个精确查，命中即注记来源
+  // 日语直击为空时尝试活用形还原（食べた→食べる）：候选逐个精确查，命中即注记来源
+  if (language === 'ja' && /[぀-ヿｦ-ﾟ一-鿿]/.test(normalized)) {
     for (const candidate of deinflectJa(normalized)) {
       const hitRows = await deps.db
         .select()
@@ -132,7 +132,10 @@ export async function searchLocalDictionary(
         );
       }
     }
-    return ok(direct);
+  }
+
+  // 释义全文搜索（FTS5）：按中文/关键词找释义；FTS 不可用时静默空结果
+  return searchDictionaryMeanings(deps, language, normalized, limit);
   } catch (error) {
     return err(
       translateToBusinessError(error, {
@@ -144,6 +147,148 @@ export async function searchLocalDictionary(
   }
 }
 
+/**
+ * 释义全文搜索（FTS5 + bm25 排序）：中文关键词/例句片段找词。
+ * FTS 不可用或语法异常时返回空（调用方已跑过直查与还原，不抛错）。
+ */
+export async function searchDictionaryMeanings(
+  deps: RepoDeps,
+  language: TrackLanguage,
+  query: string,
+  limit = 20
+): Promise<Result<LocalDictionaryEntry[], BusinessError>> {
+  const terms = query
+    .split(/\s+/)
+    .map((t) => t.replace(/["*:()^+-]/g, '').trim())
+    .filter((t) => t.length > 0)
+    .slice(0, 5);
+  if (terms.length === 0) return ok([]);
+  const match = terms.map((t) => `"${t}"`).join(' AND ');
+  try {
+    const sqlite = deps.sqlite;
+    // 原生 SQL 返回 snake_case 列，需显式映射为 drizzle 行形状再进 toLocalDictionaryEntry
+    const rawRows = sqlite
+      .query(
+        `SELECT e.id, e.language, e.headword, e.reading, e.romanization,
+                e.meanings_json, e.pronunciation_json, e.part_of_speech,
+                e.source_id, e.source_label, e.license_note, e.created_at
+         FROM local_dictionary_entries e
+         JOIN local_dictionary_fts f ON f.entry_id = e.id
+         WHERE e.language = ? AND local_dictionary_fts MATCH ?
+         ORDER BY bm25(local_dictionary_fts) LIMIT ?`
+      )
+      .all(language, match, Math.min(Math.max(limit, 1), 50)) as Array<Record<string, unknown>>;
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+    return ok(
+      rawRows.map((r) =>
+        toLocalDictionaryEntry({
+          id: String(r['id'] ?? ''),
+          language: String(r['language'] ?? ''),
+          headword: String(r['headword'] ?? ''),
+          reading: (r['reading'] as string | null) ?? null,
+          romanization: (r['romanization'] as string | null) ?? null,
+          meaningsJson: String(r['meanings_json'] ?? '[]'),
+          pronunciationJson: (r['pronunciation_json'] as string | null) ?? null,
+          partOfSpeech: (r['part_of_speech'] as string | null) ?? null,
+          sourceId: str(r['source_id']) ?? '',
+          sourceLabel: str(r['source_label']) ?? '',
+          licenseNote: str(r['license_note']) ?? '',
+          createdAt: str(r['created_at']) ?? '',
+        })
+      )
+    );
+  } catch {
+    return ok([]);
+  }
+}
+
+export interface DictionarySearchRecord {
+  query: string;
+  hitCount: number;
+  topEntryId?: string | undefined;
+  createdAt: string;
+}
+
+const MAX_HISTORY_PER_LANG = 200;
+
+/** 记录一次用户查词（画像“查过什么”信号源；失败永不抛，调用方无需处理）。 */
+export async function recordDictionarySearch(
+  deps: RepoDeps,
+  userId: string,
+  language: TrackLanguage,
+  query: string,
+  hitCount: number,
+  topEntryId?: string
+): Promise<void> {
+  try {
+    const normalized = query.trim().slice(0, 64);
+    if (!normalized) return;
+    const now = nowIso();
+    await deps.db.insert(dictionarySearchHistory).values({
+      id: generateId('dsh'),
+      userId,
+      language,
+      query: normalized,
+      hitCount,
+      topEntryId: topEntryId ?? null,
+      createdAt: now,
+    });
+    // 修剪：每用户每语种只保留最近 200 条（单条 SQL，不读全表；按 rowid 判定新旧，毫秒级同批也不乱序）
+    deps.sqlite
+      .prepare(
+        `DELETE FROM dictionary_search_history
+         WHERE user_id = ? AND language = ?
+           AND id NOT IN (
+             SELECT id FROM dictionary_search_history
+             WHERE user_id = ? AND language = ?
+             ORDER BY rowid DESC LIMIT ?
+           )`
+      )
+      .run(userId, language, userId, language, MAX_HISTORY_PER_LANG);
+  } catch {
+    // 历史记录失败不影响查词主路径
+  }
+}
+
+/** 最近查词（去重取最新，默认 10 条，供面板快捷入口与画像消费）。 */
+export async function getDictionarySearchHistory(
+  deps: RepoDeps,
+  userId: string,
+  language: TrackLanguage,
+  limit = 10
+): Promise<Result<DictionarySearchRecord[], BusinessError>> {
+  try {
+    const rows = await deps.db
+      .select()
+      .from(dictionarySearchHistory)
+      .where(
+        and(
+          eq(dictionarySearchHistory.userId, userId),
+          eq(dictionarySearchHistory.language, language)
+        )
+      )
+      .orderBy(sql`rowid DESC`)
+      .limit(Math.min(Math.max(limit * 3, 1), 60));
+    const seen = new Set<string>();
+    const out: DictionarySearchRecord[] = [];
+    for (const r of rows) {
+      if (seen.has(r.query)) continue;
+      seen.add(r.query);
+      out.push({
+        query: r.query,
+        hitCount: r.hitCount,
+        ...(r.topEntryId ? { topEntryId: r.topEntryId } : {}),
+        createdAt: r.createdAt,
+      });
+      if (out.length >= Math.min(Math.max(limit, 1), 20)) break;
+    }
+    return ok(out);
+  } catch (error) {
+    return err(
+      translateToBusinessError(error, { category: 'DATABASE', action: 'getDictionarySearchHistory', entityId: userId })
+    );
+  }
+}
 /**
  * 随机抽取本地词典条目（假名单词听写等“系统随机出题”场景用）。
  * 返回原始条目；假名可用性等过滤由调用方按需完成。

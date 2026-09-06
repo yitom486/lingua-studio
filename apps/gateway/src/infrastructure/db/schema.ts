@@ -369,8 +369,7 @@ export const dictionarySources = sqliteTable('dictionary_sources', {
 /**
  * 词条级元数据覆盖层（如 Yomitan term_meta_bank 声调）。
  * 与词条表分离：meta 包可独立安装/重装；词条安装时自动回填 pronunciation。
- */
-export const dictionaryTermMeta = sqliteTable(
+ */export const dictionaryTermMeta = sqliteTable(
   'dictionary_term_meta',
   {
     term: text('term').notNull(),
@@ -383,6 +382,23 @@ export const dictionaryTermMeta = sqliteTable(
   (table) => ({
     pk: primaryKey({ columns: [table.term, table.reading, table.sourceId] }),
     termLangIdx: index('idx_dictionary_term_meta_term_lang').on(table.term, table.language),
+  })
+);
+
+/** 查词历史（用户学习资产：画像“查过什么”信号源；按用户+语种隔离，保留最近 200 条）。 */
+export const dictionarySearchHistory = sqliteTable(
+  'dictionary_search_history',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    language: text('language').notNull(),
+    query: text('query').notNull(),
+    hitCount: integer('hit_count').notNull().default(0),
+    topEntryId: text('top_entry_id'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    userLangIdx: index('idx_dictionary_history_user_lang').on(table.userId, table.language, table.createdAt),
   })
 );
 

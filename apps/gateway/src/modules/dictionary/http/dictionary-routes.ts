@@ -150,12 +150,27 @@ export function createDictionaryRoutes(deps: GatewayDeps) {
         language: c.req.param('language'),
         query: c.req.query('q') ?? '',
       },
-      { userId: 'dictionary_http', sessionId: 'dictionary_http' }
+      { userId: c.req.query('userId') || 'dictionary_http', sessionId: 'dictionary_http' }
     );
     if (!isOk(result)) {
       return formatBusinessErrorResponse(c, result.error, 'dictionaryLookup');
     }
     return c.json(result.value);
+  })
+  // 最近查词（画像“查过什么”信号 + 面板快捷入口）。
+  .get('/api/dictionary/history/:userId', async (c) => {
+    const lang = c.req.query('lang') || 'ja';
+    if (lang !== 'ja' && lang !== 'en' && lang !== 'ko') {
+      return formatBusinessErrorResponse(
+        c,
+        new BusinessError('E_INVALID_INPUT', '语种必须为 ja/en/ko', 'VALIDATION')
+      );
+    }
+    const limitRaw = Number(c.req.query('limit') ?? 10);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.floor(limitRaw), 1), 20) : 10;
+    const res = await deps.repo.getDictionarySearchHistory(c.req.param('userId'), lang, limit);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
   })
   // 将公共词典资产收集为用户自己的 FSRS 生词卡；Web、桌面端与未来 Agent Tool 共用。
   .post('/api/vocabulary/:userId/entries/:entryId/collect', async (c) => {

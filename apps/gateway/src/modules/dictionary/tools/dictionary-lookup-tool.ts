@@ -50,13 +50,27 @@ export class DictionaryLookupTool
 
   public async execute(
     input: DictionaryLookupInput,
-    _context: ToolExecutionContext
+    context: ToolExecutionContext
   ): Promise<Result<DictionaryLookupOutput, BusinessError>> {
     const result = await this.learnerRepo.searchLocalDictionary(
       input.language as TrackLanguage,
       input.query
     );
     if (!isOk(result)) return result;
+
+    // 查词历史（画像信号；伪用户不记；失败静默不影响主路径）
+    if (context.userId && context.userId !== 'dictionary_http') {
+      const entries = result.value;
+      void this.learnerRepo
+        .recordDictionarySearch(
+          context.userId,
+          input.language as TrackLanguage,
+          input.query,
+          entries.length,
+          entries[0]?.id
+        )
+        .catch(() => {});
+    }
 
     const externalUrl =
       result.value.length === 0 && input.language === 'ja'

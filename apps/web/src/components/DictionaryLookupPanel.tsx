@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { BookPlus, Check, ExternalLink, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCollectDictionaryEntryMutation,
+  useDictionaryHistoryQuery,
   useDictionaryLookupQuery,
 } from '../queries/useLearnerQueries.js';
+import { QUERY_KEYS } from '../queries/query-keys.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 
@@ -32,6 +35,14 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
   const [query, setQuery] = useState('');
   const lookup = useDictionaryLookupQuery(language, query);
   const collect = useCollectDictionaryEntryMutation();
+  const queryClient = useQueryClient();
+  const history = useDictionaryHistoryQuery(language);
+  // 查到结果后刷新最近查词（画像信号已由网关记录）
+  useEffect(() => {
+    if (lookup.data) {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'history', language] });
+    }
+  }, [lookup.data, lookup.dataUpdatedAt, queryClient, language]);
 
   const collectEntry = (entryId: string) => {
     collect.mutate(entryId, {
@@ -77,6 +88,25 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
           <Search className="h-3.5 w-3.5" />查询
         </Button>
       </form>
+
+      {(history.data?.length ?? 0) > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {history.data?.slice(0, 8).map((h) => (
+            <button
+              key={`${h.query}-${h.createdAt}`}
+              type="button"
+              onClick={() => {
+                setInput(h.query);
+                setQuery(h.query);
+              }}
+              className="rounded-full border border-stone-200 px-2.5 py-1 text-[11px] text-stone-500 hover:border-amber-500/50 hover:text-amber-700 dark:border-stone-700 dark:text-stone-400 dark:hover:text-amber-300"
+              title={`最近查过（${h.hitCount} 条结果）`}
+            >
+              {h.query}
+            </button>
+          ))}
+        </div>
+      )}
 
       {query && (
         <div className="mt-3 border-t border-stone-200 pt-3 dark:border-stone-800">

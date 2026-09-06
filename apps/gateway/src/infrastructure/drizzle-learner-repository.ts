@@ -40,11 +40,14 @@ import { normalizeTrackLanguage, inferLanguageFromSkillId } from './persistence/
 import type {
   LocalDictionaryEntry,
   DictionaryEntryCollection,
+  DictionarySearchRecord,
 } from '../modules/dictionary/persistence/dictionary.js';
 import {
   searchLocalDictionary as searchLocalDictionaryDomain,
   collectDictionaryEntry as collectDictionaryEntryDomain,
   sampleLocalDictionaryEntries as sampleLocalDictionaryEntriesDomain,
+  recordDictionarySearch as recordDictionarySearchDomain,
+  getDictionarySearchHistory as getDictionarySearchHistoryDomain,
 } from '../modules/dictionary/persistence/dictionary.js';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
@@ -188,6 +191,32 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     entryId: string
   ): Promise<Result<DictionaryEntryCollection, BusinessError>> {
     return collectDictionaryEntryDomain(this.deps, userId, entryId);
+  }
+
+  /**
+   * 记录一次用户查词（画像“查过什么”信号源；失败静默，永不抛）。
+   * 实现已下沉 dictionary 域，此处仅委托。
+   */
+  public async recordDictionarySearch(
+    userId: string,
+    language: TrackLanguage,
+    query: string,
+    hitCount: number,
+    topEntryId?: string
+  ): Promise<void> {
+    return recordDictionarySearchDomain(this.deps, userId, language, query, hitCount, topEntryId);
+  }
+
+  /**
+   * 最近查词（去重取最新，供面板快捷入口与画像消费）。
+   * 实现已下沉 dictionary 域，此处仅委托。
+   */
+  public async getDictionarySearchHistory(
+    userId: string,
+    language: TrackLanguage,
+    limit = 10
+  ): Promise<Result<DictionarySearchRecord[], BusinessError>> {
+    return getDictionarySearchHistoryDomain(this.deps, userId, language, limit);
   }
 
   /**

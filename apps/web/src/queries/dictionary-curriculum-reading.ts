@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import type { HangulItem, HangulScriptType, KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
 import { logger } from '@study-studio/shared';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
@@ -366,12 +367,13 @@ export function useDictionaryLookupQuery(
   query: string
 ) {
   const normalized = query.trim();
+  const profileUserId = useUserProfileStore((s) => s.profile.userId || DEFAULT_USER_ID);
   return useQuery<DictionaryLookupResult>({
     queryKey: [...QUERY_KEYS.DICTIONARY, language, normalized],
     enabled: Boolean(normalized),
     queryFn: async () => {
       const response = await fetch(
-        `${GATEWAY_BASE_URL}/api/dictionary/${language}?q=${encodeURIComponent(normalized)}`
+        `${GATEWAY_BASE_URL}/api/dictionary/${language}?q=${encodeURIComponent(normalized)}&userId=${encodeURIComponent(profileUserId)}`
       );
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as {
@@ -382,6 +384,30 @@ export function useDictionaryLookupQuery(
       return (await response.json()) as DictionaryLookupResult;
     },
     staleTime: 1000 * 60 * 10,
+  });
+}
+
+export type DictionaryHistoryItem = {
+  query: string;
+  hitCount: number;
+  topEntryId?: string;
+  createdAt: string;
+};
+
+/** 最近查词（画像信号 + 面板快捷入口）。 */
+export function useDictionaryHistoryQuery(language: 'ja' | 'en' | 'ko', limit = 8) {
+  const profileUserId = useUserProfileStore((s) => s.profile.userId || DEFAULT_USER_ID);
+  return useQuery<DictionaryHistoryItem[]>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, 'history', language, profileUserId],
+    queryFn: async () => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/dictionary/history/${encodeURIComponent(profileUserId)}?lang=${language}&limit=${limit}`
+      );
+      if (!response.ok) return [];
+      const data: unknown = await response.json().catch(() => null);
+      return Array.isArray(data) ? (data as DictionaryHistoryItem[]) : [];
+    },
+    staleTime: 1000 * 30,
   });
 }
 
