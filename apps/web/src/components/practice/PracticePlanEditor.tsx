@@ -44,7 +44,30 @@ const BLOCK_KINDS: PracticeBlockKind[] = [
   'READING',
   'WRITING',
 ];
+/** 块类型中文名（界面只展示中文，存库仍用枚举值） */
+const BLOCK_KIND_LABELS: Record<PracticeBlockKind, string> = {
+  VOCAB_REVIEW: '到期复习',
+  VOCAB_NEW: '新词学习',
+  QUIZ: '综合做题',
+  TRANSLATION: '翻译练习',
+  DICTATION: '听写练习',
+  READING: '阅读理解',
+  WRITING: '写作练习',
+};
 const GRADING_MODES: GradingMode[] = ['AUTO_IMMEDIATE', 'AI_IMMEDIATE', 'AI_BATCH'];
+/** 批改方式中文名 */
+const GRADING_MODE_LABELS: Record<GradingMode, string> = {
+  AUTO_IMMEDIATE: '即时判定',
+  AI_IMMEDIATE: 'AI 即时批改',
+  AI_BATCH: 'AI 批量批改',
+};
+/** 翻译方向语言选项（存库仍用 zh/en/ja/ko 代码） */
+const TRANSLATION_LANG_OPTIONS = [
+  { value: 'zh', label: '中文' },
+  { value: 'en', label: '英语' },
+  { value: 'ja', label: '日语' },
+  { value: 'ko', label: '韩语' },
+];
 const VOCAB_KINDS = new Set<PracticeBlockKind>(['VOCAB_REVIEW', 'VOCAB_NEW']);
 /** P6-1：星期选择（0=周日…6=周六） */
 const WEEKDAYS: Array<{ value: number; label: string }> = [
@@ -155,7 +178,8 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
     };
     try {
       const saved = await saveMutation.mutateAsync(tpl);
-      toast.success(`模板已保存（revision ${saved.revision}）`);
+      void saved;
+      toast.success('模板已保存');
       onClose();
     } catch (e) {
       toast.error((e as Error).message);
@@ -220,7 +244,7 @@ export function PracticePlanEditor({ isOpen, onClose, userId, language, template
             {BLOCK_KINDS.map((k) => (
               <Button key={k} size="sm" variant="outline" onClick={() => addBlock(k)}>
                 <Plus className="mr-1 h-3 w-3" />
-                {k}
+                {BLOCK_KIND_LABELS[k]}
               </Button>
             ))}
           </div>
@@ -279,7 +303,7 @@ function BlockRow({ block, index, onUpdate, onRemove, onUp, onDown }: BlockRowPr
   return (
     <div className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500">块 {index + 1}</span>
+        <span className="text-xs font-medium text-slate-500">第 {index + 1} 块 · {BLOCK_KIND_LABELS[block.kind]}</span>
         <div className="flex gap-1">
           <Button size="sm" variant="ghost" onClick={onUp}><ArrowUp className="h-3 w-3" /></Button>
           <Button size="sm" variant="ghost" onClick={onDown}><ArrowDown className="h-3 w-3" /></Button>
@@ -291,7 +315,7 @@ function BlockRow({ block, index, onUpdate, onRemove, onUp, onDown }: BlockRowPr
           <SelectTrigger className="w-[8.5rem]"><SelectValue /></SelectTrigger>
           <SelectContent>
             {BLOCK_KINDS.map((k) => (
-              <SelectItem key={k} value={k}>{k}</SelectItem>
+              <SelectItem key={k} value={k}>{BLOCK_KIND_LABELS[k]}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -299,7 +323,7 @@ function BlockRow({ block, index, onUpdate, onRemove, onUp, onDown }: BlockRowPr
           <SelectTrigger className="w-[8.5rem]"><SelectValue /></SelectTrigger>
           <SelectContent>
             {GRADING_MODES.map((g) => (
-              <SelectItem key={g} value={g}>{g}</SelectItem>
+              <SelectItem key={g} value={g}>{GRADING_MODE_LABELS[g]}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -337,7 +361,7 @@ function BlockRow({ block, index, onUpdate, onRemove, onUp, onDown }: BlockRowPr
           >
             <SelectTrigger className="w-[12rem]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="DUE_CARDS">FSRS 到期卡</SelectItem>
+              <SelectItem value="DUE_CARDS">到期卡片</SelectItem>
               <SelectItem value="COLLECTED_WORDS">已收集生词</SelectItem>
               <SelectItem value="TOPIC_WORDS">指定主题新词</SelectItem>
             </SelectContent>
@@ -345,20 +369,56 @@ function BlockRow({ block, index, onUpdate, onRemove, onUp, onDown }: BlockRowPr
         </div>
       )}
       {block.kind === 'TRANSLATION' && (
-        <div className="mt-2 flex gap-2">
-          <input
+        <div className="mt-2 flex items-center gap-2">
+          <Select
             value={block.translationDirection?.sourceLanguage ?? 'zh'}
-            onChange={(e) => onUpdate({ translationDirection: { sourceLanguage: e.target.value, targetLanguage: block.translationDirection?.targetLanguage ?? 'en' } })}
-            placeholder="源语言"
-            className="w-20 rounded-md border border-slate-300 px-2 py-1 text-xs dark:border-slate-600"
-          />
+            onValueChange={(v) =>
+              v &&
+              onUpdate({
+                translationDirection: {
+                  sourceLanguage: v,
+                  targetLanguage: block.translationDirection?.targetLanguage ?? 'en',
+                },
+              })
+            }
+          >
+            <SelectTrigger className="w-[7rem]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {TRANSLATION_LANG_OPTIONS.map((l) => (
+                <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
+              ))}
+              {TRANSLATION_LANG_OPTIONS.every((l) => l.value !== (block.translationDirection?.sourceLanguage ?? 'zh')) && (
+                <SelectItem value={block.translationDirection?.sourceLanguage ?? 'zh'}>
+                  {block.translationDirection?.sourceLanguage ?? 'zh'}
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
           <span className="self-center text-slate-400">→</span>
-          <input
+          <Select
             value={block.translationDirection?.targetLanguage ?? 'en'}
-            onChange={(e) => onUpdate({ translationDirection: { sourceLanguage: block.translationDirection?.sourceLanguage ?? 'zh', targetLanguage: e.target.value } })}
-            placeholder="目标语言"
-            className="w-20 rounded-md border border-slate-300 px-2 py-1 text-xs dark:border-slate-600"
-          />
+            onValueChange={(v) =>
+              v &&
+              onUpdate({
+                translationDirection: {
+                  sourceLanguage: block.translationDirection?.sourceLanguage ?? 'zh',
+                  targetLanguage: v,
+                },
+              })
+            }
+          >
+            <SelectTrigger className="w-[7rem]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {TRANSLATION_LANG_OPTIONS.map((l) => (
+                <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
+              ))}
+              {TRANSLATION_LANG_OPTIONS.every((l) => l.value !== (block.translationDirection?.targetLanguage ?? 'en')) && (
+                <SelectItem value={block.translationDirection?.targetLanguage ?? 'en'}>
+                  {block.translationDirection?.targetLanguage ?? 'en'}
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
         </div>
       )}
     </div>
