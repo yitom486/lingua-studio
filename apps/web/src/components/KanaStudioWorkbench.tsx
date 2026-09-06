@@ -28,6 +28,7 @@ import {
 } from '../queries/useLearnerQueries.js';
 import { romajiToKana, toHiragana } from '../lib/kana-input.js';
 import { confusionDistractors } from '../lib/kana-confusion.js';
+import { buildKanaTutorContext } from '../lib/kana-tutor.js';
 import type { KanaItem } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
 
@@ -195,6 +196,18 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     return [correctAnswer, ...distractors].sort(() => 0.5 - Math.random());
   }, [currentDrillKana, drillItems, allKana, filteredKanaList, activeMode, scriptMode]);
 
+  // 本题正确答案字面（供答错时请导师讲清错因）
+  const drillCorrectAnswer = useMemo(() => {
+    if (!currentDrillKana) return '';
+    if (activeMode === 'AUDIO_TO_KANA') {
+      return scriptMode === 'KATAKANA' ? currentDrillKana.katakana : currentDrillKana.hiragana;
+    }
+    if (activeMode === 'KANA_TO_ROMAJI') {
+      return currentDrillKana.romaji;
+    }
+    return currentDrillKana.katakana;
+  }, [currentDrillKana, activeMode, scriptMode]);
+
   // 提交自测作答
   const handleSelectDrillOption = (option: string) => {
     if (isAnswered || !currentDrillKana) return;
@@ -361,15 +374,21 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     resetRoundStats();
   };
 
-  // 呼出导师深度解析
-  const handleAskTutor = (kana: KanaItem) => {
+  // 呼出导师深度解析（记忆引导语由 lib/kana-tutor 构造，UI 只负责调用）
+  const handleAskTutor = (
+    kana: KanaItem,
+    extra?: { wasWrong?: boolean; userPick?: string | null }
+  ) => {
     sound.playClick();
-    onOpenTutor?.({
-      questionText: `请深度剖析日语假名「${kana.hiragana}」与「${kana.katakana}」(${kana.romaji})的字源笔顺、易混淆假名对照及标准发音要领：`,
-      correctAnswer: `${kana.hiragana} / ${kana.katakana} (${kana.romaji})`,
-      skillTag: '五十音权威底座 · 假名解构',
-      explanation: `假名【${kana.hiragana}】(${kana.romaji})，${kana.mnemonic || '标准发音单元'}。注意发音嘴形与送气控制。`,
-    });
+    onOpenTutor?.(
+      buildKanaTutorContext({
+        kana,
+        pool: allKana,
+        script: scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA',
+        ...(extra?.wasWrong ? { wasWrong: true as const } : {}),
+        ...(extra?.userPick ? { userPick: extra.userPick } : {}),
+      })
+    );
   };
 
   return (
@@ -850,7 +869,13 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                 {isAnswered && (
                   <div className="flex items-center justify-center gap-3 pt-4">
                     <Button
-                      onClick={() => handleAskTutor(currentDrillKana)}
+                      onClick={() =>
+                        currentDrillKana &&
+                        handleAskTutor(currentDrillKana, {
+                          wasWrong: selectedOption !== drillCorrectAnswer,
+                          ...(selectedOption ? { userPick: selectedOption } : {}),
+                        })
+                      }
                       variant="outline"
                       size="sm"
                       className="gap-1.5 text-xs text-amber-700 dark:text-amber-300"
