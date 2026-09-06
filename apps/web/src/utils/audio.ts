@@ -164,6 +164,9 @@ class SpeechStudioEngine {
   private proxyRegion: string = '';
   /** Azure 说话风格（须为所选音色支持的风格，空=默认）。 */
   private azureStyle: string = '';
+  /** Azure 男女声独立音色桶（空=按性别默认）。 */
+  private azureFemaleVoiceId: string = '';
+  private azureMaleVoiceId: string = '';
   private listeners: Set<() => void> = new Set();
   private voices: SpeechSynthesisVoice[] = [];
 
@@ -243,18 +246,32 @@ class SpeechStudioEngine {
       provider: this.proxyProvider,
       region: this.proxyRegion,
       style: this.azureStyle,
+      femaleVoiceId: this.azureFemaleVoiceId,
+      maleVoiceId: this.azureMaleVoiceId,
     };
   }
 
   public setProxyConfig(
     provider: 'openai-compatible' | 'azure-speech',
     region: string,
-    style: string = ''
+    style: string = '',
+    voices?: { femaleVoiceId?: string; maleVoiceId?: string }
   ) {
     this.proxyProvider = provider;
     this.proxyRegion = (region ?? '').trim();
     this.azureStyle = (style ?? '').trim();
+    if (voices?.femaleVoiceId !== undefined) {
+      this.azureFemaleVoiceId = voices.femaleVoiceId.trim();
+    }
+    if (voices?.maleVoiceId !== undefined) {
+      this.azureMaleVoiceId = voices.maleVoiceId.trim();
+    }
     this.notify();
+  }
+
+  /** 当前性别对应的 Azure 显式音色（两桶独立，空=跟随默认）。 */
+  public getAzureVoiceForGender(gender: TtsGender): string {
+    return gender === 'MALE' ? this.azureMaleVoiceId : this.azureFemaleVoiceId;
   }
 
   /**
@@ -564,7 +581,11 @@ class SpeechStudioEngine {
           trackLanguage: args.lang.toLowerCase(),
           ...(provider === 'openai-compatible' ? { baseUrl } : { region }),
           ...(this.customPluginApiKey ? { apiKey: this.customPluginApiKey } : {}),
-          voice: this.customPluginVoiceId || args.voiceId || undefined,
+          // Azure 走男女声独立桶（customPluginVoiceId 只服务 OpenAI 兼容端点，避免旧单值串味）
+          voice:
+            provider === 'azure-speech'
+              ? this.getAzureVoiceForGender(args.gender) || args.voiceId || undefined
+              : this.customPluginVoiceId || args.voiceId || undefined,
           rate: args.rate,
           gender: args.gender,
           ...(provider === 'azure-speech' && this.azureStyle ? { style: this.azureStyle } : {}),

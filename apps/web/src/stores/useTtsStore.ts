@@ -42,6 +42,10 @@ export interface TtsStoreState {
   proxyRegion: string;
   /** Azure 说话风格（如 cheerful；须为所选音色支持的风格）。 */
   azureStyle: string;
+  /** Azure 女声音色 id（空=按女声默认）。 */
+  azureFemaleVoiceId: string;
+  /** Azure 男声音色 id（空=按男声默认）。 */
+  azureMaleVoiceId: string;
   /** 按语种+性别记住用户手动选择的系统音色 URI */
   preferredVoices: Partial<Record<VoicePrefKey, string>>;
 
@@ -57,6 +61,7 @@ export interface TtsStoreState {
   setProxyProvider: (provider: TtsProxyProvider) => void;
   setProxyRegion: (region: string) => void;
   setAzureStyle: (style: string) => void;
+  setAzureGenderVoice: (gender: TtsGender, voiceId: string) => void;
   setPreferredVoice: (lang: SupportedLanguage, gender: TtsGender, voiceURI: string | null) => void;
   speak: (text: string, options?: SpeakOptions) => Promise<void>;
   stop: () => void;
@@ -100,6 +105,8 @@ export const useTtsStore = create<TtsStoreState>()(
         proxyProvider: speechStudio.getProxyConfig().provider,
         proxyRegion: speechStudio.getProxyConfig().region,
         azureStyle: speechStudio.getProxyConfig().style,
+        azureFemaleVoiceId: speechStudio.getProxyConfig().femaleVoiceId,
+        azureMaleVoiceId: speechStudio.getProxyConfig().maleVoiceId,
         preferredVoices: {},
         isSpeaking: speechStudio.getIsSpeaking(),
         currentText: speechStudio.getCurrentText(),
@@ -137,6 +144,16 @@ export const useTtsStore = create<TtsStoreState>()(
         setAzureStyle: (style: string) => {
           speechStudio.setProxyConfig(get().proxyProvider, get().proxyRegion, style);
           set({ azureStyle: style });
+        },
+
+        setAzureGenderVoice: (gender: TtsGender, voiceId: string) => {
+          const config = speechStudio.getProxyConfig();
+          speechStudio.setProxyConfig(config.provider, config.region, config.style, {
+            ...(gender === 'MALE' ? { maleVoiceId: voiceId } : { femaleVoiceId: voiceId }),
+          });
+          set(
+            gender === 'MALE' ? { azureMaleVoiceId: voiceId } : { azureFemaleVoiceId: voiceId }
+          );
         },
 
         setPreferredVoice: (lang, gender, voiceURI) => {
@@ -188,6 +205,8 @@ export const useTtsStore = create<TtsStoreState>()(
         proxyProvider: state.proxyProvider,
         proxyRegion: state.proxyRegion,
         azureStyle: state.azureStyle,
+        azureFemaleVoiceId: state.azureFemaleVoiceId,
+        azureMaleVoiceId: state.azureMaleVoiceId,
         preferredVoices: state.preferredVoices,
       }),
       onRehydrateStorage: () => (state) => {
@@ -196,7 +215,10 @@ export const useTtsStore = create<TtsStoreState>()(
           speechStudio.setRate(state.rate);
           speechStudio.setCustomPluginConfig(state.customPluginUrl, state.isCustomPluginEnabled);
           speechStudio.setCustomPluginAuth(state.customPluginApiKey, state.customPluginVoiceId);
-          speechStudio.setProxyConfig(state.proxyProvider, state.proxyRegion, state.azureStyle);
+          speechStudio.setProxyConfig(state.proxyProvider, state.proxyRegion, state.azureStyle, {
+            ...(state.azureFemaleVoiceId ? { femaleVoiceId: state.azureFemaleVoiceId } : {}),
+            ...(state.azureMaleVoiceId ? { maleVoiceId: state.azureMaleVoiceId } : {}),
+          });
         }
       },
     }

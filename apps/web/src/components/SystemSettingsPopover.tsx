@@ -74,11 +74,14 @@ export function SystemSettingsPopover() {
   const proxyProvider = useTtsStore((s) => s.proxyProvider);
   const proxyRegion = useTtsStore((s) => s.proxyRegion);
   const azureStyle = useTtsStore((s) => s.azureStyle);
+  const azureFemaleVoiceId = useTtsStore((s) => s.azureFemaleVoiceId);
+  const azureMaleVoiceId = useTtsStore((s) => s.azureMaleVoiceId);
   const setCustomPluginConfig = useTtsStore((s) => s.setCustomPluginConfig);
   const setCustomPluginAuth = useTtsStore((s) => s.setCustomPluginAuth);
   const setProxyProvider = useTtsStore((s) => s.setProxyProvider);
   const setProxyRegion = useTtsStore((s) => s.setProxyRegion);
   const setAzureStyle = useTtsStore((s) => s.setAzureStyle);
+  const setAzureGenderVoice = useTtsStore((s) => s.setAzureGenderVoice);
   const [editEngine, setEditEngine] = useState<EngineChoice>(
     isCustomPluginEnabled ? proxyProvider : 'system'
   );
@@ -86,6 +89,8 @@ export function SystemSettingsPopover() {
   const [editRegion, setEditRegion] = useState(proxyRegion);
   const [editApiKey, setEditApiKey] = useState(customPluginApiKey);
   const [editVoiceId, setEditVoiceId] = useState(customPluginVoiceId);
+  const [editFemaleVoiceId, setEditFemaleVoiceId] = useState(azureFemaleVoiceId);
+  const [editMaleVoiceId, setEditMaleVoiceId] = useState(azureMaleVoiceId);
   const [editStyle, setEditStyle] = useState(azureStyle);
   const [validating, setValidating] = useState(false);
   const [testingNeural, setTestingNeural] = useState(false);
@@ -147,18 +152,19 @@ export function SystemSettingsPopover() {
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
     setGender(newGender);
-    // 男女声是主人：切换后 Azure 显式音色/风格清零回到自动跟随，避免上下矛盾
-    setEditVoiceId('');
+    // 风格归属当前性别桶的音色，切性别即重置；两桶各自保留互不干扰
     setEditStyle('');
     toast.success(`已切换至：${getPersonaLabel(speechLang, newGender)}`);
   };
 
-  // 切语种时清空跨语种残留的显式音色/风格（如 JA 音色 id 留在 KO 轨道会导致 400）；挂载时不动
+  // 切语种时清空跨语种残留的显式音色/风格（两桶 + OpenAI 单值；挂载时不动）
   const prevLangRef = useRef(speechLang);
   useEffect(() => {
     if (prevLangRef.current !== speechLang) {
       prevLangRef.current = speechLang;
       setEditVoiceId('');
+      setEditFemaleVoiceId('');
+      setEditMaleVoiceId('');
       setEditStyle('');
     }
   }, [speechLang]);
@@ -186,6 +192,8 @@ export function SystemSettingsPopover() {
     }
     setProxyRegion(editRegion);
     setCustomPluginAuth(editApiKey, editVoiceId);
+    setAzureGenderVoice('FEMALE', editFemaleVoiceId);
+    setAzureGenderVoice('MALE', editMaleVoiceId);
     setAzureStyle(editEngine === 'azure-speech' ? editStyle : '');
   };
 
@@ -220,7 +228,11 @@ export function SystemSettingsPopover() {
           trackLanguage: speechLang.toLowerCase(),
           ...(editEngine === 'openai-compatible' ? { baseUrl: editUrl } : { region: editRegion }),
           ...(editApiKey ? { apiKey: editApiKey } : {}),
-          ...(editVoiceId ? { voice: editVoiceId } : {}),
+          // 验证用当前性别桶的音色（与实际生效一致）
+          ...((() => {
+            const bucketId = gender === 'MALE' ? editMaleVoiceId : editFemaleVoiceId;
+            return editEngine === 'azure-speech' && bucketId ? { voice: bucketId } : {};
+          })()),
           ...(editEngine === 'azure-speech' && editStyle ? { style: editStyle } : {}),
         }),
       });
@@ -309,35 +321,23 @@ export function SystemSettingsPopover() {
   const azureVoiceOptions: AzureVoiceOption[] = (
     remoteVoices.length > 0 ? remoteVoices : AZURE_VOICE_FALLBACK
   ).filter((v) => v.id.toLowerCase().startsWith(speechLang.toLowerCase()));
-  const selectedVoice = azureVoiceOptions.find((v) => v.id === editVoiceId);
-  const voiceStyles = selectedVoice?.styles ?? [];
-  /** 按性别分组展示（音色多时一眼定位；__group_ 为纯展示头，选中时忽略） */
-  const groupedVoiceOptions: Array<
-    | { kind: 'header'; key: string; label: string }
-    | { kind: 'voice'; voice: AzureVoiceOption }
-  > = [
-    ...(azureVoiceOptions.some((v) => v.gender === 'FEMALE')
-      ? [{ kind: 'header' as const, key: '__group_FEMALE', label: '女声' }]
-      : []),
-    ...azureVoiceOptions
-      .filter((v) => v.gender === 'FEMALE')
-      .map((voice) => ({ kind: 'voice' as const, voice })),
-    ...(azureVoiceOptions.some((v) => v.gender === 'MALE')
-      ? [{ kind: 'header' as const, key: '__group_MALE', label: '男声' }]
-      : []),
-    ...azureVoiceOptions
-      .filter((v) => v.gender === 'MALE')
-      .map((voice) => ({ kind: 'voice' as const, voice })),
-  ];
-  /** 当前实际生效的 Azure 音色：显式选择优先，否则跟随男女声 */
-  const effectiveAzureVoice =
-    selectedVoice ??
+  /** 两桶各管各：女声下拉只列女声，男声下拉只列男声，互不串味 */
+  const femaleOptions = azureVoiceOptions.filter((v) => v.gender === 'FEMALE');
+  const maleOptions = azureVoiceOptions.filter((v) => v.gender === 'MALE');
+  /** 当前性别桶选中的音色（风格取自它）；顶部男女声开关决定用哪一桶 */
+  const activeBucketId = gender === 'MALE' ? editMaleVoiceId : editFemaleVoiceId;
+  const activeVoice =
+    azureVoiceOptions.find((v) => v.id === activeBucketId) ??
     azureVoiceOptions.find((v) => v.gender === gender) ??
     azureVoiceOptions[0];
+  const voiceStyles = activeVoice?.styles ?? [];
+  /** 当前实际生效的 Azure 音色 */
+  const effectiveAzureVoice = activeVoice;
   /** 下拉框显示文本（SelectValue 无 children 时会裸显 value，不可传哨兵） */
-  const azureVoiceTriggerLabel = editVoiceId
-    ? (azureVoiceOptions.find((v) => v.id === editVoiceId)?.label ?? editVoiceId)
-    : '默认（跟随上方男女声）';
+  const azureVoiceTriggerLabel = (bucketId: string) =>
+    bucketId
+      ? (azureVoiceOptions.find((v) => v.id === bucketId)?.label ?? bucketId)
+      : '默认';
   const azureRegionTriggerLabel = editRegion || '选择区域，如 japaneast';
   const OPENAI_ENDPOINT_PRESETS = [
     { label: 'OpenAI 官方', value: 'https://api.openai.com/v1/audio/speech' },
@@ -551,47 +551,53 @@ export function SystemSettingsPopover() {
 
             {editEngine === 'azure-speech' && (
               <div className="space-y-2">
-                <Select
-                  value={editVoiceId || '__auto'}
-                  onValueChange={(v) => {
-                    if (!v || v.startsWith('__group_')) return;
-                    sound.playClick();
-                    if (v === '__auto') {
-                      setEditVoiceId('');
-                      setEditStyle('');
-                      return;
-                    }
-                    setEditVoiceId(v);
-                    setEditStyle('');
-                    const picked = azureVoiceOptions.find((o) => o.id === v);
-                    if (picked && picked.gender !== gender) {
-                      setGender(picked.gender);
-                    }
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-[11px]">
-                    <SelectValue placeholder="音色（默认按语种自动）">
-                      {azureVoiceTriggerLabel}
-                      {isVoicesFetching ? ' · 读取中…' : ''}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
-                    {groupedVoiceOptions.map((row) =>
-                      row.kind === 'header' ? (
-                        <SelectItem key={row.key} value={row.key} disabled>
-                          <span className="text-[10px] font-bold text-stone-400">
-                            —— {row.label} ——
-                          </span>
-                        </SelectItem>
-                      ) : (
-                        <SelectItem key={row.voice.id} value={row.voice.id}>
-                          {row.voice.label} · {row.voice.id}
-                        </SelectItem>
-                      )
-                    )}
-                  </SelectContent>
-                </Select>
+                {(
+                  [
+                    { gender: 'FEMALE' as const, label: '女声', bucketId: editFemaleVoiceId, options: femaleOptions },
+                    { gender: 'MALE' as const, label: '男声', bucketId: editMaleVoiceId, options: maleOptions },
+                  ]
+                ).map((group) => (
+                  <div key={group.gender} className="flex items-center gap-2">
+                    <span className="text-[11px] font-bold text-stone-500 dark:text-stone-400 w-8 shrink-0">
+                      {group.label}
+                    </span>
+                    <Select
+                      value={group.bucketId || `__auto_${group.gender}`}
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        sound.playClick();
+                        const next = v === `__auto_${group.gender}` ? '' : v;
+                        if (group.gender === 'MALE') {
+                          setEditMaleVoiceId(next);
+                        } else {
+                          setEditFemaleVoiceId(next);
+                        }
+                        // 风格归属当前性别桶的音色，换桶内音色即重置
+                        if (
+                          (group.gender === gender && next !== activeBucketId) ||
+                          next === ''
+                        ) {
+                          setEditStyle('');
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-[11px] flex-1">
+                        <SelectValue placeholder={`${group.label}音色（默认）`}>
+                          {azureVoiceTriggerLabel(group.bucketId)}
+                          {isVoicesFetching ? ' · 读取中…' : ''}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={`__auto_${group.gender}`}>默认{group.label}音色</SelectItem>
+                        {group.options.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.label} · {v.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
                 {voiceStyles.length > 0 && (
                   <Select
                     value={editStyle || '__none'}
