@@ -91,6 +91,14 @@ async function main() {
       pass('KO 壳层开放谚文工作室');
     } else fail('KO 壳层开放谚文工作室', ko.allowedTabs.join(','));
 
+    // 单一导航：三轨道侧栏均含 RADAR（我的学情），且同一 Tab 不在两套树中重复出现
+    for (const track of ['en', 'ja', 'ko']) {
+      const nav = visibleNavTabs(track);
+      if (nav.includes('RADAR') && new Set(nav).size === nav.length) {
+        pass(`${track.toUpperCase()} 侧栏含 RADAR 且无重复入口`, nav.join(','));
+      } else fail(`${track.toUpperCase()} 侧栏入口`, nav.join(','));
+    }
+
     if (wouldGuardTab('en', 'HANGUL') === 'QUIZ' && wouldGuardTab('ko', 'HANGUL') === 'HANGUL') {
       pass('HANGUL 守卫：EN→QUIZ，KO 保留');
     } else fail('HANGUL Tab 守卫', `${wouldGuardTab('en', 'HANGUL')}/${wouldGuardTab('ko', 'HANGUL')}`);

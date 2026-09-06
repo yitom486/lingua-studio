@@ -15,9 +15,6 @@ import {
   PanelLeft,
   User,
   Flame,
-  FolderTree,
-  Target,
-  Library,
   Sparkles,
   CalendarCheck,
   ClipboardList,
@@ -36,22 +33,15 @@ import { useStudySessionStore, type NavigationTab } from '../stores/useStudySess
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import { findStudyGoalOption } from '../config/learner-profile-options.js';
 import {
-  SIDEBAR_AST_SECTION,
-  SIDEBAR_AST_TREE,
   SIDEBAR_NAV_GROUPS,
-  SIDEBAR_PROFILE_DEMO,
-  buildAstOpenState,
   buildSidebarOpenState,
   resolveSidebarBadge,
-  resolveSidebarLabel,
-  type SidebarAstNodeDef,
   type SidebarIconKey,
   type SidebarNavItemDef,
   type SidebarRuntimeCounts,
 } from '../config/sidebar-nav.js';
 import {
   useCardsQuery,
-  useLearnerProfileQuery,
   useMistakesQuery,
   useQuestionsQuery,
   useDailyPlanQuery,
@@ -63,8 +53,6 @@ export interface AppSidebarProps {
   cardCount?: number | undefined;
   unresolvedMistakeCount?: number | undefined;
   planProgress?: string | undefined;
-  /** 薄弱项示例名，来自学情 */
-  topWeaknessLabel?: string | undefined;
   mobileOpen?: boolean | undefined;
   onMobileOpenChange?: ((open: boolean) => void) | undefined;
 }
@@ -79,9 +67,6 @@ const SIDEBAR_ICONS: Record<SidebarIconKey, LucideIcon> = {
   TrendingUp,
   Newspaper,
   PenLine,
-  FolderTree,
-  Target,
-  Library,
   User,
   Flame,
   Sparkles,
@@ -103,10 +88,6 @@ function resolveNavItem(def: SidebarNavItemDef, runtime: SidebarRuntimeCounts): 
     icon: SIDEBAR_ICONS[def.icon],
     badge: resolveSidebarBadge(def.badge, runtime),
   };
-}
-
-function resolveAstLabel(node: SidebarAstNodeDef, runtime: SidebarRuntimeCounts): string {
-  return resolveSidebarLabel(node.label, runtime);
 }
 
 function NavButton({
@@ -161,7 +142,6 @@ function SidebarBody({
   cardCount,
   unresolvedMistakeCount,
   planProgress,
-  topWeaknessLabel,
   onNavigate,
   showDesktopCollapse,
 }: {
@@ -170,7 +150,6 @@ function SidebarBody({
   cardCount?: number | undefined;
   unresolvedMistakeCount?: number | undefined;
   planProgress?: string | undefined;
-  topWeaknessLabel: string;
   onNavigate: (tab: NavigationTab) => void;
   showDesktopCollapse?: boolean | undefined;
 }) {
@@ -179,7 +158,6 @@ function SidebarBody({
   const shell = useLearningShell();
 
   const [openGroups, setOpenGroups] = useState(buildSidebarOpenState);
-  const [astOpen, setAstOpen] = useState(buildAstOpenState);
 
   const runtime = useMemo<SidebarRuntimeCounts>(
     () => ({
@@ -187,9 +165,8 @@ function SidebarBody({
       cardCount,
       unresolvedMistakeCount,
       planProgress,
-      topWeaknessLabel,
     }),
-    [quizProgress, cardCount, unresolvedMistakeCount, planProgress, topWeaknessLabel]
+    [quizProgress, cardCount, unresolvedMistakeCount, planProgress]
   );
 
   const groups = useMemo(
@@ -206,24 +183,6 @@ function SidebarBody({
       }).filter((group) => group.items.length > 0),
     [runtime, shell.track, shell.allowedTabs]
   );
-
-  const astTree = useMemo(() => {
-    const result: SidebarAstNodeDef[] = [];
-    for (const node of SIDEBAR_AST_TREE) {
-      if (node.tracks && !node.tracks.includes(shell.track)) continue;
-      const filteredChildren = node.children?.filter((child) => {
-        if (child.tracks && !child.tracks.includes(shell.track)) return false;
-        if (child.tab && !shell.allowedTabs.includes(child.tab)) return false;
-        return true;
-      });
-      if (node.children && filteredChildren && filteredChildren.length === 0) continue;
-      result.push({
-        ...node,
-        children: filteredChildren,
-      });
-    }
-    return result;
-  }, [shell.track, shell.allowedTabs]);
 
   const toggleGroup = (id: string) => {
     sound.playClick();
@@ -322,98 +281,6 @@ function SidebarBody({
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-3">
-        <div>
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={() => toggleGroup(SIDEBAR_AST_SECTION.id)}
-              className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 cursor-pointer"
-            >
-              {openGroups[SIDEBAR_AST_SECTION.id] ? (
-                <ChevronDown className="w-3 h-3" />
-              ) : (
-                <ChevronRight className="w-3 h-3" />
-              )}
-              {SIDEBAR_AST_SECTION.label}
-            </button>
-          )}
-          {(collapsed || openGroups[SIDEBAR_AST_SECTION.id]) &&
-            astTree.map((node) => {
-              const NodeIcon = SIDEBAR_ICONS[node.icon];
-              const expanded = astOpen[node.id] !== false;
-              return (
-                <div key={node.id} className="mt-1">
-                  {!collapsed && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.playClick();
-                        setAstOpen((p) => ({ ...p, [node.id]: !expanded }));
-                      }}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-semibold text-stone-500 dark:text-stone-400 hover:text-amber-800 dark:hover:text-amber-300 cursor-pointer"
-                    >
-                      {expanded ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                      <NodeIcon className="w-3.5 h-3.5" />
-                      <span>{resolveAstLabel(node, runtime)}</span>
-                    </button>
-                  )}
-                  {(collapsed || expanded) &&
-                    node.children?.map((child) => {
-                      const ChildIcon = SIDEBAR_ICONS[child.icon];
-                      const label = resolveAstLabel(child, runtime);
-                      const meta = resolveSidebarBadge(child.meta, runtime);
-                      const active = child.tab === activeTab;
-                      if (collapsed) {
-                        if (!child.tab) return null;
-                        return (
-                          <NavButton
-                            key={child.id}
-                            item={{
-                              id: child.tab,
-                              label,
-                              icon: ChildIcon,
-                              badge: meta,
-                            }}
-                            active={active}
-                            collapsed
-                            onSelect={() => child.tab && onNavigate(child.tab)}
-                          />
-                        );
-                      }
-                      return (
-                        <button
-                          key={child.id}
-                          type="button"
-                          onClick={() => {
-                            sound.playClick();
-                            if (child.tab) onNavigate(child.tab);
-                          }}
-                          className={cn(
-                            'w-full flex items-center gap-2 pl-7 pr-2 py-1.5 rounded-lg text-[11px] transition-colors cursor-pointer',
-                            active
-                              ? 'bg-amber-500/10 text-amber-950 dark:text-amber-200 font-semibold'
-                              : 'text-stone-600 dark:text-stone-400 hover:bg-stone-100 dark:hover:bg-stone-800/80'
-                          )}
-                        >
-                          <ChildIcon className="w-3.5 h-3.5 shrink-0" />
-                          <span className="truncate flex-1 text-left">{label}</span>
-                          {meta && (
-                            <span className="text-[10px] font-mono text-stone-400">{meta}</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                </div>
-              );
-            })}
-        </div>
-
-        <div className="h-px bg-stone-200/80 dark:bg-stone-800 mx-1" />
-
         {groups.map((group) => {
           const expanded = openGroups[group.id] !== false;
           return (
@@ -525,7 +392,6 @@ export function AppSidebar({
   quizProgress: quizProgressProp,
   cardCount: cardCountProp,
   unresolvedMistakeCount: mistakeCountProp,
-  topWeaknessLabel: topWeaknessProp,
   mobileOpen = false,
   onMobileOpenChange,
 }: AppSidebarProps) {
@@ -535,7 +401,6 @@ export function AppSidebar({
   const { data: questions = [] } = useQuestionsQuery();
   const { data: cards = [] } = useCardsQuery();
   const { data: mistakes = [] } = useMistakesQuery();
-  const { data: metrics = [] } = useLearnerProfileQuery();
   const { data: dailyPlan } = useDailyPlanQuery();
 
   const nowIso = new Date().toISOString();
@@ -546,10 +411,6 @@ export function AppSidebar({
     quizProgressProp ??
     `${Math.min(questionIndex + 1, questions.length)}/${questions.length || 1}`;
   const cardCount = cardCountProp ?? dueCardCount;
-  const topWeaknessLabel =
-    topWeaknessProp ??
-    [...metrics].sort((a, b) => a.proficiency - b.proficiency)[0]?.name ??
-    SIDEBAR_PROFILE_DEMO.defaultWeaknessLabel;
   const planProgress = dailyPlan
     ? `${dailyPlan.completedCount}/${dailyPlan.totalCount || 1}`
     : undefined;
@@ -568,7 +429,6 @@ export function AppSidebar({
           cardCount={cardCount}
           unresolvedMistakeCount={unresolvedMistakeCount}
           planProgress={planProgress}
-          topWeaknessLabel={topWeaknessLabel}
           onNavigate={navigate}
           showDesktopCollapse
         />
@@ -589,7 +449,6 @@ export function AppSidebar({
               cardCount={cardCount}
               unresolvedMistakeCount={unresolvedMistakeCount}
               planProgress={planProgress}
-              topWeaknessLabel={topWeaknessLabel}
               onNavigate={navigate}
             />
           </div>
