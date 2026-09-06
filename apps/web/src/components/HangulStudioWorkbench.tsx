@@ -125,7 +125,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   // 听音题切出即自动播报
   useEffect(() => {
     if (!isDrillActive || roundDone || activeMode !== 'AUDIO_TO_JAMO' || !current) return;
-    void speechStudio.speak(current.audioText || current.jamo, { lang: 'KO' });
+    void speechStudio.speak(current.audioText || current.jamo, { lang: 'KO', purpose: 'dictation' });
   }, [isDrillActive, roundDone, activeMode, current, drillIndex]);
 
   // 单词模式：激活后词表为空即拉取（未安装词典包走 wordFailed 显式引导；题量跟随字母自测档，0=全部按 20 取）
@@ -149,7 +149,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   // 听写选词：新词切出即自动播报（作答后不再重播）
   useEffect(() => {
     if (!isDrillActive || drillMode !== 'WORD_DICTATION' || !currentWord) return;
-    void speechStudio.speak(currentWord.audioText || currentWord.korean, { lang: 'KO' });
+    void speechStudio.speak(currentWord.audioText || currentWord.korean, { lang: 'KO', purpose: 'dictation' });
   }, [isDrillActive, drillMode, currentWord]);
 
   const startDrill = () => {
@@ -392,7 +392,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
                           key={h.id}
                           onClick={() => {
                             setActiveHangul(h);
-                            void speechStudio.speak(h.audioText || h.jamo, { lang: 'KO' });
+                            void speechStudio.speak(h.audioText || h.jamo, { lang: 'KO', purpose: 'preview' });
                             sound.playClick();
                           }}
                           className={`rounded-xl border p-3 text-center transition hover:border-primary ${
@@ -414,7 +414,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
                 key={h.id}
                 onClick={() => {
                   setActiveHangul(h);
-                  void speechStudio.speak(h.audioText || h.jamo, { lang: 'KO' });
+                  void speechStudio.speak(h.audioText || h.jamo, { lang: 'KO', purpose: 'preview' });
                   sound.playClick();
                 }}
                 className={`rounded-xl border p-3 text-center transition hover:border-primary ${
@@ -449,7 +449,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => void speechStudio.speak(activeHangul.audioText || activeHangul.jamo, { lang: 'KO' })}
+                  onClick={() => void speechStudio.speak(activeHangul.audioText || activeHangul.jamo, { lang: 'KO', purpose: 'preview' })}
                 >
                   <Volume2 className="h-3.5 w-3.5 mr-1" />
                   跟读
@@ -513,7 +513,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
                   <Button
                     variant="outline"
                     size="lg"
-                    onClick={() => void speechStudio.speak(current.audioText || current.jamo, { lang: 'KO' })}
+                    onClick={() => void speechStudio.speak(current.audioText || current.jamo, { lang: 'KO', purpose: 'dictation' })}
                   >
                     <Volume2 className="h-5 w-5 mr-2" />
                     重播发音
@@ -610,7 +610,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
                   <Button
                     variant="outline"
                     size="lg"
-                    onClick={() => void speechStudio.speak(currentWord.audioText || currentWord.korean, { lang: 'KO' })}
+                    onClick={() => void speechStudio.speak(currentWord.audioText || currentWord.korean, { lang: 'KO', purpose: 'dictation' })}
                   >
                     <Volume2 className="h-5 w-5 mr-2" />
                     重播发音

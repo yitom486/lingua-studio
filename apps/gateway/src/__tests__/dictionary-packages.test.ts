@@ -253,14 +253,17 @@ describe('P3-A 词典包安装与来源追溯', () => {
     expect(sourceRow?.license_name).toBe('CC BY-SA 3.0 / LGPL 2.0');
     expect(sourceRow?.attribution).toContain('Joe Speigle');
 
-    // 搜索可命中
+    // 搜索可命中（开箱词包同表层并存，按来源锁定 Kengdic 行，不依赖行序）
     const searchRes = await repo.searchLocalDictionary('ko', '안녕하세요');
     expect(isOk(searchRes)).toBe(true);
     if (isOk(searchRes)) {
       expect(searchRes.value.length).toBeGreaterThan(0);
-      expect(searchRes.value[0]?.headword).toBe('안녕하세요');
-      expect(searchRes.value[0]?.meanings).toContain('hello');
-      expect(searchRes.value[0]?.licenseNote).toContain('CC BY-SA 3.0');
+      const kengdicEntry = searchRes.value.find((e) =>
+        e.licenseNote.includes('CC BY-SA')
+      );
+      expect(kengdicEntry?.headword).toBe('안녕하세요');
+      expect(kengdicEntry?.meanings).toContain('hello');
+      expect(kengdicEntry?.licenseNote).toContain('CC BY-SA 3.0');
     }
   });
 
@@ -272,11 +275,11 @@ describe('P3-A 词典包安装与来源追溯', () => {
       makeMockFetcher(tsv)
     );
 
-    // 搜索
+    // 搜索（开箱词包同表层并存，按来源锁定 Kengdic 行）
     const searchRes = await repo.searchLocalDictionary('ko', '안녕하세요');
     expect(isOk(searchRes)).toBe(true);
     if (!isOk(searchRes)) return;
-    const entry = searchRes.value[0]!;
+    const entry = searchRes.value.find((e) => e.licenseNote.includes('CC BY-SA'))!;
 
     // 收集为 FSRS 卡
     const card: Flashcard = {

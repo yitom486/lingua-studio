@@ -2,9 +2,12 @@ import { describe, expect, it } from 'bun:test';
 import {
   __resetTtsEnginesForTest,
   bcp47ForTrack,
+  buildOpenAiSpeechPayload,
   getActiveTtsEngine,
+  isHttpEndpoint,
   listTtsEngines,
   normalizeTtsTrackLanguage,
+  openAiSpeechHeaders,
   registerTtsEngine,
   resolveTtsSpeakRequest,
   scoreVoiceName,
@@ -126,5 +129,38 @@ describe('engine registry + stub', () => {
     } finally {
       __resetTtsEnginesForTest();
     }
+  });
+});
+
+describe('openai-compatible plugin endpoint', () => {
+  it('builds speech payload with gender-default voice and bcp47', () => {
+    const p = buildOpenAiSpeechPayload('あ', { bcp47: 'ja-JP', gender: 'FEMALE' });
+    expect(p.input).toBe('あ');
+    expect(p.model).toBe('tts-1');
+    expect(p.voice).toBe('alloy');
+    expect(p.language).toBe('ja-JP');
+    const male = buildOpenAiSpeechPayload('あ', { gender: 'MALE', voice: 'onyx' });
+    expect(male.voice).toBe('onyx');
+    expect(male.language).toBeUndefined();
+  });
+
+  it('clamps speed into the OpenAI range', () => {
+    expect(buildOpenAiSpeechPayload('hi', { speed: 99 }).speed).toBe(4);
+    expect(buildOpenAiSpeechPayload('hi', { speed: -1 }).speed).toBe(0.25);
+    expect(buildOpenAiSpeechPayload('hi').speed).toBeUndefined();
+  });
+
+  it('sends Authorization only when a key is set', () => {
+    expect(openAiSpeechHeaders(' sk-123 ').Authorization).toBe('Bearer sk-123');
+    expect(openAiSpeechHeaders('')).toEqual({ 'Content-Type': 'application/json' });
+    expect(openAiSpeechHeaders()).toEqual({ 'Content-Type': 'application/json' });
+  });
+
+  it('only allows http/https endpoints', () => {
+    expect(isHttpEndpoint('http://127.0.0.1:8880/v1/audio/speech')).toBe(true);
+    expect(isHttpEndpoint('https://api.openai.com/v1/audio/speech')).toBe(true);
+    expect(isHttpEndpoint('file:///etc/passwd')).toBe(false);
+    expect(isHttpEndpoint('javascript:alert(1)')).toBe(false);
+    expect(isHttpEndpoint('')).toBe(false);
   });
 });

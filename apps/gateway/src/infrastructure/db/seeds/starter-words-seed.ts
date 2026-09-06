@@ -44,7 +44,7 @@ export const STARTER_WORD_SEEDS: StarterWordSeed[] = [
   { id: 'starter_ja_eki', language: 'ja', headword: 'えき', reading: 'えき', meanings: ['车站'], partOfSpeech: '名词' },
   { id: 'starter_ja_ohayou', language: 'ja', headword: 'おはよう', reading: 'おはよう', meanings: ['早上好'], partOfSpeech: '寒暄语' },
   // ================= 韩语（24） =================
-  { id: 'starter_ko_hello', language: 'ko', headword: '안녕', meanings: ['你好（打招呼）'], partOfSpeech: '寒暄语' },
+  { id: 'starter_ko_hello', language: 'ko', headword: '안녕하세요', meanings: ['你好（问候语）'], partOfSpeech: '寒暄语' },
   { id: 'starter_ko_thanks', language: 'ko', headword: '감사합니다', meanings: ['谢谢'], partOfSpeech: '寒暄语' },
   { id: 'starter_ko_school', language: 'ko', headword: '학교', meanings: ['学校'], partOfSpeech: '名词' },
   { id: 'starter_ko_book', language: 'ko', headword: '책', meanings: ['书'], partOfSpeech: '名词' },

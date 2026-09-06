@@ -42,18 +42,26 @@ export function VoiceSettingsPopover({ currentLanguage }: VoiceSettingsPopoverPr
   const rate = useTtsStore((s) => s.rate);
   const customPluginUrl = useTtsStore((s) => s.customPluginUrl);
   const isCustomPluginEnabled = useTtsStore((s) => s.isCustomPluginEnabled);
+  const customPluginApiKey = useTtsStore((s) => s.customPluginApiKey);
+  const customPluginVoiceId = useTtsStore((s) => s.customPluginVoiceId);
   const setGender = useTtsStore((s) => s.setGender);
   const setRate = useTtsStore((s) => s.setRate);
   const setCustomPluginConfig = useTtsStore((s) => s.setCustomPluginConfig);
+  const setCustomPluginAuth = useTtsStore((s) => s.setCustomPluginAuth);
   const speak = useTtsStore((s) => s.speak);
 
   const [editUrl, setEditUrl] = useState(customPluginUrl);
   const [editEnabled, setEditEnabled] = useState(isCustomPluginEnabled);
+  const [editApiKey, setEditApiKey] = useState(customPluginApiKey);
+  const [editVoiceId, setEditVoiceId] = useState(customPluginVoiceId);
+  const [testingPlugin, setTestingPlugin] = useState(false);
 
   useEffect(() => {
     setEditUrl(customPluginUrl);
     setEditEnabled(isCustomPluginEnabled);
-  }, [customPluginUrl, isCustomPluginEnabled]);
+    setEditApiKey(customPluginApiKey);
+    setEditVoiceId(customPluginVoiceId);
+  }, [customPluginUrl, isCustomPluginEnabled, customPluginApiKey, customPluginVoiceId]);
 
   const activeVoice = speechStudio.getBestVoice(resolvedLang, gender);
   const activeVoiceName = activeVoice ? activeVoice.name : '系统默认自然发音';
@@ -77,9 +85,32 @@ export function VoiceSettingsPopover({ currentLanguage }: VoiceSettingsPopoverPr
   const handleSavePlugin = () => {
     sound.playCorrect();
     setCustomPluginConfig(editUrl, editEnabled);
+    setCustomPluginAuth(editApiKey, editVoiceId);
     toast.success(
       editEnabled ? '已启用本地 TTS 神经语音小外挂' : '已关闭小外挂，回退至原生高清音色'
     );
+  };
+
+  const handleTestPlugin = () => {
+    if (!editUrl.trim()) {
+      toast.error('请先填写外挂端点 URL。');
+      return;
+    }
+    sound.playClick();
+    setTestingPlugin(true);
+    // 先落盘当前编辑值再试播，试的即所得
+    setCustomPluginConfig(editUrl, true);
+    setEditEnabled(true);
+    setCustomPluginAuth(editApiKey, editVoiceId);
+    void speak(getPreviewText(resolvedLang, gender), {
+      lang: resolvedLang,
+      gender,
+      onEnd: () => setTestingPlugin(false),
+      onError: (e) => {
+        setTestingPlugin(false);
+        toast.error(e instanceof Error ? e.message : '小外挂试播失败，请检查 URL / Key。');
+      },
+    });
   };
 
   return (
@@ -215,9 +246,32 @@ export function VoiceSettingsPopover({ currentLanguage }: VoiceSettingsPopoverPr
                 placeholder="http://127.0.0.1:8880/v1/audio/speech"
                 className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
               />
-              <Button type="button" size="sm" className="w-full" onClick={handleSavePlugin}>
-                保存小外挂配置
-              </Button>
+              <input
+                type="password"
+                value={editApiKey}
+                onChange={(e) => setEditApiKey(e.target.value)}
+                placeholder="API Key（可空；仅存本机）"
+                autoComplete="off"
+                className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+              />
+              <input
+                type="text"
+                value={editVoiceId}
+                onChange={(e) => setEditVoiceId(e.target.value)}
+                placeholder="音色 id（可空，如 alloy / 女声晓晓）"
+                className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+              />
+              <p className="text-[10px] text-stone-400 leading-relaxed">
+                OpenAI /v1/audio/speech 兼容端点：云端（OpenAI、Azure、自建网关）或本地服务（Piper / Kokoro 兼容层）均可。
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" className="flex-1" disabled={testingPlugin} onClick={handleTestPlugin}>
+                  {testingPlugin ? '试播中…' : '试播验证'}
+                </Button>
+                <Button type="button" size="sm" className="flex-1" onClick={handleSavePlugin}>
+                  保存小外挂配置
+                </Button>
+              </div>
             </motion.div>
           )}
         </div>

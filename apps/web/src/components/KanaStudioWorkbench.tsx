@@ -106,7 +106,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   // 新词切出即自动播报（学阶段跟读用；作答后不再重播）
   useEffect(() => {
     if (!isDrillActive || drillMode !== 'WORD_DICTATION' || !currentWord) return;
-    void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+    void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA', purpose: 'dictation' });
   }, [isDrillActive, drillMode, currentWord]);
 
   // 矩阵分类过滤
@@ -139,7 +139,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const handlePlayAudio = (kana: KanaItem, e?: React.MouseEvent) => {
     e?.stopPropagation();
     sound.playClick();
-    speechStudio.speak(kana.audioText, { lang: 'JA' });
+    speechStudio.speak(kana.audioText, { lang: 'JA', purpose: 'preview' });
   };
 
   // 点击卡片聚焦
@@ -623,7 +623,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                       <Button
                         onClick={() => {
                           sound.playClick();
-                          void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+                          void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA', purpose: 'preview' });
                         }}
                         variant="outline"
                         size="sm"
@@ -650,7 +650,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     <button
                       onClick={() => {
                         sound.playClick();
-                        void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+                        void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA', purpose: 'dictation' });
                       }}
                       className="mx-auto w-20 h-20 rounded-full bg-amber-500/15 border-2 border-amber-500/30 flex items-center justify-center hover:scale-105 active:scale-95 transition-all text-amber-700 dark:text-amber-300 shadow-sm"
                     >
@@ -697,7 +697,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     <button
                       onClick={() => {
                         sound.playClick();
-                        void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA' });
+                        void speechStudio.speak(currentWord.audioText || currentWord.kana, { lang: 'JA', purpose: 'preview' });
                       }}
                       className="text-xs text-amber-600 dark:text-amber-400 hover:underline"
                     >

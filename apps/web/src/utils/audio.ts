@@ -5,7 +5,10 @@
 
 import { logger } from '@study-studio/shared';
 import {
+  buildOpenAiSpeechPayload,
+  isHttpEndpoint,
   normalizeTtsTrackLanguage,
+  openAiSpeechHeaders,
   resolveTtsSpeakRequest,
   scoreVoiceName,
   type TtsPurpose,
@@ -153,6 +156,10 @@ class SpeechStudioEngine {
   private rate: number = 0.9;
   private customPluginUrl: string = '';
   private isCustomPluginEnabled: boolean = false;
+  /** 外挂端点鉴权 Key（仅放内存 + Zustand persist 本地保存，不上传任何地方）。 */
+  private customPluginApiKey: string = '';
+  /** 外挂端点音色 id（空则按性别回填 alloy/echo）。 */
+  private customPluginVoiceId: string = '';
   private listeners: Set<() => void> = new Set();
   private voices: SpeechSynthesisVoice[] = [];
 
@@ -211,6 +218,19 @@ class SpeechStudioEngine {
   public setCustomPluginConfig(url: string, enabled: boolean) {
     this.customPluginUrl = url.trim();
     this.isCustomPluginEnabled = enabled;
+    this.notify();
+  }
+
+  public getCustomPluginAuth() {
+    return {
+      apiKey: this.customPluginApiKey,
+      voiceId: this.customPluginVoiceId,
+    };
+  }
+
+  public setCustomPluginAuth(apiKey: string, voiceId: string) {
+    this.customPluginApiKey = (apiKey ?? '').trim();
+    this.customPluginVoiceId = (voiceId ?? '').trim();
     this.notify();
   }
 
@@ -368,19 +388,25 @@ class SpeechStudioEngine {
     };
 
     // 1. 若配置并启用了本地小外挂（如 Piper / Kokoro / OpenAI 兼容 TTS 端点）
-    if (this.isCustomPluginEnabled && this.customPluginUrl) {
+    if (this.isCustomPluginEnabled && isHttpEndpoint(this.customPluginUrl)) {
       try {
-        const payload = {
-          input: text,
-          model: 'tts-1',
-          voice: request.neural.voiceId || (gender === 'FEMALE' ? 'alloy' : 'echo'),
-          language: request.bcp47,
-        };
+        const payload = buildOpenAiSpeechPayload(text, {
+          voice: this.customPluginVoiceId || request.neural.voiceId,
+          gender,
+          bcp47: request.bcp47,
+        });
         const res = await fetch(this.customPluginUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: openAiSpeechHeaders(this.customPluginApiKey),
           body: JSON.stringify(payload),
         });
+        if (res.status === 401 || res.status === 403) {
+          cleanup();
+          options?.onError?.(
+            new Error('小外挂鉴权失败（401/403），请检查 API Key 是否正确。')
+          );
+          return;
+        }
         if (res.ok) {
           const blob = await res.blob();
           const audioUrl = URL.createObjectURL(blob);

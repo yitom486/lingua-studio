@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { TtsPurpose } from '@study-studio/tts-core';
 import {
   speechStudio,
   type TtsGender,
@@ -10,6 +11,8 @@ export interface SpeakOptions {
   lang?: SupportedLanguage | undefined;
   gender?: TtsGender | undefined;
   rate?: number | undefined;
+  /** 朗读用途（听写更慢等），透传 tts-core 规约器；缺省 general。 */
+  purpose?: TtsPurpose | undefined;
   onStart?: (() => void) | undefined;
   onEnd?: (() => void) | undefined;
   onError?: ((err?: unknown) => void) | undefined;
@@ -27,6 +30,10 @@ export interface TtsStoreState {
   rate: number;
   customPluginUrl: string;
   isCustomPluginEnabled: boolean;
+  /** 外挂端点 API Key（仅存本机 localStorage）。 */
+  customPluginApiKey: string;
+  /** 外挂端点音色 id（空则按性别回填）。 */
+  customPluginVoiceId: string;
   /** 按语种+性别记住用户手动选择的系统音色 URI */
   preferredVoices: Partial<Record<VoicePrefKey, string>>;
 
@@ -38,6 +45,7 @@ export interface TtsStoreState {
   setGender: (gender: TtsGender) => void;
   setRate: (rate: number) => void;
   setCustomPluginConfig: (url: string, enabled: boolean) => void;
+  setCustomPluginAuth: (apiKey: string, voiceId: string) => void;
   setPreferredVoice: (lang: SupportedLanguage, gender: TtsGender, voiceURI: string | null) => void;
   speak: (text: string, options?: SpeakOptions) => Promise<void>;
   stop: () => void;
@@ -76,6 +84,8 @@ export const useTtsStore = create<TtsStoreState>()(
         rate: speechStudio.getRate(),
         customPluginUrl: speechStudio.getCustomPluginConfig().url,
         isCustomPluginEnabled: speechStudio.getCustomPluginConfig().enabled,
+        customPluginApiKey: speechStudio.getCustomPluginAuth().apiKey,
+        customPluginVoiceId: speechStudio.getCustomPluginAuth().voiceId,
         preferredVoices: {},
         isSpeaking: speechStudio.getIsSpeaking(),
         currentText: speechStudio.getCurrentText(),
@@ -93,6 +103,11 @@ export const useTtsStore = create<TtsStoreState>()(
         setCustomPluginConfig: (url: string, enabled: boolean) => {
           speechStudio.setCustomPluginConfig(url, enabled);
           set({ customPluginUrl: url, isCustomPluginEnabled: enabled });
+        },
+
+        setCustomPluginAuth: (apiKey: string, voiceId: string) => {
+          speechStudio.setCustomPluginAuth(apiKey, voiceId);
+          set({ customPluginApiKey: apiKey, customPluginVoiceId: voiceId });
         },
 
         setPreferredVoice: (lang, gender, voiceURI) => {
@@ -119,6 +134,7 @@ export const useTtsStore = create<TtsStoreState>()(
             gender,
             rate: options?.rate || current.rate,
             preferredVoiceURI,
+            ...(options?.purpose ? { purpose: options.purpose } : {}),
             onStart: options?.onStart,
             onEnd: options?.onEnd,
             onError: options?.onError,
@@ -138,6 +154,8 @@ export const useTtsStore = create<TtsStoreState>()(
         rate: state.rate,
         customPluginUrl: state.customPluginUrl,
         isCustomPluginEnabled: state.isCustomPluginEnabled,
+        customPluginApiKey: state.customPluginApiKey,
+        customPluginVoiceId: state.customPluginVoiceId,
         preferredVoices: state.preferredVoices,
       }),
       onRehydrateStorage: () => (state) => {
@@ -145,6 +163,7 @@ export const useTtsStore = create<TtsStoreState>()(
           speechStudio.setGender(state.gender);
           speechStudio.setRate(state.rate);
           speechStudio.setCustomPluginConfig(state.customPluginUrl, state.isCustomPluginEnabled);
+          speechStudio.setCustomPluginAuth(state.customPluginApiKey, state.customPluginVoiceId);
         }
       },
     }
