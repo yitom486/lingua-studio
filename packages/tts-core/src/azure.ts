@@ -40,8 +40,9 @@ export function escapeXmlText(text: string): string {
 }
 
 /**
- * 组装 SSML。rate 为本系统语速口径（1.0=常速）：按百分比直写 prosody，
- * 听写 0.75 即 rate="75%"，与 Web Speech / OpenAI speed 同向。
+ * 组装 SSML。rate 为本系统语速口径（1.0=常速）：Azure 把 N% 理解为相对提速 N%
+ * （实测 rate="100%" 时长减半），故换算为相对值：0.75 → "-25%"，1.2 → "+20%"；
+ * rate 恰为 1.0 时不包 prosody，与自然语速逐字节一致。
  */
 export function buildAzureSsml(
   text: string,
@@ -60,11 +61,16 @@ export function buildAzureSsml(
     AZURE_DEFAULT_VOICES.en.FEMALE;
   const lang = AZURE_VOICE_LANG[track] || AZURE_VOICE_LANG.en;
   const rate = options?.rate;
-  // 注意：Azure 对无属性的 <prosody> 空壳直接回 400；无 rate 时不包 prosody
-  const inner =
-    rate !== undefined && Number.isFinite(rate)
-      ? `<prosody rate="${Math.min(400, Math.max(25, Math.round(rate * 100)))}%">${escapeXmlText(text)}</prosody>`
-      : escapeXmlText(text);
+  // 注意：Azure 对无属性的 <prosody> 空壳直接回 400；无 rate 时不包 prosody。
+  // 相对值换算：本系统 1.0=常速 → "+0%"（等价自然语速，直接省略）。
+  let inner = escapeXmlText(text);
+  if (rate !== undefined && Number.isFinite(rate)) {
+    const relative = Math.min(400, Math.max(-90, Math.round((rate - 1) * 100)));
+    if (relative !== 0) {
+      const sign = relative > 0 ? '+' : '';
+      inner = `<prosody rate="${sign}${relative}%">${inner}</prosody>`;
+    }
+  }
   return (
     `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${lang}">` +
     `<voice name="${voice}">${inner}</voice></speak>`

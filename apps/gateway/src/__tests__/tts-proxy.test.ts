@@ -154,7 +154,7 @@ describe('tts proxy (azure-speech)', () => {
     expect(seenUrl).toBe('https://koreacentral.tts.speech.microsoft.com/cognitiveservices/v1');
     expect(seenHeaders['Ocp-Apim-Subscription-Key']).toBe('azure-key');
     expect(seenBody).toContain('ko-KR-SunHiNeural');
-    expect(seenBody).toContain('rate="75%"');
+    expect(seenBody).toContain('rate="-25%"');
     expect(seenBody).toContain('안녕 &amp; &lt;하세요&gt;');
     expect(res.value.voice).toBe('ko-KR-SunHiNeural');
   });

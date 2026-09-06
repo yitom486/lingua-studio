@@ -187,12 +187,17 @@ describe('azure speech helpers', () => {
     expect(azureTtsHeaders('key123')['Content-Type']).toBe('application/ssml+xml');
   });
 
-  it('builds SSML with escaped text and percent prosody', () => {
+  it('builds SSML with escaped text and relative prosody', () => {
     const ssml = buildAzureSsml('あ & <お>', { trackLanguage: 'ja', rate: 0.75 });
     expect(ssml).toContain('ja-JP-NanamiNeural');
-    expect(ssml).toContain('rate="75%"');
+    expect(ssml).toContain('rate="-25%"');
     expect(ssml).toContain('あ &amp; &lt;お&gt;');
     expect(ssml).not.toContain('<お>');
+    const faster = buildAzureSsml('hi', { trackLanguage: 'en', rate: 1.2 });
+    expect(faster).toContain('rate="+20%"');
+    // rate 恰为常速时不包 prosody（与自然语速逐字节一致，线上已验证）
+    const natural = buildAzureSsml('hi', { trackLanguage: 'en', rate: 1.0 });
+    expect(natural).not.toContain('prosody');
     const custom = buildAzureSsml('hi', { voice: 'en-US-GuyNeural' });
     expect(custom).toContain('en-US-GuyNeural');
     expect(custom).not.toContain('prosody');
