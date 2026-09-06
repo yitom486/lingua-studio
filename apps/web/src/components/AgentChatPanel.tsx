@@ -351,6 +351,7 @@ export function AgentChatPanel({ className = '', onClose }: AgentChatPanelProps)
           respondApproval={respondApproval}
           endRef={endRef}
           coachEffort={coachEffort}
+          track={track}
         />
 
         <ChatComposer

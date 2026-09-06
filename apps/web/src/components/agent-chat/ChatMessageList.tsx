@@ -9,6 +9,10 @@ import { Button } from '../ui/button.js';
 import { BorderBeam } from '../magicui/index.js';
 import { ChatTurnActivity, StreamingReplyPlaceholder } from '../ChatTurnActivity.js';
 import { MarkdownText } from '../common/MarkdownText.js';
+import { UnifiedTtsPlayer } from '../UnifiedTtsPlayer.js';
+import { toSpeakableText } from '../../lib/speakable.js';
+import { trackToSpeechLang } from '../../config/tts-voice-personas.js';
+import type { TrackLanguage } from '../../learning/learning-shell.js';
 import { stripTranscriptNoise } from '../../lib/chat-transcript.js';
 import { sound } from '../../utils/audio.js';
 import type { CodexQueuedSubmissionDto } from '../../queries/useCodexQueries.js';
@@ -28,6 +32,7 @@ interface ChatMessageListProps {
   ) => void;
   endRef: React.RefObject<HTMLDivElement | null>;
   coachEffort: string;
+  track: TrackLanguage;
 }
 
 /** P2-1 拆分：队列横幅 + 消息气泡/审批卡（纯搬运自 AgentChatPanel）。 */
@@ -42,6 +47,7 @@ export function ChatMessageList(props: ChatMessageListProps) {
     respondApproval,
     endRef,
     coachEffort,
+    track,
   } = props;
   return (
     <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
@@ -234,6 +240,18 @@ export function ChatMessageList(props: ChatMessageListProps) {
                 {m.streaming && m.text ? (
                   <span className="ml-0.5 inline-block h-3.5 w-1.5 align-middle bg-sky-400/80 animate-pulse" />
                 ) : null}
+                {!m.streaming && (() => {
+                  const speakable = toSpeakableText(m.text, track);
+                  return speakable ? (
+                    <div className="mt-1">
+                      <UnifiedTtsPlayer
+                        variant="inline"
+                        text={speakable}
+                        lang={trackToSpeechLang(track)}
+                      />
+                    </div>
+                  ) : null;
+                })()}
               </div>
             )}
             {!m.streaming && m.source ? (

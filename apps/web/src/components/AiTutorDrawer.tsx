@@ -15,6 +15,9 @@ import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { ErrorBoundary } from './common/ErrorBoundary.js';
 import { MarkdownText } from './common/MarkdownText.js';
+import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
+import { toSpeakableText } from '../lib/speakable.js';
+import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import {
   buildTutorBootstrapPrompt,
   buildTutorOfflineReply,
@@ -629,6 +632,18 @@ export function AiTutorDrawer({
                           </span>
                         </div>
                       )}
+                      {isAi && !msg.isStreaming && (() => {
+                        const speakable = toSpeakableText(msg.text, track);
+                        return speakable ? (
+                          <div className="mt-1.5">
+                            <UnifiedTtsPlayer
+                              variant="inline"
+                              text={speakable}
+                              lang={trackToSpeechLang(track)}
+                            />
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 );

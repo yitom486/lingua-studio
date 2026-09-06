@@ -14,6 +14,8 @@ import {
   fireSuccessConfetti,
 } from './magicui/index.js';
 import { sound } from '../utils/audio.js';
+import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
+import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import { SubjectiveWritingWorkbench } from './SubjectiveWritingWorkbench.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Badge } from './ui/badge.js';
@@ -361,6 +363,14 @@ export function AdaptiveQuizWorkbench({ onOpenTutor }: AdaptiveQuizWorkbenchProp
               </h3>
               <div className="text-lg sm:text-xl font-medium text-stone-900 dark:text-stone-100 pt-2 tracking-wide font-serif">
                 {currentQ.content}
+              </div>
+              <div className="pt-1">
+                <UnifiedTtsPlayer
+                  variant="button"
+                  text={currentQ.content}
+                  lang={trackToSpeechLang(shell.track)}
+                  label="读题干"
+                />
               </div>
             </div>
 
