@@ -192,6 +192,6 @@ describe('azure speech helpers', () => {
     expect(ssml).not.toContain('<お>');
     const custom = buildAzureSsml('hi', { voice: 'en-US-GuyNeural' });
     expect(custom).toContain('en-US-GuyNeural');
-    expect(custom).not.toContain('rate=');
+    expect(custom).not.toContain('prosody');
   });
 });

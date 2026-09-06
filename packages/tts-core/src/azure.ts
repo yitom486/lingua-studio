@@ -56,12 +56,13 @@ export function buildAzureSsml(
     (options?.voice ?? '').trim() || AZURE_DEFAULT_VOICES[track] || AZURE_DEFAULT_VOICES.en;
   const lang = AZURE_VOICE_LANG[track] || AZURE_VOICE_LANG.en;
   const rate = options?.rate;
-  const prosody =
+  // 注意：Azure 对无属性的 <prosody> 空壳直接回 400；无 rate 时不包 prosody
+  const inner =
     rate !== undefined && Number.isFinite(rate)
-      ? ` rate="${Math.min(400, Math.max(25, Math.round(rate * 100)))}%"`
-      : '';
+      ? `<prosody rate="${Math.min(400, Math.max(25, Math.round(rate * 100)))}%">${escapeXmlText(text)}</prosody>`
+      : escapeXmlText(text);
   return (
     `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${lang}">` +
-    `<voice name="${voice}"><prosody${prosody}>${escapeXmlText(text)}</prosody></voice></speak>`
+    `<voice name="${voice}">${inner}</voice></speak>`
   );
 }
