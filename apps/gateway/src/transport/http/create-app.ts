@@ -50,7 +50,7 @@ export function createApp(deps: GatewayDeps) {
     .route('/', createReviewRoutes(deps))
     .route('/', createLibraryRoutes(deps))
     .route('/', createDocumentEnrichRoutes(deps))
-    .route('/', createPdfImportRoutes())
+    .route('/', createPdfImportRoutes(deps))
     .route('/', createCurriculumRoutes(deps))
     .route('/', createTtsRoutes())
     .route('/', createLearningCompatRoutes(deps));

@@ -402,3 +402,74 @@ export async function importPdfDocument(
   if (!isOk(saved)) return err(saved.error);
   return ok({ document: saved.value, book, classification, stats });
 }
+
+export interface PdfAppendInput extends PdfImportInput {
+  documentId: string;
+}
+
+export interface PdfAppendOutput {
+  document: DocumentItem;
+  addedLessons: number;
+  addedDialogues: number;
+  totalLessons: number;
+}
+
+/**
+ * 接力追加：把新页段的课接在已有教材后面（大书分段导入）。
+ * - lessonNumber 按现有最大值续排；课 id 取自新 AST（pdf-<时间戳> 前缀天然不撞）；
+ * - 标题重复不去重（用户可能故意重导覆盖？不——重复导入由用户负责，提示即可）；
+ * - 目标文档必须属于该用户且含合法 AST。
+ */
+export async function appendPdfToDocument(
+  deps: PdfImportServiceDeps & {
+    getDocument: (documentId: string) => Promise<Result<DocumentItem | null, BusinessError>>;
+  },
+  input: PdfAppendInput
+): Promise<Result<PdfAppendOutput, BusinessError>> {
+  const got = await deps.getDocument(input.documentId);
+  if (!got.ok) return err(got.error);
+  const doc = got.value;
+  if (!doc || doc.userId !== input.userId) {
+    return err(new BusinessError('E_NOT_FOUND', '未找到指定的教材或文档', 'LEARNER_STATE'));
+  }
+  if (!doc.astJson) {
+    return err(new BusinessError('E_INVALID_INPUT', '该文档没有结构化课文，无法接力', 'VALIDATION'));
+  }
+  let astRaw: unknown;
+  try {
+    astRaw = JSON.parse(doc.astJson);
+  } catch {
+    return err(new BusinessError('E_INVALID_INPUT', '该文档课文结构已损坏，无法接力', 'VALIDATION'));
+  }
+  const base = parseTextbookAST(astRaw);
+  if (!base.ok) return err(base.error);
+
+  const converted = await convertPdfToAst(deps, input);
+  if (!converted.ok) return err(converted.error);
+  const fresh = converted.value.book;
+
+  const maxNo = base.value.lessons.reduce((m, l) => Math.max(m, l.lessonNumber), 0);
+  const appended = fresh.lessons.map((l, i) => ({ ...l, lessonNumber: maxNo + i + 1 }));
+  const merged: TextbookAST = { ...base.value, lessons: [...base.value.lessons, ...appended] };
+  const rechecked = parseTextbookAST(merged);
+  if (!rechecked.ok) return err(rechecked.error);
+
+  const saved = await deps.saveDocument({
+    ...doc,
+    astJson: JSON.stringify(rechecked.value),
+    updatedAt: new Date().toISOString(),
+  });
+  if (!isOk(saved)) return err(saved.error);
+  const addedDialogues = appended.reduce((acc, l) => acc + l.dialogues.length, 0);
+  logger.info('[pdf-import] 接力追加成功', {
+    documentId: input.documentId,
+    addedLessons: appended.length,
+    addedDialogues,
+  });
+  return ok({
+    document: saved.value,
+    addedLessons: appended.length,
+    addedDialogues,
+    totalLessons: rechecked.value.lessons.length,
+  });
+}

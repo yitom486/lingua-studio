@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
-import { useImportPdfMutation, useMapPdfMutation } from '../queries/useLearnerQueries.js';
+import { useImportPdfMutation, useMapPdfMutation, useAppendPdfMutation } from '../queries/useLearnerQueries.js';
 import { sound } from '../utils/audio.js';
 import { getPlatform } from '../platform/capabilities.js';
 import type { TextbookBook, FuriganaWord } from '../models/textbook.js';
@@ -27,12 +27,21 @@ import {
 } from './ui/dialog.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select.js';
 
 interface TextbookImporterModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImportBook: (importedBook: TextbookBook, generatedCardsCount: number) => void;
   onAddCardsBatch: (cards: { front: string; back: string; category: string; prompt: string }[]) => void;
+  /** 已有教材（接力追加用；无 documentId 的未入库书不列入） */
+  existingBooks?: Array<{ documentId: string; title: string; lessons: number }>;
 }
 
 export function TextbookImporterModal({
@@ -40,6 +49,7 @@ export function TextbookImporterModal({
   onClose,
   onImportBook,
   onAddCardsBatch,
+  existingBooks = [],
 }: TextbookImporterModalProps) {
   const [inputText, setInputText] = useState<string>('');
   const [parseError, setParseError] = useState<string | null>(null);
@@ -52,6 +62,8 @@ export function TextbookImporterModal({
   const [pdfEndPage, setPdfEndPage] = useState<string>('');
   const importPdf = useImportPdfMutation();
   const mapPdf = useMapPdfMutation();
+  const appendPdf = useAppendPdfMutation();
+  const [appendTarget, setAppendTarget] = useState<string>('');
 
   // Dialog 以 open 控制可见性，无需提前 return
   // if (!isOpen) return null;
@@ -184,13 +196,41 @@ export function TextbookImporterModal({
   };
 
   const handlePdfImport = () => {
-    if (importPdf.isPending) return;
+    if (importPdf.isPending || appendPdf.isPending) return;
     const path = pdfPath.trim();
     if (!pdfFile && !path) return;
     setParseError(null);
     setPdfNote(null);
     sound.playClick();
     const { startPage, endPage } = readPageRange();
+    // 接力模式：直接追加到已有书（网关合并+续排号），不走新书预览链路
+    if (appendTarget) {
+      const vars = pdfFile
+        ? {
+            documentId: appendTarget,
+            file: pdfFile,
+            ...(startPage !== undefined ? { startPage } : {}),
+            ...(endPage !== undefined ? { endPage } : {}),
+          }
+        : {
+            documentId: appendTarget,
+            filePath: path,
+            ...(startPage !== undefined ? { startPage } : {}),
+            ...(endPage !== undefined ? { endPage } : {}),
+          };
+      appendPdf.mutate(vars, {
+        onSuccess: (r) => {
+          sound.playCorrect();
+          toast.success(`接力成功：新增 ${r.addedLessons} 课 ${r.addedDialogues} 句，全书共 ${r.totalLessons} 课`);
+          onClose();
+        },
+        onError: (err) => {
+          setParseError(err instanceof Error ? err.message : '接力追加失败');
+          sound.playMistake();
+        },
+      });
+      return;
+    }
     const vars = pdfFile
       ? {
           file: pdfFile,
@@ -397,14 +437,39 @@ export function TextbookImporterModal({
               </Button>
               <Button
                 size="sm"
-                disabled={(!pdfFile && !pdfPath.trim()) || importPdf.isPending || mapPdf.isPending}
+                disabled={(!pdfFile && !pdfPath.trim()) || importPdf.isPending || mapPdf.isPending || appendPdf.isPending}
                 onClick={handlePdfImport}
               >
-                {importPdf.isPending ? 'PDF 解析中…' : '开始导入'}
+                {importPdf.isPending || appendPdf.isPending
+                  ? 'PDF 解析中…'
+                  : appendTarget
+                    ? '追加到该书（接力）'
+                    : '开始导入'}
               </Button>
               <span className="text-[11px] text-stone-500 dark:text-stone-400">
                 文字版直接提取；扫描版自动 OCR（首次约 80MB 按需下载，不进安装包）· 扫描版韩语暂不支持
               </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500 dark:text-stone-400">
+              <span title="大书分段导：先导一段成书，后续段选这本书接力追加，别重复导同一段">
+                接力到已有书（选填，不选则成新书）：
+              </span>
+              <Select
+                value={appendTarget || '__new'}
+                onValueChange={(v) => setAppendTarget(!v || v === '__new' ? '' : v)}
+              >
+                <SelectTrigger className="w-56 h-7 text-[11px]">
+                  <SelectValue placeholder="作为新书导入" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__new">作为新书导入</SelectItem>
+                  {existingBooks.map((b) => (
+                    <SelectItem key={b.documentId} value={b.documentId}>
+                      {b.title}（{b.lessons} 课）
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500 dark:text-stone-400">
               <span>大书按课分段导（选填，1-based 页码）：</span>

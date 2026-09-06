@@ -6,11 +6,13 @@ import {
   extractTocEntries,
 } from '../modules/library/application/pdf-import/extract-headings.js';
 import {
+  appendPdfToDocument,
   convertPdfToAst,
   importPdfDocument,
   mapPdfPages,
 } from '../modules/library/application/pdf-import/pdf-import-service.js';
 import { readLocalPdfFile } from '../modules/library/application/pdf-import/local-file.js';
+import type { DocumentItem } from '@study-studio/protocol';
 import { extractTarGz, extractZip } from '../modules/library/application/pdf-import/archive.js';
 import { assertArtifactUrlAllowed, currentRuntimePlatform } from '../modules/library/application/pdf-import/pdf-artifacts.js';
 import { fetchRuntimeArtifact, napiDirName } from '../modules/library/application/pdf-import/pdf-runtime.js';import { isOk } from '@study-studio/shared';
@@ -295,6 +297,84 @@ describe('importPdfDocument', () => {
     );
     expect(isOk(res)).toBe(true);
     expect(saved.length).toBe(1);
+  });
+});
+
+describe('appendPdfToDocument（接力）', () => {
+  const baseAst = {
+    id: 'b1',
+    language: 'JA',
+    title: 'Base',
+    shortTitle: 'Base',
+    level: 'N5',
+    lessons: [
+      {
+        id: 'l1',
+        lessonNumber: 1,
+        title: '第 1 課',
+        vocabularies: [],
+        grammarPoints: [],
+        dialogues: [{ speaker: 'A', japanese: 'こんにちは。', chinese: '' }],
+        exercises: [],
+      },
+    ],
+  };
+  const baseDoc: DocumentItem = {
+    id: 'doc1',
+    userId: 'u1',
+    title: 'Base',
+    sourceKind: 'user_import' as const,
+    language: 'ja',
+    content: 'Base',
+    astJson: JSON.stringify(baseAst),
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  };
+  const deps = {
+    saveDocument: async (doc: typeof baseDoc) => {
+      const { ok } = await import('@study-studio/shared');
+      return ok(doc);
+    },
+    getDocument: async () => {
+      const { ok } = await import('@study-studio/shared');
+      return ok({ ...baseDoc });
+    },
+    loadInspector: stubInspector({ pdfType: 'TextBased', pageCount: 2, markdown: '李さん：はじめまして。' }),
+  };
+  test('新课续排号并存库', async () => {
+    const res = await appendPdfToDocument(deps, {
+      userId: 'u1',
+      documentId: 'doc1',
+      filename: 'part2.pdf',
+      bytes: PDF_HEAD,
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.addedLessons).toBe(1);
+    expect(res.value.totalLessons).toBe(2);
+    const merged = JSON.parse(res.value.document.astJson as string);
+    expect(merged.lessons.map((l: { lessonNumber: number }) => l.lessonNumber)).toEqual([1, 2]);
+  });
+
+  test('别人的文档 / 无 AST 接力拒绝', async () => {
+    const other = await appendPdfToDocument(
+      { ...deps, getDocument: async () => {
+        const { ok } = await import('@study-studio/shared');
+        return ok({ ...baseDoc, userId: 'someone' });
+      } },
+      { userId: 'u1', documentId: 'doc1', filename: 'p.pdf', bytes: PDF_HEAD }
+    );
+    expect(other.ok).toBe(false);
+    const noAst = await appendPdfToDocument(
+      { ...deps, getDocument: async () => {
+        const { ok } = await import('@study-studio/shared');
+        const { astJson: _drop, ...rest } = baseDoc;
+        void _drop;
+        return ok(rest);
+      } },
+      { userId: 'u1', documentId: 'doc1', filename: 'p.pdf', bytes: PDF_HEAD }
+    );
+    expect(noAst.ok).toBe(false);
   });
 });
 

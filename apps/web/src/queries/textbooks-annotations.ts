@@ -276,6 +276,79 @@ export function useEnrichLessonMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+export interface AppendPdfResult {
+  documentId: string;
+  addedLessons: number;
+  addedDialogues: number;
+  totalLessons: number;
+}
+
+/**
+ * 接力追加：新页段的课接在已有教材后面（大书分段导入）。
+ * lessonNumber 由网关按现有最大值续排；课 id 取自新 AST（时间戳前缀不撞号）。
+ */
+export function useAppendPdfMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars: { documentId: string } & (
+        | { file: File; startPage?: number; endPage?: number }
+        | { filePath: string; startPage?: number; endPage?: number }
+      )
+    ): Promise<AppendPdfResult> => {
+      const hasPath = 'filePath' in vars;
+      const { documentId, ...src } = vars;
+      const startPage = (src as { startPage?: number }).startPage;
+      const endPage = (src as { endPage?: number }).endPage;
+      const res = hasPath
+        ? await fetch(
+            `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(documentId)}/append-pdf`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                filePath: (src as { filePath: string }).filePath,
+                ...(startPage !== undefined ? { startPage } : {}),
+                ...(endPage !== undefined ? { endPage } : {}),
+              }),
+            }
+          )
+        : await (async () => {
+            const f = (src as { file: File }).file;
+            const form = new FormData();
+            form.append('file', f, f.name);
+            if (startPage !== undefined) form.append('startPage', String(startPage));
+            if (endPage !== undefined) form.append('endPage', String(endPage));
+            return fetch(
+              `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(documentId)}/append-pdf`,
+              { method: 'POST', body: form }
+            );
+          })();
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `接力追加失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const p = (payload ?? {}) as Partial<AppendPdfResult>;
+      return {
+        documentId: String(p.documentId ?? documentId),
+        addedLessons: Number(p.addedLessons ?? 0),
+        addedDialogues: Number(p.addedDialogues ?? 0),
+        totalLessons: Number(p.totalLessons ?? 0),
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TEXTBOOKS });
+    },
+    onError: (e) => {
+      logger.debug('[useAppendPdfMutation] append failed', e);
+    },
+  });
+}
+
 export interface PdfPageHeading {
   page: number;
   level: number;

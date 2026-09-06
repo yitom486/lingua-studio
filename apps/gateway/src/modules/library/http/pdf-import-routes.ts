@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import { BusinessError, isOk } from '@study-studio/shared';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
-import { convertPdfToAst, mapPdfPages, MAX_PDF_BYTES } from '../application/pdf-import/pdf-import-service.js';
+import { convertPdfToAst, appendPdfToDocument, mapPdfPages, MAX_PDF_BYTES } from '../application/pdf-import/pdf-import-service.js';
+import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 import { readLocalPdfFile } from '../application/pdf-import/local-file.js';
 
 /**
@@ -15,7 +16,7 @@ import { readLocalPdfFile } from '../application/pdf-import/local-file.js';
  *   百 MB 级 PDF 走 multipart 会把网关进程 OOM 干崩（Hono parseBody 常驻缓冲，真机复现），
  *   同机网关（本机 dev / Tauri sidecar）请用 filePath 直读，零 HTTP 拷贝。
  */
-export function createPdfImportRoutes() {
+export function createPdfImportRoutes(deps: GatewayDeps) {
   return new Hono()
     .post('/api/documents/:userId/import-pdf', async (c) => {
       const input = await readPdfInput(c);
@@ -47,8 +48,7 @@ export function createPdfImportRoutes() {
         return formatBusinessErrorResponse(c, e, 'importPdfDocument');
       }
     })
-    .post('/api/documents/:userId/map-pdf', async (c) => {
-      // 结构预览（目录感知第一步）：扫一个窗口页，返回每页标题 + 目录条目；
+    .post('/api/documents/:userId/map-pdf', async (c) => {      // 结构预览（目录感知第一步）：扫一个窗口页，返回每页标题 + 目录条目；
       // 调用方按标题页选范围，再调 import-pdf 精确导入。
       const input = await readPdfInput(c);
       if (!input.ok) return formatBusinessErrorResponse(c, input.error);
@@ -78,6 +78,43 @@ export function createPdfImportRoutes() {
         });
       } catch (e) {
         return formatBusinessErrorResponse(c, e, 'mapPdfDocument');
+      }
+    })
+    .post('/api/documents/:userId/:documentId/append-pdf', async (c) => {
+      // 接力追加：新页段的课接在已有教材后面（大书分段导入）。
+      const input = await readPdfInput(c);
+      if (!input.ok) return formatBusinessErrorResponse(c, input.error);
+      try {
+        const userId = c.req.param('userId');
+        const documentId = c.req.param('documentId');
+        if (!userId || !documentId) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '缺少用户或文档标识', 'VALIDATION')
+          );
+        }
+        const res = await appendPdfToDocument(
+          {
+            saveDocument: (doc) => deps.repo.saveDocument(doc),
+            getDocument: (id) => deps.repo.getDocumentById(id),
+          },
+          {
+            userId,
+            documentId,
+            filename: input.value.filename,
+            bytes: input.value.bytes,
+            ...(input.value.pages ? { pages: input.value.pages } : {}),
+          }
+        );
+        if (!isOk(res)) return formatBusinessErrorResponse(c, res.error);
+        return c.json({
+          documentId: res.value.document.id,
+          addedLessons: res.value.addedLessons,
+          addedDialogues: res.value.addedDialogues,
+          totalLessons: res.value.totalLessons,
+        });
+      } catch (e) {
+        return formatBusinessErrorResponse(c, e, 'appendPdfDocument');
       }
     });
 }

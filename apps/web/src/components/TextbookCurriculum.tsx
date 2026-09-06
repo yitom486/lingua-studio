@@ -109,6 +109,13 @@ export function TextbookCurriculum({
         <TextbookImporterModal
           isOpen={isImporterOpen}
           onClose={() => setIsImporterOpen(false)}
+          existingBooks={booksList
+            .filter((b) => b.documentId)
+            .map((b) => ({
+              documentId: b.documentId as string,
+              title: b.shortTitle || b.title,
+              lessons: b.lessons.length,
+            }))}
           onImportBook={(newBook) => {
             importTextbook.mutate(newBook);
             setSelectedBookId(newBook.id);
@@ -523,6 +530,13 @@ export function TextbookCurriculum({
       <TextbookImporterModal
         isOpen={isImporterOpen}
         onClose={() => setIsImporterOpen(false)}
+        existingBooks={booksList
+          .filter((b) => b.documentId)
+          .map((b) => ({
+            documentId: b.documentId as string,
+            title: b.shortTitle || b.title,
+            lessons: b.lessons.length,
+          }))}
         onImportBook={(newBook) => {
           importTextbook.mutate(newBook);
           setSelectedBookId(newBook.id);
