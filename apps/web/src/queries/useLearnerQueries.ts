@@ -4,7 +4,7 @@ import { DEFAULT_USER_ID, QUERY_KEYS, invalidateAllLearningQueries } from './que
 export { DEFAULT_USER_ID, QUERY_KEYS, invalidateAllLearningQueries };
 
 // P1-2 拆分：画像/计划/分析组已下沉 profile-plan-analysis.ts，此处重导出保持对外不变。
-export { useLearnerProfileQuery, useDailyTaskQuery, useDailyPlanQuery, useCompletePlanStepMutation, useLearningAnalysisQuery, useRefreshLearningAnalysisMutation, useActivityHistoryQuery } from './profile-plan-analysis.js';
+export { useLearnerProfileQuery, useDailyTaskQuery, useDailyPlanQuery, useCompletePlanStepMutation, useLearningAnalysisQuery, useRefreshLearningAnalysisMutation, useActivityHistoryQuery, useBeginnerTrailQuery, type TrailStageStatus, type BeginnerTrail } from './profile-plan-analysis.js';
 
 // P1-2 拆分：卡片/错题/题库组已下沉 cards-mistakes-questions.ts，此处重导出保持对外不变。
 export { useCardsQuery, useAddCardsMutation, useUpdateCardMutation, vocabToStudyCard, useMistakesQuery, useUpdateMistakeMutation, useAddMistakeMutation, useQuestionsQuery, usePrependQuestionMutation } from './cards-mistakes-questions.js';

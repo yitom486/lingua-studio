@@ -104,6 +104,10 @@ import {
   recordReadingPractice as recordReadingPracticeDomain,
 } from '../modules/learning-progress/persistence/learning-records.js';
 import {
+  getBeginnerTrail as getBeginnerTrailDomain,
+  type BeginnerTrail,
+} from '../modules/learning-progress/persistence/trail.js';
+import {
   collectPracticeQuestions as collectPracticeQuestionsDomain,
   listPracticeCollections as listPracticeCollectionsDomain,
   listPracticeItems as listPracticeItemsDomain,
@@ -636,6 +640,16 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     input: SubmitReadingPractice
   ): Promise<Result<{ proficiency: number }, BusinessError>> {
     return recordReadingPracticeDomain(this.deps, userId, input);
+  }
+
+  /**
+   * 新手带路进度聚合（实现已下沉 learning-progress 域，此处仅委托）。
+   */
+  public async getBeginnerTrail(
+    userId: string,
+    track: 'ja' | 'en' | 'ko'
+  ): Promise<Result<BeginnerTrail, BusinessError>> {
+    return getBeginnerTrailDomain(this.deps, userId, track);
   }
 
   /**

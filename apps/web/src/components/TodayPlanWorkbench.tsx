@@ -12,6 +12,8 @@ import {
   Zap,
   AlertTriangle,
   ClipboardList,
+  Footprints,
+  Lock,
 } from 'lucide-react';
 import type { DailyPlanStep, DailyPlanStepKind } from '@study-studio/learner-core';
 import { NumberTicker } from './magicui/index.js';
@@ -20,8 +22,8 @@ import { Button } from './ui/button.js';
 import { Progress } from './ui/progress.js';
 import { sound } from '../utils/audio.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
-import { useStudySessionStore } from '../stores/useStudySessionStore.js';
-import { useCompletePlanStepMutation, useDailyPlanQuery } from '../queries/useLearnerQueries.js';
+import { useStudySessionStore, type NavigationTab } from '../stores/useStudySessionStore.js';
+import { useCompletePlanStepMutation, useDailyPlanQuery, useBeginnerTrailQuery, type TrailStageStatus } from '../queries/useLearnerQueries.js';
 
 const STEP_ICONS: Record<DailyPlanStepKind, typeof Layers> = {
   NEW_WORDS: BookPlus,
@@ -32,6 +34,96 @@ const STEP_ICONS: Record<DailyPlanStepKind, typeof Layers> = {
   MISTAKES: AlertTriangle,
   PRACTICE_PLAN: ClipboardList,
 };
+
+/**
+ * 新手带路卡：零基础分阶段清单，全部走完后自动隐藏。
+ * 进度取自网关带路聚合（画像指标/闪卡数/做题数），失败时静默不渲染，不挡主路径。
+ */
+function BeginnerTrailCard() {
+  const { data: trail } = useBeginnerTrailQuery();
+  const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
+
+  if (!trail || trail.complete) return null;
+
+  const goStage = (stage: TrailStageStatus) => {
+    sound.playClick();
+    // 带路 tab 均为合法 NavigationTab 子集，直接切换
+    setActiveTab(stage.tab as NavigationTab);
+    toast.success(`已进入「${stage.title}」`);
+  };
+
+  const doneCount = trail.stages.filter((s) => s.done).length;
+
+  return (
+    <div className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-5 shadow-sm space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-800 dark:text-sky-300 flex items-center justify-center">
+            <Footprints className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-stone-900 dark:text-stone-100">
+              从零开始 · 新手带路
+            </h2>
+            <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">
+              零基础跟着走：每天一小步，走完就能独立用今日学习。已完成 {doneCount}/{trail.stages.length} 步。
+            </p>
+          </div>
+        </div>
+      </div>
+      <ol className="space-y-2">
+        {trail.stages.map((stage) => (
+          <li
+            key={stage.id}
+            className={`rounded-xl border p-3 flex items-center gap-3 ${
+              stage.done
+                ? 'border-emerald-500/20 bg-emerald-500/5'
+                : stage.current
+                  ? 'border-sky-500/30 bg-white/70 dark:bg-[#1a1816]'
+                  : 'border-stone-200/70 dark:border-stone-800 opacity-60'
+            }`}
+          >
+            <div className="shrink-0">
+              {stage.done ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              ) : stage.locked ? (
+                <Lock className="w-5 h-5 text-stone-400" />
+              ) : (
+                <span className="inline-flex w-5 h-5 rounded-full bg-sky-500/15 border border-sky-500/40 text-[10px] font-bold text-sky-800 dark:text-sky-300 items-center justify-center">
+                  {doneCount + 1}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  {stage.day}
+                </Badge>
+                <span className="text-sm font-bold text-stone-900 dark:text-stone-100">
+                  {stage.title}
+                </span>
+                {!stage.done && (
+                  <span className="text-[11px] font-mono text-stone-400">
+                    {stage.progress}/{stage.criterion.goal}
+                  </span>
+                )}
+              </div>
+              {(stage.current || stage.done) && (
+                <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5">{stage.hint}</p>
+              )}
+            </div>
+            {stage.current && (
+              <Button size="sm" onClick={() => goStage(stage)} className="gap-1.5 shrink-0">
+                去做吧
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 export function TodayPlanWorkbench() {
   const shell = useLearningShell();
@@ -82,6 +174,7 @@ export function TodayPlanWorkbench() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-5 max-w-3xl"
     >
+      <BeginnerTrailCard />
       <div className="rounded-2xl border border-amber-900/10 dark:border-amber-500/15 bg-[#faf9f6] dark:bg-[#1a1816] p-5 shadow-sm space-y-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3">

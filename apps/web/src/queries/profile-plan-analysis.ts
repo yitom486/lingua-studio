@@ -186,3 +186,51 @@ export function useActivityHistoryQuery(
     staleTime: 1000 * 30,
   });
 }
+
+/** 新手带路阶段状态（与网关 trail 域同源，tab 均为合法 NavigationTab 子集）。 */
+export interface TrailStageStatus {
+  id: string;
+  day: string;
+  title: string;
+  hint: string;
+  tab: 'KANA' | 'HANGUL' | 'CARDS' | 'QUIZ' | 'READING';
+  progress: number;
+  done: boolean;
+  locked: boolean;
+  current: boolean;
+  criterion: { kind: 'kana' | 'hangul' | 'cards' | 'quiz' | 'reading'; goal: number };
+}
+
+export interface BeginnerTrail {
+  track: string;
+  complete: boolean;
+  stages: TrailStageStatus[];
+}
+
+/**
+ * 新手带路进度查询：零基础分阶段清单，全部走完后前端隐藏带路卡。
+ * 失败/空时返回 null（不挡今日计划主路径）。
+ */
+export function useBeginnerTrailQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+
+  return useQuery<BeginnerTrail | null>({
+    queryKey: [...QUERY_KEYS.TRAIL, userId, targetLanguage],
+    queryFn: async () => {
+      try {
+        const url = new URL(`${GATEWAY_BASE_URL}/api/trail/${userId}`);
+        url.searchParams.set('track', targetLanguage);
+        const res = await fetch(url.toString());
+        if (res.ok) {
+          const data = (await res.json()) as BeginnerTrail;
+          if (data && Array.isArray(data.stages)) return data;
+        }
+      } catch (e) {
+        logger.debug('[useBeginnerTrailQuery] Failed to load beginner trail', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 30,
+  });
+}
