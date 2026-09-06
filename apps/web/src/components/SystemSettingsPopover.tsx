@@ -292,6 +292,20 @@ export function SystemSettingsPopover() {
     // 面板打开且选了 Azure 才拉全量表（Key 不进缓存键，换 Key 后靠验证成功刷新）
     enabled: editEngine === 'azure-speech' && open,
   });
+  // Key 从空到有（用户后填的常见顺序）自动刷一次音色表，否则永远停在内置短表
+  const hadKeyRef = useRef(editApiKey.trim().length > 0);
+  useEffect(() => {
+    const hasKey = editApiKey.trim().length > 0;
+    if (
+      hasKey &&
+      !hadKeyRef.current &&
+      editEngine === 'azure-speech' &&
+      editRegion.trim().length > 0
+    ) {
+      void invalidateTtsVoices();
+    }
+    hadKeyRef.current = hasKey;
+  }, [editApiKey, editEngine, editRegion, invalidateTtsVoices]);
   const azureVoiceOptions: AzureVoiceOption[] = (
     remoteVoices.length > 0 ? remoteVoices : AZURE_VOICE_FALLBACK
   ).filter((v) => v.id.toLowerCase().startsWith(speechLang.toLowerCase()));
@@ -465,7 +479,7 @@ export function SystemSettingsPopover() {
               </span>
             </div>
 
-            {langVoices.length > 0 && (
+            {editEngine === 'system' && langVoices.length > 0 && (
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-stone-500 dark:text-stone-400">
                   手动指定系统音色（英语请优先选 David / Mark / Guy）
@@ -491,7 +505,13 @@ export function SystemSettingsPopover() {
               </div>
             )}
 
-            {!hasNamed && (
+            {editEngine !== 'system' && (
+              <p className="text-[10px] text-sky-700/90 dark:text-sky-300/90 leading-relaxed">
+                神经语音生效中，上方男女声直接切换云端音色；系统音色下拉已隐藏，到下方神经语音区选具体音色与风格。
+              </p>
+            )}
+
+            {editEngine === 'system' && !hasNamed && (
               <p className="text-[10px] text-amber-700/90 dark:text-amber-300/90 leading-relaxed">
                 {gender === 'MALE'
                   ? '未检测到具名男声（如 Microsoft David/Mark）。若列表里只有 Google US English，听感会偏女声；请在上方手动选男声，或到系统设置安装英文男声 / 启用 TTS 外挂。'
@@ -687,6 +707,11 @@ export function SystemSettingsPopover() {
                           填好区域与 Key 后自动拉取该区全量音色与说话风格。
                         </p>
                       )
+                    )}
+                    {remoteVoices.length > 0 && (
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 leading-relaxed">
+                        已加载 {remoteVoices.length} 个云端音色（含各音色可用风格）。
+                      </p>
                     )}
                     </>
                   ) : (
