@@ -13,9 +13,10 @@ import {
   Award,
   Search,
   ExternalLink,
+  Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { sound } from '../utils/audio.js';
+import { sound, speechStudio } from '../utils/audio.js';
 import { ShimmerButton } from './magicui/index.js';
 import { Progress } from './ui/progress.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
@@ -23,8 +24,20 @@ import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
 import { useDictionaryLookupQuery, usePitchLexiconQuery } from '../queries/useLearnerQueries.js';
 import type { PitchLexiconItem } from '../queries/useLearnerQueries.js';
+import type { AiTutorContext } from './AiTutorDrawer.js';
+import { buildPitchTutorContext } from '../lib/pitch-tutor.js';
+import {
+  describePitchFeedback,
+  estimatePitchContour,
+  overallPitchScore,
+  scorePitchMatch,
+} from '../lib/pitch-analyze.js';
 
-export function PitchAccentCoach() {
+interface PitchAccentCoachProps {
+  onOpenTutor?: (ctx: AiTutorContext) => void;
+}
+
+export function PitchAccentCoach({ onOpenTutor }: PitchAccentCoachProps) {
   const pitchQuery = usePitchLexiconQuery();
   // 词表唯一来源：Gateway curriculum.pitch（本地词典库 SSOT）；
   // 加载失败 / 空列表由下方空状态显式呈现，不再回退前端演示词表。
@@ -46,6 +59,8 @@ export function PitchAccentCoach() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   const safeIndex = Math.min(selectedWordIndex, Math.max(words.length - 1, 0));
   const currentWord: PitchLexiconItem | undefined = words[safeIndex] ?? words[0];
@@ -70,36 +85,17 @@ export function PitchAccentCoach() {
     );
   }
 
-  // 播放标准音调模拟（双音纯音演示高低调）
-  const playStandardPitch = (pattern: ('L' | 'H')[], moras: string[]) => {
+  // 真人示范音：走中央 TTS 引擎（系统/云端跟随设置），不再用正弦哔哔声冒充原音
+  const playModelVoice = (kana: string) => {
     sound.playClick();
-    try {
-      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const startTime = ctx.currentTime;
-      const moraDuration = 0.28;
+    void speechStudio.speak(kana, { lang: 'JA', purpose: 'preview' });
+  };
 
-      pattern.forEach((level, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        // 高音 350Hz, 低音 240Hz
-        osc.frequency.setValueAtTime(level === 'H' ? 360 : 250, startTime + i * moraDuration);
-
-        gain.gain.setValueAtTime(0, startTime + i * moraDuration);
-        gain.gain.linearRampToValueAtTime(0.2, startTime + i * moraDuration + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.001, startTime + (i + 1) * moraDuration - 0.02);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start(startTime + i * moraDuration);
-        osc.stop(startTime + (i + 1) * moraDuration);
-      });
-
-      toast.info(`正在播放「${currentWord.kanji}」标准声调走向`);
-    } catch {
-      // AudioContext fallback
-    }
+  // 请 AI 老师讲这个词的声调（上下文由 lib/pitch-tutor 构造，UI 只调用）
+  const handleAskTutor = () => {
+    if (!currentWord || !onOpenTutor) return;
+    sound.playClick();
+    onOpenTutor(buildPitchTutorContext(currentWord));
   };
 
   // 模拟录音与实时波形绘制
@@ -121,6 +117,22 @@ export function PitchAccentCoach() {
 
         audioContextRef.current = ctx;
         analyserRef.current = analyser;
+
+        // 同步用 MediaRecorder 落盘，供随后解码做真实音高分析
+        try {
+          const recorder = new MediaRecorder(stream);
+          recordedChunksRef.current = [];
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+              recordedChunksRef.current.push(event.data);
+            }
+          };
+          recorder.start();
+          mediaRecorderRef.current = recorder;
+        } catch {
+          recordedChunksRef.current = [];
+          mediaRecorderRef.current = null;
+        }
       }
     } catch {
       // 麦克风受限则使用模拟波形
@@ -189,31 +201,82 @@ export function PitchAccentCoach() {
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
     }
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
+    void analyzeRecording();
+  };
+
+  /**
+   * 真实跟读评测：解码刚才录下的音频，自相关估 f0 轮廓，
+   * 与课程声调模板逐拍比对。无麦克风/解码失败时如实返回，
+   * 绝不编随机分数。
+   */
+  const analyzeRecording = async () => {
+    const chunks = recordedChunksRef.current;
+    recordedChunksRef.current = [];
+    const recorder = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+    try {
+      if (recorder && recorder.state !== 'inactive') {
+        await new Promise<void>((resolve) => {
+          const done = () => resolve();
+          recorder.addEventListener('stop', done, { once: true });
+          try {
+            recorder.stop();
+          } catch {
+            done();
+          }
+          // 500ms 兜底，避免 stop 事件丢失时卡死
+          setTimeout(done, 500);
+        });
+      }
+    } catch {
+      // 忽略停止时的边缘异常，继续走解码分支
     }
 
-    // 智能评测打分 (模拟声学打分引擎)
-    const baseScore = 92 + Math.floor(Math.random() * 7);
-    const fluency = 90 + Math.floor(Math.random() * 8);
-    const pitchMatch = 94 + Math.floor(Math.random() * 5);
-
-    sound.playCorrect();
-    setEvalResult({
-      score: baseScore,
-      fluency,
-      pitchMatch,
-      comment:
-        baseScore >= 95
-          ? `极佳！声调走向完美契合${currentWord.pitchType}，高低起伏转折利落自然。`
-          : `良好！整体音高走向正确，注意第二拍的自然下沉，避免末尾音拖长。`,
-    });
-    toast.success(`评测完成：综合声调得分 ${baseScore} 分！`);
+    const ctx = audioContextRef.current;
+    try {
+      if (chunks.length === 0 || !ctx) {
+        setEvalResult(null);
+        toast.info('未检测到麦克风输入，本次只看波形演示，未打分。');
+        return;
+      }
+      const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
+      const raw = await blob.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(raw);
+      const samples = decoded.getChannelData(0);
+      const contour = estimatePitchContour(samples, decoded.sampleRate);
+      const result = scorePitchMatch(contour, currentWord.pitchPattern);
+      const score = overallPitchScore(result);
+      sound.playCorrect();
+      setEvalResult({
+        score,
+        fluency: result.fluency,
+        pitchMatch: result.pitchMatch,
+        comment: describePitchFeedback(result, currentWord.pitchType),
+      });
+      toast.success(`评测完成：综合声调得分 ${score} 分！`);
+    } catch {
+      setEvalResult(null);
+      toast.info('录音解码失败，未打分，请重试一次。');
+    } finally {
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      analyserRef.current = null;
+    }
   };
 
   useEffect(() => {
     return () => {
       if (animFrameIdRef.current) cancelAnimationFrame(animFrameIdRef.current);
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {
+        // 卸载时尽力停止录音，忽略边缘异常
+      }
+      mediaRecorderRef.current = null;
       if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     };
   }, []);
@@ -306,6 +369,20 @@ export function PitchAccentCoach() {
                         <span className="font-serif text-lg font-bold text-stone-900 dark:text-stone-100">{entry.headword}</span>
                         {entry.reading && <span className="font-mono text-amber-700 dark:text-amber-300">{entry.reading}</span>}
                         {entry.romanization && <span className="text-xs text-stone-500">{entry.romanization}</span>}
+                        <button
+                          type="button"
+                          title={`朗读${entry.reading || entry.headword}`}
+                          onClick={() => {
+                            sound.playClick();
+                            void speechStudio.speak(entry.reading || entry.headword, {
+                              lang: 'JA',
+                              purpose: 'preview',
+                            });
+                          }}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded-full hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 cursor-pointer"
+                        >
+                          <Volume2 className="w-3.5 h-3.5" />
+                        </button>
                         {pronunciation?.pitchType && <Badge variant="amber">{pronunciation.pitchType}</Badge>}
                       </div>
                       <p className="mt-1 text-xs text-stone-600 dark:text-stone-300">{entry.meanings.join('；')}</p>
@@ -363,12 +440,23 @@ export function PitchAccentCoach() {
                 </Badge>
                 <Button
                   size="sm"
-                  onClick={() => playStandardPitch(currentWord.pitchPattern, currentWord.moraList)}
+                  onClick={() => playModelVoice(currentWord.kana)}
                   className="gap-1.5"
                 >
                   <Volume2 className="w-4 h-4" />
                   <span>示范原音</span>
                 </Button>
+                {onOpenTutor && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAskTutor}
+                    className="gap-1.5"
+                  >
+                    <Bot className="w-4 h-4" />
+                    <span>问AI老师</span>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -432,12 +520,7 @@ export function PitchAccentCoach() {
                   <Button
                     variant="link"
                     size="sm"
-                    onClick={() =>
-                      playStandardPitch(
-                        currentWord.contrastPair!.pitchPattern,
-                        currentWord.contrastPair!.kana.split('')
-                      )
-                    }
+                    onClick={() => playModelVoice(currentWord.contrastPair!.kana)}
                     className="h-auto p-0 text-[11px] gap-1"
                   >
                     <Volume2 className="w-3 h-3" />

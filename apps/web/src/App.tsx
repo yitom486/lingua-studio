@@ -406,7 +406,12 @@ export function App() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25 }}
               >
-                <PitchAccentCoach />
+                <PitchAccentCoach
+                  onOpenTutor={(ctx) => {
+                    sound.playClick();
+                    openTutor(ctx);
+                  }}
+                />
               </motion.div>
             )}
 
