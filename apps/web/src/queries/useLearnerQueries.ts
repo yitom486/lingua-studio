@@ -13,7 +13,7 @@ export { useCardsQuery, useAddCardsMutation, useUpdateCardMutation, vocabToStudy
 // 双传输收敛：同名 useSubmitQuizMutation 只保留 useAgentMutations 的 WS 版（HTTP 记足迹版零消费已删除）。
 
 // P1-2 拆分：教材/批注组已下沉 textbooks-annotations.ts，此处重导出保持对外不变。
-export { useTextbooksQuery, useImportTextbookMutation, useAnnotationsQuery, useAddAnnotationMutation, useAnnotationToCardMutation } from './textbooks-annotations.js';
+export { useTextbooksQuery, useImportTextbookMutation, useImportPdfMutation, type ImportPdfResult, useAnnotationsQuery, useAddAnnotationMutation, useAnnotationToCardMutation } from './textbooks-annotations.js';
 
 // P1-2 拆分：练习队列组已下沉 practice-collect.ts，此处重导出保持对外不变。
 export { usePracticeCollectionsQuery, usePracticeItemsQuery, usePracticeItemsToCardsMutation } from './practice-collect.js';

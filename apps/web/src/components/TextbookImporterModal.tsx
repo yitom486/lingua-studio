@@ -3,6 +3,7 @@ import {
   Upload,
   Download,
   FileText,
+  FileUp,
   CheckCircle2,
   AlertCircle,
   Sparkles,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
+import { useImportPdfMutation } from '../queries/useLearnerQueries.js';
 import { sound } from '../utils/audio.js';
 import { getPlatform } from '../platform/capabilities.js';
 import type { TextbookBook, FuriganaWord } from '../models/textbook.js';
@@ -43,6 +45,8 @@ export function TextbookImporterModal({
   const [parseError, setParseError] = useState<string | null>(null);
   const [parsedAST, setParsedAST] = useState<TextbookAST | null>(null);
   const [autoGenerateCards, setAutoGenerateCards] = useState<boolean>(true);
+  const [pdfNote, setPdfNote] = useState<string | null>(null);
+  const importPdf = useImportPdfMutation();
 
   // Dialog 以 open 控制可见性，无需提前 return
   // if (!isOpen) return null;
@@ -94,8 +98,7 @@ export function TextbookImporterModal({
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {    const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
@@ -122,6 +125,34 @@ export function TextbookImporterModal({
       }
     };
     reader.readAsText(file);
+  };
+
+  const handlePdfFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setParseError(null);
+    setPdfNote(null);
+    sound.playClick();
+    importPdf.mutate(file, {
+      onSuccess: (result) => {
+        setParsedAST(result.book);
+        setInputText(JSON.stringify(result.book, null, 2));
+        const c = result.classification;
+        const kind =
+          c.pdfType === 'TextBased' ? '文字版' : c.pdfType === 'Scanned' ? '扫描版（已 OCR）' : c.pdfType;
+        setPdfNote(
+          `识别为${kind} · ${c.pageCount} 页 · ${result.stats.lessons} 课 ${result.stats.dialogues} 句` +
+            (c.ocrUsed ? ' · 首次 OCR 已按需下载运行时（约 80MB，一次性）' : '')
+        );
+        sound.playCorrect();
+        toast.success(`PDF 解析成功：${result.stats.lessons} 课，${result.stats.dialogues} 句，确认后入库`);
+      },
+      onError: (err) => {
+        setParseError(err instanceof Error ? err.message : 'PDF 导入失败');
+        sound.playMistake();
+      },
+    });
   };
 
   const handleConfirmImport = () => {
@@ -267,6 +298,28 @@ export function TextbookImporterModal({
               <Download className="w-3.5 h-3.5" />
               下载 AST 规范模版
             </Button>
+          </div>
+
+          <div className="p-3 rounded-2xl border border-dashed border-amber-500/40 bg-amber-500/5 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors">
+                <FileUp className="w-3.5 h-3.5" />
+                {importPdf.isPending ? 'PDF 解析中…' : '上传 PDF 教材（自有资料）'}
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  disabled={importPdf.isPending}
+                  onChange={handlePdfFile}
+                />
+              </label>
+              <span className="text-[11px] text-stone-500 dark:text-stone-400">
+                文字版直接提取；扫描版自动 OCR（首次约 80MB 按需下载，不进安装包）· 扫描版韩语暂不支持
+              </span>
+            </div>
+            {pdfNote && (
+              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{pdfNote}</p>
+            )}
           </div>
 
           <div>

@@ -11,6 +11,7 @@ import { createLearningProgressRoutes } from '../../modules/learning-progress/ht
 import { createPracticeRoutes } from '../../modules/practice/http/practice-routes.js';
 import { createReviewRoutes } from '../../modules/review/http/review-routes.js';
 import { createLibraryRoutes } from '../../modules/library/http/library-routes.js';
+import { createPdfImportRoutes } from '../../modules/library/http/pdf-import-routes.js';
 import { createCurriculumRoutes } from '../../modules/curriculum/http/curriculum-routes.js';
 import { createTtsRoutes } from '../../modules/tts/http/tts-routes.js';
 
@@ -47,6 +48,7 @@ export function createApp(deps: GatewayDeps) {
     .route('/', createPracticeRoutes(deps))
     .route('/', createReviewRoutes(deps))
     .route('/', createLibraryRoutes(deps))
+    .route('/', createPdfImportRoutes())
     .route('/', createCurriculumRoutes(deps))
     .route('/', createTtsRoutes())
     .route('/', createLearningCompatRoutes(deps));

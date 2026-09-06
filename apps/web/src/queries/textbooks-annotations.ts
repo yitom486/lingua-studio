@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { logger } from '@study-studio/shared';
-import { apiClient } from '../lib/api-client.js';
+import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
+import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import type { TextbookBook } from '../models/textbook.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
 
@@ -134,6 +135,73 @@ export function useAddAnnotationMutation(userId = DEFAULT_USER_ID) {
       queryClient.invalidateQueries({
         queryKey: [...QUERY_KEYS.ANNOTATIONS, userId, variables.documentId],
       });
+    },
+  });
+}
+
+export interface ImportPdfResult {
+  book: TextbookAST;
+  classification: {
+    pdfType: string;
+    pageCount: number;
+    pagesNeedingOcr: number[];
+    ocrUsed: boolean;
+  };
+  stats: {
+    lessons: number;
+    dialogues: number;
+  };
+}
+
+/**
+ * PDF 上传导入：multipart 发网关 /api/documents/:userId/import-pdf，
+ * 网关做分类/提取/结构化后返回 TextbookAST（协议层已验），前端复用既有
+ * 确认导入链路（parseTextbookAST → onImportBook → useImportTextbookMutation）入库。
+ * 注意：扫描版首次 OCR 会触发网关按需下载运行时（约 80MB，一次性），属正常等待。
+ */
+export function useImportPdfMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (file: File): Promise<ImportPdfResult> => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/import-pdf`,
+        { method: 'POST', body: form }
+      );
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `PDF 导入失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const bookRaw =
+        typeof payload === 'object' && payload !== null && 'book' in payload
+          ? (payload as { book: unknown }).book
+          : null;
+      const parsed = parseTextbookAST(bookRaw);
+      if (!parsed.ok) throw new Error(parsed.error.userMessage);
+      const rest =
+        typeof payload === 'object' && payload !== null
+          ? (payload as {
+              classification?: ImportPdfResult['classification'];
+              stats?: ImportPdfResult['stats'];
+            })
+          : {};
+      return {
+        book: parsed.value,
+        classification: rest.classification ?? {
+          pdfType: 'Unknown',
+          pageCount: 0,
+          pagesNeedingOcr: [],
+          ocrUsed: false,
+        },
+        stats: rest.stats ?? { lessons: 0, dialogues: 0 },
+      };
+    },
+    onError: (e) => {
+      logger.debug('[useImportPdfMutation] pdf import failed', e);
     },
   });
 }

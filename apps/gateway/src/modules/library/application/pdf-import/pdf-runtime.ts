@@ -1,0 +1,339 @@
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { homedir } from 'node:os';
+import path from 'node:path';
+import { promises as fsp } from 'node:fs';
+import { BusinessError, logger, ok, err, type Result } from '@study-studio/shared';
+import {
+  PDF_INSPECTOR_MAIN,
+  PDF_INSPECTOR_VERSION,
+  PLATFORM_ARTIFACTS,
+  assertArtifactUrlAllowed,
+  currentRuntimePlatform,
+  type PdfRuntimePlatform,
+} from './pdf-artifacts.js';
+import { extractTarGz, extractZip, type ArchiveEntry } from './archive.js';
+
+/**
+ * PDF 运行时管理器（按需下载，不进安装包）。
+ *
+ * - 首次导入 PDF 时下载 pdf-inspector（主包 + 对应平台 napi 包，~10MB）到用户数据目录；
+ * - 遇到扫描页需要 OCR 时再下载 PDFium + ONNX Runtime + 由 pdf-inspector 自行校验的 OCR 模型；
+ * - 全部构件经域名白名单 + integrity/sha256 校验；缺 pin 的平台直接拒绝（不猜）。
+ */
+
+export interface PdfInspectorLike {
+  processPdf(pdf: Uint8Array): PdfClassifyResult;
+  processPdfWithOcr(pdf: Uint8Array): Promise<PdfOcrResult>;
+}
+
+export interface PdfClassifyResult {
+  pdfType?: string;
+  pageCount?: number;
+  markdown?: string | null;
+  pagesNeedingOcr?: number[];
+  confidence?: number;
+}
+
+export interface PdfOcrResult {
+  markdown?: string | null;
+  pagesRoutedToOcr?: number[];
+  pagesRecommendingHosted?: number[];
+}
+
+export interface PdfRuntimePaths {
+  runtimeDir: string;
+  inspectorDir: string;
+  modelCacheDir: string;
+  pdfiumLib: string | null;
+  ortLib: string | null;
+}
+
+export interface EnsureRuntimeOptions {
+  /** 测试注入：跳过真实下载，直接返回该 extractor */
+  loadInspector?: () => Promise<PdfInspectorLike>;
+  runtimeDir?: string;
+  fetchImpl?: typeof fetch;
+  needOcr?: boolean;
+  platform?: PdfRuntimePlatform;
+}
+
+const DOWNLOAD_TIMEOUT_MS = 180000;
+const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+
+const inFlight = new Map<string, Promise<{ inspector: PdfInspectorLike; paths: PdfRuntimePaths }>>();
+
+export function defaultRuntimeDir(): string {
+  const override = process.env.STUDY_STUDIO_RUNTIME_DIR;
+  if (override && override.trim()) return override.trim();
+  return path.join(homedir(), '.study-studio', 'runtime');
+}
+
+function sha512Base64(data: Uint8Array): string {
+  return createHash('sha512').update(data).digest('base64');
+}
+
+function sha256Hex(data: Uint8Array): string {
+  return createHash('sha256').update(data).digest('hex');
+}
+
+async function downloadArtifact(
+  url: string,
+  fetchImpl: typeof fetch,
+  integrity?: string,
+  sha256?: string,
+  // 仅用于上游不提供单文件摘要的构件（当前仅 ONNX Runtime）：
+  // 仍受域名白名单 + TLS + 体积上限保护，缺 pin 的事实在调用处注释说明。
+  allowUnpinned = false
+): Promise<Uint8Array> {
+  assertArtifactUrlAllowed(url);
+  if (!integrity && !sha256 && !allowUnpinned) {
+    throw new BusinessError(
+      'E_RUNTIME_PIN_MISSING',
+      '构件缺少完整性 pin，拒绝下载（请先登记官方摘要）',
+      'TOOL_EXECUTION'
+    );
+  }
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  } catch {
+    throw new BusinessError('E_RUNTIME_DOWNLOAD', '构件下载超时或网络不可达，请检查网络后重试', 'NETWORK');
+  }
+  if (!res.ok) {
+    throw new BusinessError(
+      'E_RUNTIME_DOWNLOAD',
+      `构件下载失败（HTTP ${res.status}），请稍后重试`,
+      'NETWORK'
+    );
+  }
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (buf.length === 0 || buf.length > MAX_DOWNLOAD_BYTES) {
+    throw new BusinessError('E_RUNTIME_DOWNLOAD', '构件体积异常，拒绝写入', 'TOOL_EXECUTION');
+  }
+  if (integrity) {
+    const [algo, expected] = integrity.split('-', 2);
+    if (algo !== 'sha512' || sha512Base64(buf) !== expected) {
+      throw new BusinessError('E_RUNTIME_VERIFY', '构件完整性校验失败，已丢弃（疑似被篡改或传输出错）', 'TOOL_EXECUTION');
+    }
+  }
+  if (sha256 && sha256Hex(buf) !== sha256.toLowerCase()) {
+    throw new BusinessError('E_RUNTIME_VERIFY', '构件完整性校验失败，已丢弃（疑似被篡改或传输出错）', 'TOOL_EXECUTION');
+  }
+  return buf;
+}
+
+async function fileExists(p: string): Promise<boolean> {
+  try {
+    await fsp.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeEntries(baseDir: string, entries: ArchiveEntry[]): Promise<void> {
+  for (const e of entries) {
+    const target = path.resolve(baseDir, e.path);
+    if (!target.startsWith(path.resolve(baseDir) + path.sep)) {
+      throw new BusinessError('E_RUNTIME_VERIFY', '构件包内含越界路径，拒绝解包', 'TOOL_EXECUTION');
+    }
+    await fsp.mkdir(path.dirname(target), { recursive: true });
+    await fsp.writeFile(target, e.data);
+  }
+}
+
+async function findFileByName(dir: string, fileName: string): Promise<string | null> {
+  const stack = [dir];
+  while (stack.length > 0) {
+    const cur = stack.pop() as string;
+    let items: import('node:fs').Dirent[];
+    try {
+      items = await fsp.readdir(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const it of items) {
+      const full = path.join(cur, it.name);
+      if (it.isDirectory()) stack.push(full);
+      else if (it.name === fileName) return full;
+    }
+  }
+  return null;
+}
+
+interface ManifestShape {
+  version: 1;
+  pdfInspector: string;
+  platform: PdfRuntimePlatform;
+  withOcrLibs: boolean;
+}
+
+async function readManifest(runtimeDir: string): Promise<ManifestShape | null> {
+  try {
+    const raw = await fsp.readFile(path.join(runtimeDir, 'manifest.json'), 'utf8');
+    const parsed = JSON.parse(raw) as ManifestShape;
+    if (parsed.version === 1 && typeof parsed.pdfInspector === 'string') return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function loadInspectorFromDir(inspectorDir: string): PdfInspectorLike {
+  try {
+    const req = createRequire(path.join(inspectorDir, 'index.js'));
+    const mod = req(inspectorDir) as {
+      processPdf?: unknown;
+      processPdfWithOcr?: unknown;
+    };
+    if (typeof mod.processPdf !== 'function' || typeof mod.processPdfWithOcr !== 'function') {
+      throw new Error('bad exports');
+    }
+    return mod as unknown as PdfInspectorLike;
+  } catch (e) {
+    throw new BusinessError(
+      'E_RUNTIME_LOAD',
+      'PDF 解析运行时加载失败，请删除运行时目录后重试（将重新按需下载）',
+      'TOOL_EXECUTION'
+    );
+  }
+}
+
+export function ensurePdfRuntime(
+  options: EnsureRuntimeOptions = {}
+): Promise<{ inspector: PdfInspectorLike; paths: PdfRuntimePaths }> {
+  const runtimeDir = options.runtimeDir ?? defaultRuntimeDir();
+  const key = `${runtimeDir}|ocr=${options.needOcr ? 1 : 0}`;
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+  const task = ensurePdfRuntimeInner({ ...options, runtimeDir }).finally(() => {
+    if (inFlight.get(key) === task) inFlight.delete(key);
+  });
+  inFlight.set(key, task);
+  return task;
+}
+
+async function ensurePdfRuntimeInner(
+  options: EnsureRuntimeOptions & { runtimeDir: string }
+): Promise<{ inspector: PdfInspectorLike; paths: PdfRuntimePaths }> {
+  const { runtimeDir } = options;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const platform = options.platform ?? currentRuntimePlatform();
+  const pins = PLATFORM_ARTIFACTS[platform];
+
+  if (options.loadInspector) {
+    return {
+      inspector: await options.loadInspector(),
+      paths: {
+        runtimeDir,
+        inspectorDir: runtimeDir,
+        modelCacheDir: path.join(runtimeDir, 'models'),
+        pdfiumLib: null,
+        ortLib: null,
+      },
+    };
+  }
+
+  await fsp.mkdir(runtimeDir, { recursive: true });
+  const nodeModulesDir = path.join(runtimeDir, 'node_modules', '@firecrawl');
+  const inspectorDir = path.join(nodeModulesDir, 'pdf-inspector');
+  const napiDir = path.join(nodeModulesDir, pins.napiPkg);
+  const inspectorIndex = path.join(inspectorDir, 'index.js');
+
+  const manifest = await readManifest(runtimeDir);
+  const extractorReady =
+    manifest?.pdfInspector === PDF_INSPECTOR_VERSION &&
+    manifest.platform === platform &&
+    (await fileExists(inspectorIndex));
+  if (!extractorReady) {
+    logger.info('[pdf-runtime] 首次使用：按需下载 PDF 解析运行时（约 10MB，一次性）');
+    const [mainPkg, napiPkg] = await Promise.all([
+      downloadArtifact(PDF_INSPECTOR_MAIN.url, fetchImpl, PDF_INSPECTOR_MAIN.integrity),
+      downloadArtifact(pins.napi.url, fetchImpl, pins.napi.integrity),
+    ]);
+    await writeEntries(nodeModulesDir, [
+      ...extractTarGz(mainPkg).map((e) => ({
+        path: path.join('pdf-inspector', e.path.replace(/^package\//, '')),
+        data: e.data,
+      })),
+      ...extractTarGz(napiPkg).map((e) => ({
+        path: path.join(pins.napiPkg, e.path.replace(/^package\//, '')),
+        data: e.data,
+      })),
+    ]);
+  }
+
+  let pdfiumLib: string | null = null;
+  let ortLib: string | null = null;
+  if (options.needOcr) {
+    const freshManifest = await readManifest(runtimeDir);
+    const ocrReady =
+      freshManifest?.pdfInspector === PDF_INSPECTOR_VERSION &&
+      freshManifest.withOcrLibs === true &&
+      freshManifest.platform === platform;
+    const pdfiumDir = path.join(runtimeDir, 'pdfium');
+    const ortDir = path.join(runtimeDir, 'onnxruntime');
+    if (!ocrReady) {
+      logger.info('[pdf-runtime] 检测到扫描页：按需下载 OCR 运行时（PDFium + ONNX Runtime，约 80MB，一次性）');
+      const [pdfiumPkg, ortPkg] = await Promise.all([
+        downloadArtifact(pins.pdfiumUrl, fetchImpl, undefined, pins.pdfiumSha256),
+        // ONNX Runtime 上游未发布单文件摘要：白名单 + TLS + 体积上限，无哈希 pin（见 pdf-artifacts.ts）。
+        downloadArtifact(pins.ortUrl, fetchImpl, undefined, undefined, true),
+      ]);
+      await writeEntries(pdfiumDir, extractTarGz(pdfiumPkg));
+      await writeEntries(
+        ortDir,
+        pins.ortUrl.endsWith('.zip') ? extractZip(ortPkg) : extractTarGz(ortPkg)
+      );
+    }
+    pdfiumLib = await findFileByName(pdfiumDir, pins.pdfiumLibName);
+    ortLib = await findFileByName(ortDir, pins.ortLibName);
+    if (!pdfiumLib || !ortLib) {
+      throw new BusinessError('E_RUNTIME_LOAD', 'OCR 运行时解包不完整（缺少本地库），请重试下载', 'TOOL_EXECUTION');
+    }
+    if (!process.env.PDFIUM_LIB_PATH) process.env.PDFIUM_LIB_PATH = pdfiumLib;
+    if (!process.env.ORT_DYLIB_PATH) process.env.ORT_DYLIB_PATH = ortLib;
+  }
+
+  const modelCacheDir = path.join(runtimeDir, 'models');
+  await fsp.mkdir(modelCacheDir, { recursive: true });
+  if (!process.env.PDF_INSPECTOR_MODEL_CACHE) {
+    process.env.PDF_INSPECTOR_MODEL_CACHE = modelCacheDir;
+  }
+
+  await fsp.writeFile(
+    path.join(runtimeDir, 'manifest.json'),
+    JSON.stringify({
+      version: 1,
+      pdfInspector: PDF_INSPECTOR_VERSION,
+      platform,
+      withOcrLibs: Boolean(pdfiumLib && ortLib),
+    } satisfies ManifestShape)
+  );
+
+  return {
+    inspector: loadInspectorFromDir(inspectorDir),
+    paths: { runtimeDir, inspectorDir, modelCacheDir, pdfiumLib, ortLib },
+  };
+}
+
+/** 纯下载+校验（单测/脚本用，不解包）。 */
+export async function fetchRuntimeArtifact(
+  url: string,
+  options: { fetchImpl?: typeof fetch; integrity?: string; sha256?: string; allowUnpinned?: boolean } = {}
+): Promise<Result<Uint8Array, BusinessError>> {
+  try {
+    const data = await downloadArtifact(
+      url,
+      options.fetchImpl ?? fetch,
+      options.integrity,
+      options.sha256,
+      options.allowUnpinned
+    );
+    return ok(data);
+  } catch (e) {
+    if (e instanceof BusinessError) return err(e);
+    return err(new BusinessError('E_RUNTIME_DOWNLOAD', '构件下载失败，请稍后重试', 'NETWORK'));
+  }
+}

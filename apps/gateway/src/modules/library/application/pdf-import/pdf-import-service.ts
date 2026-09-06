@@ -1,0 +1,204 @@
+import { BusinessError, err, generateId, isOk, logger, ok, type Result } from '@study-studio/shared';
+import { parseTextbookAST, type DocumentItem, type TextbookAST } from '@study-studio/protocol';
+import { ensurePdfRuntime, type PdfInspectorLike } from './pdf-runtime.js';
+import { markdownToAst } from './markdown-to-ast.js';
+
+/**
+ * PDF 导入编排：校验 → 按需运行时 → 分类（文字直提 / 扫描 OCR）→ AST → 入库。
+ * 语言与 OCR 覆盖（2026-09-06 spike 实测）：
+ * - 文字版：JA/KO/EN 均可直接提取；
+ * - 扫描版：JA/EN 走自带 PP-OCRv6；KO 交白卷 → 返回 E_OCR_LANG_UNSUPPORTED，
+ *   不臆造、不静默降级。
+ */
+
+export const MAX_PDF_BYTES = 20 * 1024 * 1024;
+export const MAX_PDF_PAGES = 60;
+
+export interface PdfImportInput {
+  userId: string;
+  filename: string;
+  bytes: Uint8Array;
+}
+
+export interface PdfImportClassification {
+  pdfType: string;
+  pageCount: number;
+  pagesNeedingOcr: number[];
+  ocrUsed: boolean;
+}
+
+export interface PdfImportStats {
+  lessons: number;
+  dialogues: number;
+}
+
+export interface PdfImportOutput {
+  document: DocumentItem;
+  book: TextbookAST;
+  classification: PdfImportClassification;
+  stats: PdfImportStats;
+}
+
+export interface PdfAstOutput {
+  book: TextbookAST;
+  markdown: string;
+  classification: PdfImportClassification;
+  stats: PdfImportStats;
+}
+
+export interface PdfImportServiceDeps {
+  saveDocument: (doc: DocumentItem) => Promise<Result<DocumentItem, BusinessError>>;
+  /** 测试注入：跳过真实下载/原生绑定 */
+  loadInspector?: () => Promise<PdfInspectorLike>;
+  runtimeDir?: string;
+}
+
+function errorMessage(e: unknown): string {
+  if (e instanceof BusinessError) return e.userMessage;
+  return 'PDF 解析运行时异常，请稍后重试';
+}
+
+export async function convertPdfToAst(
+  deps: Pick<PdfImportServiceDeps, 'loadInspector' | 'runtimeDir'>,
+  input: PdfImportInput
+): Promise<Result<PdfAstOutput, BusinessError>> {
+  if (!input.filename.toLowerCase().endsWith('.pdf')) {
+    return err(new BusinessError('E_INVALID_INPUT', '只支持 .pdf 文件导入', 'VALIDATION'));
+  }
+  if (input.bytes.length === 0 || input.bytes.length > MAX_PDF_BYTES) {
+    return err(
+      new BusinessError('E_INVALID_INPUT', 'PDF 文件过大（上限 20MB），请拆分后再导入', 'VALIDATION')
+    );
+  }
+  const magic = Buffer.from(input.bytes.subarray(0, 5)).toString('latin1');
+  if (magic !== '%PDF-') {
+    return err(new BusinessError('E_INVALID_INPUT', '文件头不是合法 PDF，请确认文件未损坏', 'VALIDATION'));
+  }
+
+  let inspector: PdfInspectorLike;
+  try {
+    const runtime = await ensurePdfRuntime({
+      ...(deps.loadInspector ? { loadInspector: deps.loadInspector } : {}),
+      ...(deps.runtimeDir ? { runtimeDir: deps.runtimeDir } : {}),
+      needOcr: false,
+    });
+    inspector = runtime.inspector;
+  } catch (e) {
+    return err(
+      e instanceof BusinessError
+        ? e
+        : new BusinessError('E_RUNTIME_LOAD', 'PDF 解析运行时准备失败，请检查网络后重试', 'NETWORK')
+    );
+  }
+
+  let classification: {
+    pdfType?: string;
+    pageCount?: number;
+    markdown?: string | null;
+    pagesNeedingOcr?: number[];
+    confidence?: number;
+  };
+  try {
+    classification = inspector.processPdf(input.bytes);
+  } catch (e) {
+    logger.warn('[pdf-import] processPdf failed', { message: errorMessage(e) });
+    return err(new BusinessError('E_PDF_PARSE', 'PDF 解析失败（文件可能加密或已损坏）', 'TOOL_EXECUTION'));
+  }
+
+  const pdfType = String(classification.pdfType ?? 'Unknown');
+  const pageCount = Number(classification.pageCount ?? 0);
+  const pagesNeedingOcr = Array.isArray(classification.pagesNeedingOcr)
+    ? classification.pagesNeedingOcr.filter((n): n is number => typeof n === 'number')
+    : [];
+  if (pageCount > MAX_PDF_PAGES) {
+    return err(
+      new BusinessError(
+        'E_INVALID_INPUT',
+        `PDF 共 ${pageCount} 页（上限 ${MAX_PDF_PAGES} 页），请拆分后再导入`,
+        'VALIDATION'
+      )
+    );
+  }
+
+  let markdown = typeof classification.markdown === 'string' ? classification.markdown : '';
+  let ocrUsed = false;
+  if (!markdown.trim() && pagesNeedingOcr.length > 0) {
+    // 扫描页：按需准备 OCR 运行时（PDFium + ORT + 模型，不进安装包）
+    try {
+      const runtime = await ensurePdfRuntime({
+        ...(deps.loadInspector ? { loadInspector: deps.loadInspector } : {}),
+        ...(deps.runtimeDir ? { runtimeDir: deps.runtimeDir } : {}),
+        needOcr: true,
+      });
+      inspector = runtime.inspector;
+      const ocr = await inspector.processPdfWithOcr(input.bytes);
+      markdown = typeof ocr.markdown === 'string' ? ocr.markdown : '';
+      ocrUsed = true;
+      const hosted = Array.isArray(ocr.pagesRecommendingHosted) ? ocr.pagesRecommendingHosted.length : 0;
+      if (hosted > 0) {
+        logger.info('[pdf-import] 部分页面 OCR 置信度低，建议改用文字版 PDF', { hosted });
+      }
+    } catch (e) {
+      return err(
+        e instanceof BusinessError
+          ? e
+          : new BusinessError('E_OCR_FAILED', 'OCR 运行时准备失败，请检查网络后重试', 'NETWORK')
+      );
+    }
+  }
+
+  if (!markdown.trim()) {
+    return err(
+      new BusinessError(
+        'E_OCR_LANG_UNSUPPORTED',
+        '未能从 PDF 中识别出文字：扫描版韩语暂不支持本地 OCR（模型包无谚文覆盖），请改用文字版 PDF，或等待云端 OCR 接入',
+        'TOOL_EXECUTION'
+      )
+    );
+  }
+
+  const title = input.filename.replace(/\.pdf$/i, '');
+  const astRes = markdownToAst(markdown, { title });
+  if (!astRes.ok) return err(astRes.error);
+  // 协议层再验一次：服务绝不向外吐出非法 AST
+  const checked = parseTextbookAST(astRes.value);
+  if (!checked.ok) return err(checked.error);
+  const book = checked.value;
+
+  const stats: PdfImportStats = {
+    lessons: book.lessons.length,
+    dialogues: book.lessons.reduce((acc, l) => acc + l.dialogues.length, 0),
+  };
+  logger.info('[pdf-import] 转换成功', { title: book.title, ...stats, ocrUsed });
+  return ok({
+    book,
+    markdown,
+    classification: { pdfType, pageCount, pagesNeedingOcr, ocrUsed },
+    stats,
+  });
+}
+
+export async function importPdfDocument(
+  deps: PdfImportServiceDeps,
+  input: PdfImportInput
+): Promise<Result<PdfImportOutput, BusinessError>> {
+  const converted = await convertPdfToAst(deps, input);
+  if (!converted.ok) return err(converted.error);
+  const { book, markdown, classification, stats } = converted.value;
+
+  const now = new Date().toISOString();
+  const saved = await deps.saveDocument({
+    id: generateId('doc'),
+    userId: input.userId,
+    title: book.title,
+    sourceKind: 'user_import',
+    language: book.language.toLowerCase(),
+    content: markdown.slice(0, 2000),
+    astJson: JSON.stringify(book),
+    sourcePublisher: 'PDF导入（自有资料）',
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!isOk(saved)) return err(saved.error);
+  return ok({ document: saved.value, book, classification, stats });
+}
