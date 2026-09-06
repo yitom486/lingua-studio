@@ -200,11 +200,13 @@ export function SystemSettingsPopover() {
   const handleSaveNeural = () => {
     sound.playCorrect();
     persistNeuralForm();
-    toast.success(
+    const summary =
       editEngine === 'system'
         ? '已切回系统语音'
-        : `已启用 ${editEngine === 'azure-speech' ? 'Azure Speech' : 'OpenAI 兼容'}（经网关代理）`
-    );
+        : editEngine === 'azure-speech'
+          ? `已保存 Azure（女 ${editFemaleVoiceId || '默认'} / 男 ${editMaleVoiceId || '默认'}）`
+          : `已保存兼容端点（音色 ${editVoiceId || '默认'}）`;
+    toast.success(summary);
   };
 
   const handleValidateNeural = async () => {
@@ -261,6 +263,14 @@ export function SystemSettingsPopover() {
     sound.playClick();
     setTestingNeural(true);
     persistNeuralForm();
+    // 报出实际试播的音色：所见即所听，对不上立刻能发现
+    const testDesc =
+      editEngine === 'azure-speech'
+        ? (effectiveAzureVoice
+            ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.id}`
+            : '按语种自动')
+        : (editVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）'));
+    toast.message(`正在试播：${testDesc}`);
     void speak(getPreviewText(speechLang, gender), {
       lang: speechLang,
       gender,

@@ -642,5 +642,8 @@ class SpeechStudioEngine {
   }
 }
 
-export const speechStudio = new SpeechStudioEngine();
+// 模块单例必须跨 HMR 存活：否则 dev 下热更新重建引擎，两桶音色/语速回到默认，
+// 界面显示直太、播出来却是圭太（与本次故障一致）。生产构建不受影响。
+const globalScope = globalThis as unknown as { __speechStudio?: SpeechStudioEngine };
+export const speechStudio = (globalScope.__speechStudio ??= new SpeechStudioEngine());
 
