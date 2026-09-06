@@ -13,6 +13,11 @@ node_modules/
 # Build artifacts
 dist/
 build/
+# tsc composite 误发射到源码旁的产物（源文件只有 .ts，见 packages/*/src）
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
 target/
 .turbo/
 out/
