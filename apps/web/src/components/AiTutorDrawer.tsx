@@ -17,6 +17,7 @@ import { ErrorBoundary } from './common/ErrorBoundary.js';
 import { MarkdownText } from './common/MarkdownText.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { toSpeakableText } from '../lib/speakable.js';
+import { extractFollowUps } from '../lib/followups.js';
 import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import {
   buildTutorBootstrapPrompt,
@@ -380,7 +381,27 @@ export function AiTutorDrawer({
 
   const track = normalizeTutorLanguage(profile.targetLanguage);
   const tutorCopy = getTutorTrackCopy(track);
-  const quickPrompts = tutorCopy.quickPrompts;
+  // 追问 chips 不再写死：优先取 AI 上一条回复里真正提出的问题，
+  // 抽不到（首轮/纯陈述/离线骨架）才回退轨道默认三条。
+  const quickPrompts = React.useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m.sender === 'ai' && !m.isStreaming && m.text.trim()) {
+        const found = extractFollowUps(m.text);
+        if (found.length > 0) return found;
+        break;
+      }
+    }
+    return tutorCopy.quickPrompts;
+  }, [messages, tutorCopy.quickPrompts]);
+
+  // “就本轮考我”：让 AI 按本次问答现场出一道单选题（对话内考，不进题库，不伪造入库）。
+  const handleQuizMe = () => {
+    const tag = context?.skillTag ? `关于「${context.skillTag}」` : '';
+    handleSendMessage(
+      `根据以上${tag}的讲解，出 1 道单选题考我：只给题干和 A-D 四个选项，先别公布答案，等我回答后再批改和讲解。`
+    );
+  };
 
   // ---- 浮动定位（可任意拖拽）：默认右侧垂直居中，脱离文档流，不挤压主屏 ----
   const [panelPos, setPanelPos] = useState<{ right: number; top: number } | null>(null);
@@ -683,6 +704,16 @@ export function AiTutorDrawer({
                   💬 {prompt}
                 </Button>
               ))}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleQuizMe}
+                disabled={isTyping}
+                className="h-7 rounded-full text-[11px] px-2.5 border-amber-500/50 text-amber-700 dark:text-amber-300"
+                title="让 AI 按本次讲解现场出一道单选题"
+              >
+                📝 就本轮考我一题
+              </Button>
             </div>
 
             <div className="p-3 border-t border-amber-900/10 dark:border-amber-500/15 shrink-0">
