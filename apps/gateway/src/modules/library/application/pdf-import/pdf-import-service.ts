@@ -2,6 +2,7 @@ import { BusinessError, err, generateId, isOk, logger, ok, type Result } from '@
 import { parseTextbookAST, type DocumentItem, type TextbookAST } from '@study-studio/protocol';
 import { ensurePdfRuntime, type PdfInspectorLike } from './pdf-runtime.js';
 import { markdownToAst } from './markdown-to-ast.js';
+import { extractHeadingsFromMarkdown, extractTocEntries, type PageHeading, type TocEntry } from './extract-headings.js';
 
 /**
  * PDF 导入编排：校验 → 按需运行时 → 分类（文字直提 / 扫描 OCR）→ AST → 入库。
@@ -15,6 +16,8 @@ export const MAX_PDF_BYTES = 200 * 1024 * 1024;
 export const MAX_PDF_PAGES = 400;
 /** 单次导入最多 OCR 页数（约 0.7s/页；大书请按课分段选页导入） */
 export const MAX_OCR_PAGES_PER_IMPORT = 30;
+/** 结构预览默认/上限扫描窗口（页） */
+export const MAX_MAP_PAGES = 30;
 
 export interface PdfImportInput {
   userId: string;
@@ -63,10 +66,116 @@ function errorMessage(e: unknown): string {
   return 'PDF 解析运行时异常，请稍后重试';
 }
 
-export async function convertPdfToAst(
+export interface PdfMapOutput {
+  classification: PdfImportClassification;
+  window: number[];
+  headings: PageHeading[];
+  tocEntries: TocEntry[];
+}
+
+/**
+ * 结构预览（目录感知导入第一步）：扫一个窗口页（默认前 30 页），
+ * 返回每页标题 + 目录条目。调用方按标题页选范围，再调 convertPdfToAst 精确导入。
+ * 有目录 → 目录条目即 ground truth；无目录 → 分段扫全书标题建地图。
+ */
+export async function mapPdfPages(
   deps: Pick<PdfImportServiceDeps, 'loadInspector' | 'runtimeDir'>,
   input: PdfImportInput
-): Promise<Result<PdfAstOutput, BusinessError>> {
+): Promise<Result<PdfMapOutput, BusinessError>> {
+  const check = validatePdfInput(input);
+  if (!check.ok) return err(check.error);
+  let inspector: PdfInspectorLike;
+  try {
+    const runtime = await ensurePdfRuntime({
+      ...(deps.loadInspector ? { loadInspector: deps.loadInspector } : {}),
+      ...(deps.runtimeDir ? { runtimeDir: deps.runtimeDir } : {}),
+      needOcr: false,
+    });
+    inspector = runtime.inspector;
+  } catch (e) {
+    return err(
+      e instanceof BusinessError
+        ? e
+        : new BusinessError('E_RUNTIME_LOAD', 'PDF 解析运行时准备失败，请检查网络后重试', 'NETWORK')
+    );
+  }
+  let classification: {
+    pdfType?: string;
+    pageCount?: number;
+    pagesNeedingOcr?: number[];
+    confidence?: number;
+  };
+  try {
+    classification = inspector.processPdf(input.bytes);
+  } catch (e) {
+    logger.warn('[pdf-map] processPdf failed', { message: errorMessage(e) });
+    return err(new BusinessError('E_PDF_PARSE', 'PDF 解析失败（文件可能加密或已损坏）', 'TOOL_EXECUTION'));
+  }
+  const pdfType = String(classification.pdfType ?? 'Unknown');
+  const pageCount = Number(classification.pageCount ?? 0);
+  if (!Number.isFinite(pageCount) || pageCount < 1) {
+    return err(new BusinessError('E_PDF_PARSE', 'PDF 页数识别失败，文件可能已损坏', 'TOOL_EXECUTION'));
+  }
+  const window: number[] = [];
+  if (input.pages !== undefined) {
+    const cleaned = [...new Set(input.pages)].filter(
+      (n) => Number.isInteger(n) && n >= 1 && n <= pageCount
+    );
+    if (cleaned.length === 0) {
+      return err(new BusinessError('E_INVALID_INPUT', `选页超出范围（本书共 ${pageCount} 页）`, 'VALIDATION'));
+    }
+    cleaned.sort((a, b) => a - b);
+    window.push(...cleaned.slice(0, MAX_MAP_PAGES));
+  } else {
+    for (let p = 1; p <= Math.min(pageCount, MAX_MAP_PAGES); p++) window.push(p);
+  }
+  const needing = Array.isArray(classification.pagesNeedingOcr)
+    ? classification.pagesNeedingOcr.filter((n): n is number => typeof n === 'number')
+    : [];
+  try {
+    const runtime = await ensurePdfRuntime({
+      ...(deps.loadInspector ? { loadInspector: deps.loadInspector } : {}),
+      ...(deps.runtimeDir ? { runtimeDir: deps.runtimeDir } : {}),
+      needOcr: window.some((p) => needing.includes(p)),
+    });
+    inspector = runtime.inspector;
+    const ocr = await inspector.processPdfWithOcr(input.bytes, { pageNumbers: window });
+    const perPage = Array.isArray(ocr.pages) ? ocr.pages : [];
+    const headings: PageHeading[] = [];
+    let combined = '';
+    if (perPage.length > 0) {
+      for (const pg of perPage) {
+        const md = typeof pg.markdown === 'string' ? pg.markdown : '';
+        headings.push(...extractHeadingsFromMarkdown(md, pg.pageNumber));
+      }
+      combined = perPage.map((pg) => (typeof pg.markdown === 'string' ? pg.markdown : '')).join('\n');
+    } else {
+      combined = typeof ocr.markdown === 'string' ? ocr.markdown : '';
+      headings.push(...extractHeadingsFromMarkdown(combined, window[0] ?? 1));
+    }
+    return ok({
+      classification: {
+        pdfType,
+        pageCount,
+        pagesNeedingOcr: needing,
+        ocrUsed: window.some((p) => needing.includes(p)),
+        selectedPages: window,
+      },
+      window,
+      headings,
+      tocEntries: extractTocEntries(combined),
+    });
+  } catch (e) {
+    logger.warn('[pdf-map] map window failed', { message: errorMessage(e) });
+    return err(
+      e instanceof BusinessError
+        ? e
+        : new BusinessError('E_PDF_PARSE', '结构预览失败，请稍后重试', 'TOOL_EXECUTION')
+    );
+  }
+}
+
+function validatePdfInput(input: PdfImportInput): Result<void, BusinessError> {
   if (!input.filename.toLowerCase().endsWith('.pdf')) {
     return err(new BusinessError('E_INVALID_INPUT', '只支持 .pdf 文件导入', 'VALIDATION'));
   }
@@ -79,6 +188,15 @@ export async function convertPdfToAst(
   if (magic !== '%PDF-') {
     return err(new BusinessError('E_INVALID_INPUT', '文件头不是合法 PDF，请确认文件未损坏', 'VALIDATION'));
   }
+  return ok(undefined);
+}
+
+export async function convertPdfToAst(
+  deps: Pick<PdfImportServiceDeps, 'loadInspector' | 'runtimeDir'>,
+  input: PdfImportInput
+): Promise<Result<PdfAstOutput, BusinessError>> {
+  const valid = validatePdfInput(input);
+  if (!valid.ok) return err(valid.error);
 
   let inspector: PdfInspectorLike;
   try {

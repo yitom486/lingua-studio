@@ -37,6 +37,7 @@ export interface PdfClassifyResult {
 
 export interface PdfOcrResult {
   markdown?: string | null;
+  pages?: Array<{ pageNumber: number; markdown: string }>;
   pagesRoutedToOcr?: number[];
   pagesRecommendingHosted?: number[];
 }

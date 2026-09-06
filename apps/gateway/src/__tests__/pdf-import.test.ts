@@ -2,9 +2,15 @@ import { describe, expect, test } from 'bun:test';
 import { gzipSync } from 'node:zlib';
 import { detectDocScript, markdownToAst } from '../modules/library/application/pdf-import/markdown-to-ast.js';
 import {
+  extractHeadingsFromMarkdown,
+  extractTocEntries,
+} from '../modules/library/application/pdf-import/extract-headings.js';
+import {
   convertPdfToAst,
   importPdfDocument,
+  mapPdfPages,
 } from '../modules/library/application/pdf-import/pdf-import-service.js';
+import { readLocalPdfFile } from '../modules/library/application/pdf-import/local-file.js';
 import { extractTarGz, extractZip } from '../modules/library/application/pdf-import/archive.js';
 import { assertArtifactUrlAllowed, currentRuntimePlatform } from '../modules/library/application/pdf-import/pdf-artifacts.js';
 import { fetchRuntimeArtifact, napiDirName } from '../modules/library/application/pdf-import/pdf-runtime.js';import { isOk } from '@study-studio/shared';
@@ -223,7 +229,57 @@ describe('convertPdfToAst', () => {
   });
 });
 
+describe('mapPdfPages（目录感知第一步）', () => {
+  const TOC_MD = `# 目录\n第 1 課 あいさつ ………… 18\n第 2 課 買い物 ………… 30\n# 第 1 課\n李さん：はじめまして。`;
+  test('标题 + 目录条目抽取', () => {
+    expect(extractHeadingsFromMarkdown('# 第 1 課\n## 文法', 17)).toEqual([
+      { page: 17, level: 1, text: '第 1 課' },
+    ]);
+    // 非课程标题（前言/作者名）不收
+    expect(extractHeadingsFromMarkdown('# 執筆協力\n# 徐前', 3)).toEqual([]);
+    const toc = extractTocEntries(TOC_MD);
+    expect(toc).toEqual([
+      { label: '第 1 課 あいさつ ………… 18', lessonNo: '1', printedPage: 18 },
+      { label: '第 2 課 買い物 ………… 30', lessonNo: '2', printedPage: 30 },
+    ]);
+  });
+
+  test('map 服务：窗口扫描 + 越界拒绝', async () => {
+    const perPage = [
+      { pageNumber: 16, markdown: '# 目录\n第 1 課 … 18' },
+      { pageNumber: 17, markdown: '# 第 1 課\n李さん：はじめまして。' },
+    ];
+    const loadInspector = async () => ({
+      processPdf: () => ({ pdfType: 'Mixed', pageCount: 371, markdown: null, pagesNeedingOcr: [16, 17], confidence: 0.9 }),
+      processPdfWithOcr: async () => ({
+        markdown: perPage.map((p) => p.markdown).join('\n'),
+        pages: perPage,
+        pagesRoutedToOcr: [16, 17],
+        pagesRecommendingHosted: [],
+      }),
+    });
+    const res = await mapPdfPages({ loadInspector }, { userId: 'u1', filename: 'm.pdf', bytes: PDF_HEAD });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.window).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    expect(res.value.headings).toEqual([{ page: 17, level: 1, text: '第 1 課' }]);
+    expect(res.value.tocEntries).toEqual([{ label: '第 1 課 … 18', lessonNo: '1', printedPage: 18 }]);
+    const oob = await mapPdfPages({ loadInspector }, { userId: 'u1', filename: 'm.pdf', bytes: PDF_HEAD, pages: [999] });
+    expect(oob.ok).toBe(false);
+  });
+});
+
 describe('importPdfDocument', () => {
+  test('本地路径直读：相对路径/非pdf/不存在拒绝', async () => {
+    expect((await readLocalPdfFile('')).ok).toBe(false);
+    expect((await readLocalPdfFile('relative/path.pdf')).ok).toBe(false);
+    expect((await readLocalPdfFile('C:\\x\\y.txt')).ok).toBe(false);
+    const noExist = await readLocalPdfFile(
+      `C:\\no-such-dir-xyz\\${Date.now()}.pdf`
+    );
+    expect(noExist.ok).toBe(false);
+  });
+
   test('转换 + 经仓储入库（单写路径不断言库实现）', async () => {
     const saved: unknown[] = [];
     const res = await importPdfDocument(

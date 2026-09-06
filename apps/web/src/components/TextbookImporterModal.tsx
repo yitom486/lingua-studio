@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
-import { useImportPdfMutation } from '../queries/useLearnerQueries.js';
+import { useImportPdfMutation, useMapPdfMutation } from '../queries/useLearnerQueries.js';
 import { sound } from '../utils/audio.js';
 import { getPlatform } from '../platform/capabilities.js';
 import type { TextbookBook, FuriganaWord } from '../models/textbook.js';
@@ -46,9 +46,12 @@ export function TextbookImporterModal({
   const [parsedAST, setParsedAST] = useState<TextbookAST | null>(null);
   const [autoGenerateCards, setAutoGenerateCards] = useState<boolean>(true);
   const [pdfNote, setPdfNote] = useState<string | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfPath, setPdfPath] = useState<string>('');
   const [pdfStartPage, setPdfStartPage] = useState<string>('');
   const [pdfEndPage, setPdfEndPage] = useState<string>('');
   const importPdf = useImportPdfMutation();
+  const mapPdf = useMapPdfMutation();
 
   // Dialog 以 open 控制可见性，无需提前 return
   // if (!isOpen) return null;
@@ -133,17 +136,73 @@ export function TextbookImporterModal({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    // 选文件只暂存不自动导：大书先预览结构再定范围，小文件一点即导
+    setPdfFile(file);
+    setParseError(null);
+    setPdfNote(`已选择 ${file.name}（${(file.size / 1024 / 1024).toFixed(1)}MB），可预览结构或直接导入`);
+    sound.playClick();
+  };
+
+  const readPageRange = () => {
+    const startPage = /^\d+$/.test(pdfStartPage.trim()) ? Number(pdfStartPage.trim()) : undefined;
+    const endPage = /^\d+$/.test(pdfEndPage.trim()) ? Number(pdfEndPage.trim()) : undefined;
+    return { startPage, endPage };
+  };
+
+  const handlePdfMap = () => {
+    if (mapPdf.isPending) return;
+    const path = pdfPath.trim();
+    if (!pdfFile && !path) return;
+    setParseError(null);
+    sound.playClick();
+    const { startPage, endPage } = readPageRange();
+    const vars = pdfFile
+      ? {
+          file: pdfFile,
+          ...(startPage !== undefined ? { startPage } : {}),
+          ...(endPage !== undefined ? { endPage } : {}),
+        }
+      : {
+          filePath: path,
+          ...(startPage !== undefined ? { startPage } : {}),
+          ...(endPage !== undefined ? { endPage } : {}),
+        };
+    mapPdf.mutate(vars,
+      {
+        onSuccess: (result) => {
+          sound.playCorrect();
+          if (result.headings.length === 0 && result.tocEntries.length === 0) {
+            setPdfNote(`已扫 ${result.window.length} 页，未发现课标题/目录，换一段页码再试`);
+          }
+        },
+        onError: (err) => {
+          setParseError(err instanceof Error ? err.message : '结构预览失败');
+          sound.playMistake();
+        },
+      }
+    );
+  };
+
+  const handlePdfImport = () => {
+    if (importPdf.isPending) return;
+    const path = pdfPath.trim();
+    if (!pdfFile && !path) return;
     setParseError(null);
     setPdfNote(null);
     sound.playClick();
-    const startPage = /^\d+$/.test(pdfStartPage.trim()) ? Number(pdfStartPage.trim()) : undefined;
-    const endPage = /^\d+$/.test(pdfEndPage.trim()) ? Number(pdfEndPage.trim()) : undefined;
-    importPdf.mutate(
-      {
-        file,
-        ...(startPage !== undefined ? { startPage } : {}),
-        ...(endPage !== undefined ? { endPage } : {}),
-      },
+    const { startPage, endPage } = readPageRange();
+    const vars = pdfFile
+      ? {
+          file: pdfFile,
+          ...(startPage !== undefined ? { startPage } : {}),
+          ...(endPage !== undefined ? { endPage } : {}),
+        }
+      : {
+          filePath: path,
+          ...(startPage !== undefined ? { startPage } : {}),
+          ...(endPage !== undefined ? { endPage } : {}),
+        };
+    importPdf.mutate(vars,
       {
       onSuccess: (result) => {
         setParsedAST(result.book);
@@ -318,15 +377,31 @@ export function TextbookImporterModal({
             <div className="flex flex-wrap items-center gap-2">
               <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs transition-colors">
                 <FileUp className="w-3.5 h-3.5" />
-                {importPdf.isPending ? 'PDF 解析中…' : '上传 PDF 教材（自有资料）'}
+                {pdfFile ? '换一份 PDF' : '选择 PDF 教材（自有资料）'}
                 <input
                   type="file"
                   accept=".pdf"
                   className="hidden"
-                  disabled={importPdf.isPending}
+                  disabled={importPdf.isPending || mapPdf.isPending}
                   onChange={handlePdfFile}
                 />
               </label>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={(!pdfFile && !pdfPath.trim()) || importPdf.isPending || mapPdf.isPending}
+                onClick={handlePdfMap}
+                title="先扫目录/标题，再定页码范围"
+              >
+                {mapPdf.isPending ? '扫目录中…' : '预览结构'}
+              </Button>
+              <Button
+                size="sm"
+                disabled={(!pdfFile && !pdfPath.trim()) || importPdf.isPending || mapPdf.isPending}
+                onClick={handlePdfImport}
+              >
+                {importPdf.isPending ? 'PDF 解析中…' : '开始导入'}
+              </Button>
               <span className="text-[11px] text-stone-500 dark:text-stone-400">
                 文字版直接提取；扫描版自动 OCR（首次约 80MB 按需下载，不进安装包）· 扫描版韩语暂不支持
               </span>
@@ -353,8 +428,63 @@ export function TextbookImporterModal({
                 className="w-20 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 outline-none focus:border-amber-500"
               />
             </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500 dark:text-stone-400">
+              <span title="百 MB 大书走上传会崩网关；同机网关可直接填本机绝对路径直读（桌面端选文件即路径）">
+                大文件本地直读（选填，本机绝对路径）：
+              </span>
+              <input
+                type="text"
+                placeholder="例如 C:\Books\minna.pdf（留空则用上方已选文件上传）"
+                value={pdfPath}
+                onChange={(e) => {
+                  setPdfPath(e.target.value);
+                  if (e.target.value.trim()) setPdfFile(null);
+                }}
+                disabled={importPdf.isPending || mapPdf.isPending}
+                className="flex-1 min-w-52 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 outline-none focus:border-amber-500 font-mono"
+              />
+            </div>
             {pdfNote && (
               <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{pdfNote}</p>
+            )}
+            {(mapPdf.data?.tocEntries.length ?? 0) > 0 && (
+              <div className="text-[11px] text-stone-600 dark:text-stone-300 space-y-1">
+                <p className="font-bold">目录（点条目按印刷页码定位，仅供参考）：</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {mapPdf.data?.tocEntries.slice(0, 30).map((t) => (
+                    <span
+                      key={`${t.lessonNo}@${t.printedPage}`}
+                      className="px-2 py-0.5 rounded-lg border border-stone-200 dark:border-stone-700"
+                      title={t.label}
+                    >
+                      第{t.lessonNo}課 · p{t.printedPage}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(mapPdf.data?.headings.length ?? 0) > 0 && (
+              <div className="text-[11px] text-stone-600 dark:text-stone-300 space-y-1">
+                <p className="font-bold">标题（点一行自动填入起始页）：</p>
+                <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                  {mapPdf.data?.headings.slice(0, 60).map((h, i) => (
+                    <button
+                      key={`${h.page}-${i}`}
+                      type="button"
+                      onClick={() => {
+                        setPdfStartPage(String(h.page));
+                        setPdfEndPage(String(h.page + 14));
+                        sound.playClick();
+                      }}
+                      className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-lg hover:bg-amber-500/10 text-left cursor-pointer"
+                      title={`从第 ${h.page} 页开始导（默认连导 15 页，可改）`}
+                    >
+                      <span className="truncate">{h.text}</span>
+                      <span className="shrink-0 font-mono text-stone-400">p{h.page}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
 

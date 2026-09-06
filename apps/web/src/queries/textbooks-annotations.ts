@@ -162,15 +162,32 @@ export interface ImportPdfResult {
  */
 export function useImportPdfMutation(userId = DEFAULT_USER_ID) {
   return useMutation({
-    mutationFn: async (vars: { file: File; startPage?: number; endPage?: number }): Promise<ImportPdfResult> => {
-      const form = new FormData();
-      form.append('file', vars.file, vars.file.name);
-      if (vars.startPage !== undefined) form.append('startPage', String(vars.startPage));
-      if (vars.endPage !== undefined) form.append('endPage', String(vars.endPage));
-      const res = await fetch(
-        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/import-pdf`,
-        { method: 'POST', body: form }
-      );
+    mutationFn: async (
+      vars:
+        | { file: File; startPage?: number; endPage?: number }
+        | { filePath: string; startPage?: number; endPage?: number }
+    ): Promise<ImportPdfResult> => {
+      const hasPath = 'filePath' in vars;
+      const res = hasPath
+        ? await fetch(`${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/import-pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filePath: vars.filePath,
+              ...(vars.startPage !== undefined ? { startPage: vars.startPage } : {}),
+              ...(vars.endPage !== undefined ? { endPage: vars.endPage } : {}),
+            }),
+          })
+        : await (async () => {
+            const form = new FormData();
+            form.append('file', vars.file, vars.file.name);
+            if (vars.startPage !== undefined) form.append('startPage', String(vars.startPage));
+            if (vars.endPage !== undefined) form.append('endPage', String(vars.endPage));
+            return fetch(`${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/import-pdf`, {
+              method: 'POST',
+              body: form,
+            });
+          })();
       const payload: unknown = await res.json().catch(() => null);
       if (!res.ok) {
         const msg =
@@ -255,6 +272,91 @@ export function useEnrichLessonMutation(userId = DEFAULT_USER_ID) {
     },
     onError: (e) => {
       logger.debug('[useEnrichLessonMutation] enrich failed', e);
+    },
+  });
+}
+
+export interface PdfPageHeading {
+  page: number;
+  level: number;
+  text: string;
+}
+
+export interface PdfTocEntry {
+  label: string;
+  lessonNo: string;
+  printedPage: number;
+}
+
+export interface MapPdfResult {
+  classification: {
+    pdfType: string;
+    pageCount: number;
+    pagesNeedingOcr: number[];
+    ocrUsed: boolean;
+    selectedPages: number[];
+  };
+  window: number[];
+  headings: PdfPageHeading[];
+  tocEntries: PdfTocEntry[];
+}
+
+/**
+ * PDF 结构预览：扫一个窗口页，返回每页标题 + 目录条目（目录感知导入第一步）。
+ * 调用方按标题页选范围，再调 useImportPdfMutation 精确导入。
+ */
+export function useMapPdfMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (
+      vars:
+        | { file: File; startPage?: number; endPage?: number }
+        | { filePath: string; startPage?: number; endPage?: number }
+    ): Promise<MapPdfResult> => {
+      const hasPath = 'filePath' in vars;
+      const res = hasPath
+        ? await fetch(`${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/map-pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              filePath: vars.filePath,
+              ...(vars.startPage !== undefined ? { startPage: vars.startPage } : {}),
+              ...(vars.endPage !== undefined ? { endPage: vars.endPage } : {}),
+            }),
+          })
+        : await (async () => {
+            const form = new FormData();
+            form.append('file', vars.file, vars.file.name);
+            if (vars.startPage !== undefined) form.append('startPage', String(vars.startPage));
+            if (vars.endPage !== undefined) form.append('endPage', String(vars.endPage));
+            return fetch(`${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/map-pdf`, {
+              method: 'POST',
+              body: form,
+            });
+          })();
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `结构预览失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const p = (payload ?? {}) as Partial<MapPdfResult>;
+      return {
+        classification: p.classification ?? {
+          pdfType: 'Unknown',
+          pageCount: 0,
+          pagesNeedingOcr: [],
+          ocrUsed: false,
+          selectedPages: [],
+        },
+        window: Array.isArray(p.window) ? p.window : [],
+        headings: Array.isArray(p.headings) ? p.headings : [],
+        tocEntries: Array.isArray(p.tocEntries) ? p.tocEntries : [],
+      };
+    },
+    onError: (e) => {
+      logger.debug('[useMapPdfMutation] map failed', e);
     },
   });
 }
