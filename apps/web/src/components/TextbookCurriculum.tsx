@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Layers,
   Sparkles,
-  Volume2,
   BookmarkPlus,
   BookmarkCheck,
   CheckCircle2,

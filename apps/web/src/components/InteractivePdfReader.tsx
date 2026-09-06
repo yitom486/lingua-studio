@@ -109,7 +109,7 @@ export function InteractivePdfReader({
 
   const handleSpeak = (text: string) => {
     sound.playClick();
-    speechStudio.speak(text, { lang: book.language || 'JA' });
+    speechStudio.speak(text, { lang: book.language || 'JA', purpose: 'reading' });
   };
 
   const handleAddSelectedToCards = () => {

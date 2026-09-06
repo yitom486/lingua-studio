@@ -261,6 +261,7 @@ function DictationSubjective({
     setPlaying(true);
     void speechStudio.speak(speakText, {
       lang: TTS_LANG[language],
+      purpose: 'dictation',
       onEnd: () => setPlaying(false),
       onError: () => setPlaying(false),
     });
