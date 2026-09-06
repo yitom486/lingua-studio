@@ -60,6 +60,12 @@ function cleanLine(raw: string): string | null {
   if (line.length < 2) return null;
   // 纯数字页码 / 纯标点
   if (/^[\d\s.,;:!?。，；：！？、…—·\-–—]+$/.test(line)) return null;
+  // tofu 乱码行（U+FFFD 替换符占比过高，多见于封面/元数据页）不进课文
+  const tofu = (line.match(/�/g) ?? []).length;
+  if (tofu > 0 && tofu / line.length > 0.1) return null;
+  // 实质文字不足 2 个（字母/数字/中日韩文字才算）不进课文
+  const substantial = (line.match(/[一-鿿぀-ヿｦ-ﾟ가-힣ㄱ-ㅎㅏ-ㅣA-Za-z0-9]/g) ?? []).length;
+  if (substantial < 2) return null;
   return line;
 }
 

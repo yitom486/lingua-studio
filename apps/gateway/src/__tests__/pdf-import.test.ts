@@ -69,6 +69,18 @@ describe('markdownToAst', () => {
     expect(markdownToAst('目录\n1 ...... 5\n2 ...... 9', {}).ok).toBe(false);
   });
 
+  test('封面元数据/tofu 乱码行被丢弃（整页无实质课文则报错）', () => {
+    const tofu = String.fromCharCode(0xfffd);
+    const junk = `[General Information] ${tofu}${tofu} ${tofu}${tofu}${tofu}${tofu}`;
+    const res = markdownToAst(`${junk}\n18`, { bookId: 'pdf-junk' });
+    expect(res.ok).toBe(false);
+    // 混在正常课文里的单行乱码只丢该行，不影响整课
+    const mixed = markdownToAst(`李さん：はじめまして。\n${junk}`, { bookId: 'pdf-mixed' });
+    expect(mixed.ok).toBe(true);
+    if (!mixed.ok) return;
+    expect(mixed.value.lessons[0]?.dialogues.length).toBe(1);
+  });
+
   test('detectDocScript 混写行不误判中文为主', () => {
     expect(detectDocScript('注意助词で表示场所')).toBe('JA');
     expect(detectDocScript('纯中文讲解无假名')).toBe('JA'); // 无信号回退默认
