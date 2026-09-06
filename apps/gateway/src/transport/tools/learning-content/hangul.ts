@@ -41,9 +41,16 @@ export async function handleHangulDrillAction(
     }
     used.add(item.id);
 
+    // 选项罗马字逐项去重：跨类同音（子音 ㅋ k / 收音 ㄱ k）既不能与题干重复，彼此也不能重复
+    const seenRoman = new Set<string>([item.romanization]);
     const distractors = pool
       .filter((h) => h.id !== item.id)
       .sort(() => Math.random() - 0.5)
+      .filter((h) => {
+        if (seenRoman.has(h.romanization)) return false;
+        seenRoman.add(h.romanization);
+        return true;
+      })
       .slice(0, 3);
     const options = [item.romanization, ...distractors.map((d) => d.romanization)].sort(() =>
       Math.random() > 0.5 ? 1 : -1

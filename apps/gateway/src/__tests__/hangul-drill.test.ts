@@ -25,4 +25,37 @@ describe('learning.content hangul_drill', () => {
       expect(q.testedSkillId.startsWith('ko.hangul.')).toBe(true);
     }
   });
+
+  it('never emits duplicate options for cross-type homophones (ㅋ k vs 收音 ㄱ k)', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const tool = new LearningContentTool(repo);
+    // 最小池：同音孪生对 + 两个填充项；count 拉满使孪生双方必为题干（去重前必现重复选项）
+    repo.getRawDb().run('DELETE FROM curriculum_hangul');
+    const insert = repo.getRawDb().prepare(
+      `INSERT INTO curriculum_hangul (
+        id, type, jamo, name, romanization, row, col, mnemonic, audio_text, sort_order
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const rows: Array<[string, string, string, string, string, string, string, null, string, number]> = [
+      ['twin_k', 'CONSONANT', 'ㅋ', '키읔', 'k', '자음', '软腭音', null, 'ㅋ', 1],
+      ['twin_coda', 'CODA', 'ㄱ', '기역 · 받침', 'k', '받침', '代表音 k', null, 'ㄱ', 2],
+      ['fill_a', 'VOWEL', 'ㅏ', '아', 'a', '모음', '天·地·人', null, 'ㅏ', 3],
+      ['fill_m', 'CONSONANT', 'ㅁ', '미음', 'm', '자음', '唇音', null, 'ㅁ', 4],
+      ['fill_o', 'VOWEL', 'ㅗ', '오', 'o', '모음', '天·地·人', null, 'ㅗ', 5],
+      ['fill_n', 'CONSONANT', 'ㄴ', '니은', 'n', '자음', '舌尖音', null, 'ㄴ', 6],
+    ];
+    for (const r of rows) insert.run(...r);
+    const res = await tool.execute(
+      { action: 'hangul_drill', count: 6 },
+      { userId: 'u_hangul_drill', sessionId: 's1' }
+    );
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    const questions = res.value.questions ?? [];
+    expect(questions.length).toBe(6);
+    for (const q of questions) {
+      expect(new Set(q.options).size).toBe(4);
+      expect(q.options?.filter((o) => o === q.correctAnswer).length).toBe(1);
+    }
+  });
 });

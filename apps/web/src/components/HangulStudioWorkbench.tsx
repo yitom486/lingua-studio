@@ -228,22 +228,29 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   const accuracy = drillAnswered > 0 ? Math.round((drillCorrect / drillAnswered) * 100) : 0;
 
   // 单词选项（听写选词：韩语表层形四选一；词义回想：英文释义四选一；均无需输入法）
+  // 同形/同释义条目去重（Kengdic 多词可同释义，否则出现重复 key 与歧义选项）
   const wordOptions = useMemo(() => {
     if (!currentWord) return [];
     if (drillMode === 'WORD_MEANING') {
       const correct = currentWord.meanings[0] ?? '';
-      const distractors = wordList
-        .filter((w) => w.id !== currentWord.id)
-        .map((w) => w.meanings[0] ?? '')
-        .filter((m) => m && m !== correct)
-        .slice(0, 3);
+      const distractors = [
+        ...new Set(
+          wordList
+            .filter((w) => w.id !== currentWord.id)
+            .map((w) => w.meanings[0] ?? '')
+            .filter((m) => m && m !== correct)
+        ),
+      ].slice(0, 3);
       return shuffle([correct, ...distractors]);
     }
-    const distractors = wordList
-      .filter((w) => w.id !== currentWord.id)
-      .map((w) => w.korean)
-      .filter((k) => k && k !== currentWord.korean)
-      .slice(0, 3);
+    const distractors = [
+      ...new Set(
+        wordList
+          .filter((w) => w.id !== currentWord.id)
+          .map((w) => w.korean)
+          .filter((k) => k && k !== currentWord.korean)
+      ),
+    ].slice(0, 3);
     return shuffle([currentWord.korean, ...distractors]);
   }, [currentWord, wordList, drillMode, wordIndex]);
 
