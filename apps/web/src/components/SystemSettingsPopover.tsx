@@ -284,6 +284,11 @@ export function SystemSettingsPopover() {
     azureVoiceOptions.find((v) => v.value === editVoiceId) ??
     azureVoiceOptions.find((v) => v.gender === gender) ??
     azureVoiceOptions[0];
+  /** 下拉框显示文本（SelectValue 无 children 时会裸显 value，不可传哨兵） */
+  const azureVoiceTriggerLabel = editVoiceId
+    ? (azureVoiceOptions.find((v) => v.value === editVoiceId)?.label ?? editVoiceId)
+    : '默认（跟随上方男女声）';
+  const azureRegionTriggerLabel = editRegion || '选择区域，如 japaneast';
   const OPENAI_ENDPOINT_PRESETS = [
     { label: 'OpenAI 官方', value: 'https://api.openai.com/v1/audio/speech' },
     { label: '本地默认', value: 'http://127.0.0.1:8880/v1/audio/speech' },
@@ -429,17 +434,14 @@ export function SystemSettingsPopover() {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               <span className="truncate">
                 {(() => {
-                  if (!isCustomPluginEnabled) {
+                  // 与下方神经语音区同源（编辑态），所见即实际生效
+                  if (!editEngine || editEngine === 'system') {
                     return `当前引擎: ${activeSystemVoice?.name || '系统默认 · 随语种自动匹配'}`;
                   }
-                  if (proxyProvider === 'azure-speech') {
-                    const saved =
-                      azureVoiceOptions.find((v) => v.value === customPluginVoiceId) ??
-                      azureVoiceOptions.find((v) => v.gender === gender) ??
-                      azureVoiceOptions[0];
-                    return `当前引擎: Azure · ${saved ? `${saved.label} · ${saved.value}` : '按语种自动'}`;
+                  if (editEngine === 'azure-speech') {
+                    return `当前引擎: Azure · ${effectiveAzureVoice ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.value}` : '按语种自动'}`;
                   }
-                  return `当前引擎: 兼容端点 · ${customPluginVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）')}`;
+                  return `当前引擎: 兼容端点 · ${editVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）')}`;
                 })()}
               </span>
             </div>
@@ -572,10 +574,12 @@ export function SystemSettingsPopover() {
               )}
               {editEngine === 'azure-speech' && (
                 <>
-                  <Select value={editRegion} onValueChange={(v) => v && setEditRegion(v)}>
-                    <SelectTrigger className="h-8 text-[11px]">
-                      <SelectValue placeholder="选择区域，如 japaneast" />
-                    </SelectTrigger>
+                    <Select value={editRegion} onValueChange={(v) => v && setEditRegion(v)}>
+                      <SelectTrigger className="h-8 text-[11px]">
+                        <SelectValue placeholder="选择区域，如 japaneast">
+                          {azureRegionTriggerLabel}
+                        </SelectValue>
+                      </SelectTrigger>
                     <SelectContent>
                       {AZURE_REGIONS.map((r) => (
                         <SelectItem key={r} value={r}>
@@ -619,7 +623,9 @@ export function SystemSettingsPopover() {
                       }}
                     >
                       <SelectTrigger className="h-8 text-[11px]">
-                        <SelectValue placeholder="音色（默认按语种自动）" />
+                        <SelectValue placeholder="音色（默认按语种自动）">
+                          {azureVoiceTriggerLabel}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
@@ -630,11 +636,6 @@ export function SystemSettingsPopover() {
                         ))}
                       </SelectContent>
                     </Select>
-                    {effectiveAzureVoice && (
-                      <p className="text-[10px] text-stone-400 leading-relaxed">
-                        当前生效：{effectiveAzureVoice.label} · {effectiveAzureVoice.value}
-                      </p>
-                    )}
                     </>
                   ) : (
                     <input
