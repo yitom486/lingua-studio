@@ -58,8 +58,12 @@ export interface EnsureRuntimeOptions {
   platform?: PdfRuntimePlatform;
 }
 
-const DOWNLOAD_TIMEOUT_MS = 180000;
+/** napi 包名（带 scope）→ node_modules/@firecrawl 下的目录名（去 scope）。 */
+export function napiDirName(napiPkg: string): string {
+  return napiPkg.includes('/') ? (napiPkg.split('/')[1] as string) : napiPkg;
+}
 const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
+const DOWNLOAD_TIMEOUT_MS = 180000;
 
 const inFlight = new Map<string, Promise<{ inspector: PdfInspectorLike; paths: PdfRuntimePaths }>>();
 
@@ -96,7 +100,9 @@ async function downloadArtifact(
   }
   let res: Response;
   try {
-    res = await fetchImpl(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+    // data: URL 不走网络，不挂超时信号（Bun 下 data: + signal 会直接抛错）
+    const init = url.startsWith('data:') ? undefined : { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) };
+    res = await fetchImpl(url, init);
   } catch {
     throw new BusinessError('E_RUNTIME_DOWNLOAD', '构件下载超时或网络不可达，请检查网络后重试', 'NETWORK');
   }
@@ -252,13 +258,14 @@ async function ensurePdfRuntimeInner(
       downloadArtifact(PDF_INSPECTOR_MAIN.url, fetchImpl, PDF_INSPECTOR_MAIN.integrity),
       downloadArtifact(pins.napi.url, fetchImpl, pins.napi.integrity),
     ]);
+    const napiShortName = napiDirName(pins.napiPkg);
     await writeEntries(nodeModulesDir, [
       ...extractTarGz(mainPkg).map((e) => ({
         path: path.join('pdf-inspector', e.path.replace(/^package\//, '')),
         data: e.data,
       })),
       ...extractTarGz(napiPkg).map((e) => ({
-        path: path.join(pins.napiPkg, e.path.replace(/^package\//, '')),
+        path: path.join(napiShortName, e.path.replace(/^package\//, '')),
         data: e.data,
       })),
     ]);

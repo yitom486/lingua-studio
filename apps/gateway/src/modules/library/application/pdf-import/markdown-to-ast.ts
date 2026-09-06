@@ -64,6 +64,17 @@ function cleanLine(raw: string): string | null {
 }
 
 const SPEAKER_PREFIX = /^(.{1,12})[：:]\s*(.+)$/;
+// 行内多人说话（如提取器把同页多行并成一行）：在句末标点后的说话人前缀 / 独立引号处切分
+const MIDLINE_SPEAKER_SPLIT =
+  /(?<=[。！？」!?.])\s*(?=[^\s。！？」!?.：:]{1,12}[：:])|(?<=[。！？!?.])\s*(?=[「"“])/;
+
+function splitSpeakerSegments(cleaned: string): string[] {
+  if (!MIDLINE_SPEAKER_SPLIT.test(cleaned)) return [cleaned];
+  return cleaned
+    .split(MIDLINE_SPEAKER_SPLIT)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
 
 function toDialogue(line: string): { speaker: string; japanese: string; chinese: string } | null {
   const m = SPEAKER_PREFIX.exec(line);
@@ -139,9 +150,12 @@ export function markdownToAst(
       if (dialogues.length >= MAX_DIALOGUES_PER_LESSON) break;
       const cleaned = cleanLine(raw);
       if (!cleaned) continue;
-      const d = toDialogue(cleaned);
-      if (!d) continue;
-      dialogues.push({ speaker: d.speaker, japanese: d.japanese, chinese: d.chinese });
+      for (const segment of splitSpeakerSegments(cleaned)) {
+        if (dialogues.length >= MAX_DIALOGUES_PER_LESSON) break;
+        const d = toDialogue(segment);
+        if (!d) continue;
+        dialogues.push({ speaker: d.speaker, japanese: d.japanese, chinese: d.chinese });
+      }
     }
     if (dialogues.length === 0) continue;
     lessons.push({

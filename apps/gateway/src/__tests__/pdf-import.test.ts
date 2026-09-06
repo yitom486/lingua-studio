@@ -7,8 +7,7 @@ import {
 } from '../modules/library/application/pdf-import/pdf-import-service.js';
 import { extractTarGz, extractZip } from '../modules/library/application/pdf-import/archive.js';
 import { assertArtifactUrlAllowed, currentRuntimePlatform } from '../modules/library/application/pdf-import/pdf-artifacts.js';
-import { fetchRuntimeArtifact } from '../modules/library/application/pdf-import/pdf-runtime.js';
-import { isOk } from '@study-studio/shared';
+import { fetchRuntimeArtifact, napiDirName } from '../modules/library/application/pdf-import/pdf-runtime.js';import { isOk } from '@study-studio/shared';
 
 const JA_MD = `# 第 1 课
 李さん：はじめまして。李です。
@@ -35,6 +34,19 @@ describe('markdownToAst', () => {
     // 生词/语法不臆造
     expect(res.value.lessons[0]?.vocabularies).toEqual([]);
     expect(res.value.lessons[0]?.grammarPoints).toEqual([]);
+  });
+
+  test('提取器并行不丢说话人：行内多说话人切分', () => {
+    const merged =
+      '李さん：はじめまして。李です。 森：はじめまして。森です。どうぞよろしく。 「ありがとう」';
+    const res = markdownToAst(merged, { bookId: 'pdf-merged' });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const dialogues = res.value.lessons[0]?.dialogues ?? [];
+    expect(dialogues.length).toBe(3);
+    expect(dialogues[0]).toMatchObject({ speaker: '李さん' });
+    expect(dialogues[1]).toMatchObject({ speaker: '森' });
+    expect(dialogues[2]).toMatchObject({ speaker: '课文', japanese: 'ありがとう' });
   });
 
   test('无标题整篇一课', () => {
@@ -232,6 +244,13 @@ describe('artifacts', () => {
   test('当前平台可解析；未知平台抛错不猜', () => {
     expect(() => currentRuntimePlatform('win32', 'x64')).not.toThrow();
     expect(() => currentRuntimePlatform('plan9', 'x64')).toThrow();
+  });
+
+  test('napi 目录去 scope（回归：曾双重嵌套导致加载失败）', () => {
+    expect(napiDirName('@firecrawl/pdf-inspector-win32-x64-msvc')).toBe(
+      'pdf-inspector-win32-x64-msvc'
+    );
+    expect(napiDirName('plain-pkg')).toBe('plain-pkg');
   });
 
   test('assertArtifactUrlAllowed 仅放行三处官方源', () => {
