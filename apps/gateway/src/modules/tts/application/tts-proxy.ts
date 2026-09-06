@@ -2,11 +2,14 @@ import {
   AZURE_DEFAULT_VOICES,
   azureTtsEndpoint,
   azureTtsHeaders,
+  azureVoicesEndpoint,
   buildAzureSsml,
   buildOpenAiSpeechPayload,
   isHttpEndpoint,
+  mapAzureVoiceList,
   normalizeTtsTrackLanguage,
   openAiSpeechHeaders,
+  type AzureVoiceOption,
   type TtsTrackLanguage,
 } from '@study-studio/tts-core';
 import {
@@ -46,6 +49,8 @@ export interface TtsProxySynthesizeInput {
   /** 本系统语速口径（1.0=常速），透传给端点。 */
   rate?: number | undefined;
   gender?: 'FEMALE' | 'MALE' | undefined;
+  /** Azure 说话风格（须为该音色 StyleList 成员，如 cheerful/chat）。 */
+  style?: string | undefined;
 }
 
 export interface TtsProxyAudio {
@@ -113,7 +118,14 @@ function buildProviderRequest(input: Required<Pick<TtsProxySynthesizeInput, 'pro
     if (!apiKey) return { error: badInput('Azure Speech 需要 API Key，请先填写后再试。') };
     const gender = input.gender ?? 'FEMALE';
     const resolvedVoice = voice || AZURE_DEFAULT_VOICES[track]?.[gender] || AZURE_DEFAULT_VOICES.en.FEMALE;
-    const ssml = buildAzureSsml(text, { voice: resolvedVoice, trackLanguage: track, gender, rate: input.rate });
+    const style = (input.style ?? '').trim();
+    const ssml = buildAzureSsml(text, {
+      voice: resolvedVoice,
+      trackLanguage: track,
+      gender,
+      rate: input.rate,
+      ...(style ? { style } : {}),
+    });
     return {
       url: azureTtsEndpoint(region),
       headers: azureTtsHeaders(apiKey),
@@ -247,4 +259,54 @@ export async function validateProxyCredentials(
     bytes: res.value.bytes,
     contentType: res.value.contentType,
   });
+}
+
+export interface TtsVoicesInput {
+  provider: string;
+  region?: string | undefined;
+  apiKey?: string | undefined;
+  trackLanguage?: string | undefined;
+}
+
+/**
+ * 拉取 Azure 全量音色（含各音色可用风格），按当前轨道过滤后返回。
+ * Key 同合成链路：随请求传入、不落盘；非 azure provider 直接报不支持
+ * （OpenAI 兼容协议无标准声音列表接口）。
+ */
+export async function listProxyVoices(
+  input: TtsVoicesInput,
+  fetchImpl: FetchImpl = fetch
+): Promise<Result<{ provider: TtsProxyProvider; voices: AzureVoiceOption[] }, BusinessError>> {
+  try {
+    if (input.provider !== 'azure-speech') {
+      return err(
+        badInput(
+          `该服务无标准声音列表接口：${input.provider} 请手动填写音色 id（如 alloy）。`
+        )
+      );
+    }
+    const region = (input.region ?? '').trim();
+    if (!region) return err(badInput('Azure Speech 需要填写区域（如 japaneast）。'));
+    const apiKey = (input.apiKey ?? '').trim();
+    if (!apiKey) return err(badInput('Azure Speech 需要 API Key，请先填写后再试。'));
+    const track = normalizeTtsTrackLanguage(input.trackLanguage ?? 'en');
+
+    const res = await fetchImpl(azureVoicesEndpoint(region), {
+      method: 'GET',
+      headers: { 'Ocp-Apim-Subscription-Key': apiKey },
+      signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
+    });
+    if (!res.ok) return err(mapProxyError(res.status, 'azure-speech'));
+    const data: unknown = await res.json();
+    return ok({ provider: 'azure-speech', voices: mapAzureVoiceList(data, track) });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+      return err(
+        new BusinessError('E_TTS_TIMEOUT', 'TTS 服务响应超时（20s），请检查网络或换区域重试。', 'NETWORK', true)
+      );
+    }
+    return err(
+      translateToBusinessError(error, { category: 'NETWORK', action: 'listProxyVoices' })
+    );
+  }
 }

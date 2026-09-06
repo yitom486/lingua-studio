@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { isOk } from '@study-studio/shared';
 import {
+  listProxyVoices,
   synthesizeViaProxy,
   validateProxyCredentials,
   type FetchImpl,
@@ -257,5 +258,66 @@ describe('tts proxy validate', () => {
     expect(isOk(res)).toBe(false);
     if (isOk(res)) return;
     expect(res.error.code).toBe('E_INVALID_INPUT');
+  });
+});
+
+describe('tts proxy voices', () => {
+  const voiceListPayload = [
+    {
+      Name: 'Microsoft Server Speech Text to Speech Voice (ja-JP, NanamiNeural)',
+      ShortName: 'ja-JP-NanamiNeural',
+      Gender: 'Female',
+      Locale: 'ja-JP',
+      VoiceType: 'Neural',
+      StyleList: ['chat', 'cheerful'],
+    },
+    {
+      ShortName: 'ja-JP-KeitaNeural',
+      Gender: 'Male',
+      Locale: 'ja-JP',
+      VoiceType: 'Neural',
+    },
+  ];
+
+  it('lists azure voices filtered by track', async () => {
+    let seenUrl = '';
+    const fetchImpl = stubFetch(async (url) => {
+      seenUrl = url;
+      return new Response(JSON.stringify(voiceListPayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    const res = await listProxyVoices(
+      { provider: 'azure-speech', region: 'japaneast', apiKey: 'k', trackLanguage: 'ja' },
+      fetchImpl
+    );
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(seenUrl).toBe(
+      'https://japaneast.tts.speech.microsoft.com/cognitiveservices/voices/list'
+    );
+    expect(res.value.provider).toBe('azure-speech');
+    expect(res.value.voices.map((v) => v.id)).toEqual([
+      'ja-JP-KeitaNeural',
+      'ja-JP-NanamiNeural',
+    ]);
+    expect(res.value.voices[1]?.styles).toEqual(['chat', 'cheerful']);
+  });
+
+  it('rejects non-azure providers and missing credentials without fetch', async () => {
+    let called = false;
+    const fetchImpl = stubFetch(async () => {
+      called = true;
+      return okAudio();
+    });
+    const nonAzure = await listProxyVoices({ provider: 'openai-compatible' }, fetchImpl);
+    expect(isOk(nonAzure)).toBe(false);
+    const noKey = await listProxyVoices(
+      { provider: 'azure-speech', region: 'japaneast' },
+      fetchImpl
+    );
+    expect(isOk(noKey)).toBe(false);
+    expect(called).toBe(false);
   });
 });

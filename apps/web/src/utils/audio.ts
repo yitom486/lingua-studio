@@ -162,6 +162,8 @@ class SpeechStudioEngine {
   /** 网关代理服务商与 Azure 区域（official/openai 兼容走 baseUrl）。 */
   private proxyProvider: 'openai-compatible' | 'azure-speech' = 'openai-compatible';
   private proxyRegion: string = '';
+  /** Azure 说话风格（须为所选音色支持的风格，空=默认）。 */
+  private azureStyle: string = '';
   private listeners: Set<() => void> = new Set();
   private voices: SpeechSynthesisVoice[] = [];
 
@@ -240,12 +242,18 @@ class SpeechStudioEngine {
     return {
       provider: this.proxyProvider,
       region: this.proxyRegion,
+      style: this.azureStyle,
     };
   }
 
-  public setProxyConfig(provider: 'openai-compatible' | 'azure-speech', region: string) {
+  public setProxyConfig(
+    provider: 'openai-compatible' | 'azure-speech',
+    region: string,
+    style: string = ''
+  ) {
     this.proxyProvider = provider;
     this.proxyRegion = (region ?? '').trim();
+    this.azureStyle = (style ?? '').trim();
     this.notify();
   }
 
@@ -559,6 +567,7 @@ class SpeechStudioEngine {
           voice: this.customPluginVoiceId || args.voiceId || undefined,
           rate: args.rate,
           gender: args.gender,
+          ...(provider === 'azure-speech' && this.azureStyle ? { style: this.azureStyle } : {}),
         }),
       });
       if (!res.ok) {

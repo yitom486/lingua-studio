@@ -42,6 +42,9 @@ import {
 import {
   useDictionaryPackagesQuery,
   useInstallDictionaryPackageMutation,
+  useAzureVoicesQuery,
+  useInvalidateTtsVoices,
+  type AzureVoiceOption,
 } from '../queries/useLearnerQueries.js';
 import { useGatewayStore } from '../stores/useGatewayStore.js';
 import { getPlatform } from '../platform/capabilities.js';
@@ -70,10 +73,12 @@ export function SystemSettingsPopover() {
   const customPluginVoiceId = useTtsStore((s) => s.customPluginVoiceId);
   const proxyProvider = useTtsStore((s) => s.proxyProvider);
   const proxyRegion = useTtsStore((s) => s.proxyRegion);
+  const azureStyle = useTtsStore((s) => s.azureStyle);
   const setCustomPluginConfig = useTtsStore((s) => s.setCustomPluginConfig);
   const setCustomPluginAuth = useTtsStore((s) => s.setCustomPluginAuth);
   const setProxyProvider = useTtsStore((s) => s.setProxyProvider);
   const setProxyRegion = useTtsStore((s) => s.setProxyRegion);
+  const setAzureStyle = useTtsStore((s) => s.setAzureStyle);
   const [editEngine, setEditEngine] = useState<EngineChoice>(
     isCustomPluginEnabled ? proxyProvider : 'system'
   );
@@ -81,8 +86,10 @@ export function SystemSettingsPopover() {
   const [editRegion, setEditRegion] = useState(proxyRegion);
   const [editApiKey, setEditApiKey] = useState(customPluginApiKey);
   const [editVoiceId, setEditVoiceId] = useState(customPluginVoiceId);
+  const [editStyle, setEditStyle] = useState(azureStyle);
   const [validating, setValidating] = useState(false);
   const [testingNeural, setTestingNeural] = useState(false);
+  const invalidateTtsVoices = useInvalidateTtsVoices();
 
   // 学情与画像
   const profile = useUserProfileStore((s) => s.profile);
@@ -140,17 +147,19 @@ export function SystemSettingsPopover() {
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
     setGender(newGender);
-    // 男女声是主人：切换后 Azure 显式音色清零回到自动跟随，避免上下矛盾
+    // 男女声是主人：切换后 Azure 显式音色/风格清零回到自动跟随，避免上下矛盾
     setEditVoiceId('');
+    setEditStyle('');
     toast.success(`已切换至：${getPersonaLabel(speechLang, newGender)}`);
   };
 
-  // 切语种时清空跨语种残留的显式音色（如 JA 音色 id 留在 KO 轨道会导致 400）；挂载时不动
+  // 切语种时清空跨语种残留的显式音色/风格（如 JA 音色 id 留在 KO 轨道会导致 400）；挂载时不动
   const prevLangRef = useRef(speechLang);
   useEffect(() => {
     if (prevLangRef.current !== speechLang) {
       prevLangRef.current = speechLang;
       setEditVoiceId('');
+      setEditStyle('');
     }
   }, [speechLang]);
 
@@ -177,6 +186,7 @@ export function SystemSettingsPopover() {
     }
     setProxyRegion(editRegion);
     setCustomPluginAuth(editApiKey, editVoiceId);
+    setAzureStyle(editEngine === 'azure-speech' ? editStyle : '');
   };
 
   const handleSaveNeural = () => {
@@ -211,6 +221,7 @@ export function SystemSettingsPopover() {
           ...(editEngine === 'openai-compatible' ? { baseUrl: editUrl } : { region: editRegion }),
           ...(editApiKey ? { apiKey: editApiKey } : {}),
           ...(editVoiceId ? { voice: editVoiceId } : {}),
+          ...(editEngine === 'azure-speech' && editStyle ? { style: editStyle } : {}),
         }),
       });
       const data = (await res.json().catch(() => null)) as {
@@ -221,6 +232,7 @@ export function SystemSettingsPopover() {
       } | null;
       if (res.ok && data?.ok) {
         persistNeuralForm();
+        void invalidateTtsVoices();
         toast.success(`Key 有效：${String(data.voice ?? '')}（探针 ${String(data.bytes ?? 0)} 字节）。`);
       } else {
         toast.error(data?.error?.userMessage ?? '验证失败，请检查配置。');
@@ -248,8 +260,9 @@ export function SystemSettingsPopover() {
     });
   };
 
-  // Azure 区域与音色全部做成选择题：用户只输 Key 即可
-  // 音色与顶部男女声是同一状态：选具体音色会同步男女声，切男女声/语种则回到自动跟随，永不矛盾
+  // Azure 区域做成选择题；音色优先用网关拉取的全量表（含各音色可用风格），
+  // 未加载时回退内置短表。音色与顶部男女声是同一状态：选具体音色会同步男女声，
+  // 切男女声/语种则回到自动跟随，永不矛盾
   const AZURE_REGIONS = [
     'japaneast',
     'koreacentral',
@@ -260,39 +273,45 @@ export function SystemSettingsPopover() {
     'westeurope',
     'australiaeast',
   ];
-  const AZURE_VOICES: Record<string, Array<{ value: string; label: string; gender: TtsGender }>> = {
-    JA: [
-      { value: 'ja-JP-NanamiNeural', label: '七海（女）', gender: 'FEMALE' },
-      { value: 'ja-JP-KeitaNeural', label: '圭太（男）', gender: 'MALE' },
-      { value: 'ja-JP-AoiNeural', label: '葵（女）', gender: 'FEMALE' },
-      { value: 'ja-JP-DaichiNeural', label: '大地（男）', gender: 'MALE' },
-    ],
-    KO: [
-      { value: 'ko-KR-SunHiNeural', label: 'SunHi（女）', gender: 'FEMALE' },
-      { value: 'ko-KR-InJoonNeural', label: 'InJoon（男）', gender: 'MALE' },
-    ],
-    EN: [
-      { value: 'en-US-JennyNeural', label: 'Jenny（女）', gender: 'FEMALE' },
-      { value: 'en-US-GuyNeural', label: 'Guy（男）', gender: 'MALE' },
-      { value: 'en-US-AriaNeural', label: 'Aria（女）', gender: 'FEMALE' },
-      { value: 'en-US-DavisNeural', label: 'Davis（男）', gender: 'MALE' },
-    ],
-  };
-  const azureVoiceOptions = AZURE_VOICES[speechLang] ?? AZURE_VOICES.EN ?? [];
+  const AZURE_VOICE_FALLBACK: AzureVoiceOption[] = [
+    { id: 'ja-JP-NanamiNeural', label: '七海（女）', gender: 'FEMALE', locale: 'ja-JP', styles: [] },
+    { id: 'ja-JP-KeitaNeural', label: '圭太（男）', gender: 'MALE', locale: 'ja-JP', styles: [] },
+    { id: 'ja-JP-AoiNeural', label: '葵（女）', gender: 'FEMALE', locale: 'ja-JP', styles: [] },
+    { id: 'ja-JP-DaichiNeural', label: '大地（男）', gender: 'MALE', locale: 'ja-JP', styles: [] },
+    { id: 'ko-KR-SunHiNeural', label: 'SunHi（女）', gender: 'FEMALE', locale: 'ko-KR', styles: [] },
+    { id: 'ko-KR-InJoonNeural', label: 'InJoon（男）', gender: 'MALE', locale: 'ko-KR', styles: [] },
+    { id: 'en-US-JennyNeural', label: 'Jenny（女）', gender: 'FEMALE', locale: 'en-US', styles: [] },
+    { id: 'en-US-GuyNeural', label: 'Guy（男）', gender: 'MALE', locale: 'en-US', styles: [] },
+    { id: 'en-US-AriaNeural', label: 'Aria（女）', gender: 'FEMALE', locale: 'en-US', styles: [] },
+    { id: 'en-US-DavisNeural', label: 'Davis（男）', gender: 'MALE', locale: 'en-US', styles: [] },
+  ];
+  const { data: remoteVoices = [], isFetching: isVoicesFetching } = useAzureVoicesQuery({
+    region: editRegion,
+    apiKey: editApiKey,
+    track: speechLang,
+    // 面板打开且选了 Azure 才拉全量表（Key 不进缓存键，换 Key 后靠验证成功刷新）
+    enabled: editEngine === 'azure-speech' && open,
+  });
+  const azureVoiceOptions: AzureVoiceOption[] = (
+    remoteVoices.length > 0 ? remoteVoices : AZURE_VOICE_FALLBACK
+  ).filter((v) => v.id.toLowerCase().startsWith(speechLang.toLowerCase()));
+  const selectedVoice = azureVoiceOptions.find((v) => v.id === editVoiceId);
+  const voiceStyles = selectedVoice?.styles ?? [];
   /** 当前实际生效的 Azure 音色：显式选择优先，否则跟随男女声 */
   const effectiveAzureVoice =
-    azureVoiceOptions.find((v) => v.value === editVoiceId) ??
+    selectedVoice ??
     azureVoiceOptions.find((v) => v.gender === gender) ??
     azureVoiceOptions[0];
   /** 下拉框显示文本（SelectValue 无 children 时会裸显 value，不可传哨兵） */
   const azureVoiceTriggerLabel = editVoiceId
-    ? (azureVoiceOptions.find((v) => v.value === editVoiceId)?.label ?? editVoiceId)
+    ? (azureVoiceOptions.find((v) => v.id === editVoiceId)?.label ?? editVoiceId)
     : '默认（跟随上方男女声）';
   const azureRegionTriggerLabel = editRegion || '选择区域，如 japaneast';
   const OPENAI_ENDPOINT_PRESETS = [
     { label: 'OpenAI 官方', value: 'https://api.openai.com/v1/audio/speech' },
     { label: '本地默认', value: 'http://127.0.0.1:8880/v1/audio/speech' },
   ];
+  const OPENAI_VOICE_PRESETS = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
 
   const handleInstallDictionary = (packageId: string) => {
     const target = installableDictionaries.find((item) => item.id === packageId);
@@ -439,7 +458,7 @@ export function SystemSettingsPopover() {
                     return `当前引擎: ${activeSystemVoice?.name || '系统默认 · 随语种自动匹配'}`;
                   }
                   if (editEngine === 'azure-speech') {
-                    return `当前引擎: Azure · ${effectiveAzureVoice ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.value}` : '按语种自动'}`;
+                    return `当前引擎: Azure · ${effectiveAzureVoice ? `${effectiveAzureVoice.label} · ${effectiveAzureVoice.id}` : '按语种自动'}`;
                   }
                   return `当前引擎: 兼容端点 · ${editVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）')}`;
                 })()}
@@ -612,11 +631,13 @@ export function SystemSettingsPopover() {
                         sound.playClick();
                         if (v === '__auto') {
                           setEditVoiceId('');
+                          setEditStyle('');
                           return;
                         }
-                        // 选具体音色则男女声同步跟过去，上下永远对应
+                        // 选具体音色则男女声同步跟过去，上下永远对应；风格随音色重置
                         setEditVoiceId(v);
-                        const picked = azureVoiceOptions.find((o) => o.value === v);
+                        setEditStyle('');
+                        const picked = azureVoiceOptions.find((o) => o.id === v);
                         if (picked && picked.gender !== gender) {
                           setGender(picked.gender);
                         }
@@ -625,19 +646,68 @@ export function SystemSettingsPopover() {
                       <SelectTrigger className="h-8 text-[11px]">
                         <SelectValue placeholder="音色（默认按语种自动）">
                           {azureVoiceTriggerLabel}
+                          {isVoicesFetching ? ' · 读取中…' : ''}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
                         {azureVoiceOptions.map((v) => (
-                          <SelectItem key={v.value} value={v.value}>
-                            {v.label} · {v.value}
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.label} · {v.id}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {voiceStyles.length > 0 ? (
+                      <Select
+                        value={editStyle || '__none'}
+                        onValueChange={(v) => {
+                          if (!v) return;
+                          sound.playClick();
+                          setEditStyle(v === '__none' ? '' : v);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-[11px]">
+                          <SelectValue placeholder="说话风格（默认自然）">
+                            {editStyle ? `风格：${editStyle}` : '说话风格（默认自然）'}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">自然（无风格）</SelectItem>
+                          {voiceStyles.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {s}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      remoteVoices.length === 0 && (
+                        <p className="text-[10px] text-stone-400 leading-relaxed">
+                          填好区域与 Key 后自动拉取该区全量音色与说话风格。
+                        </p>
+                      )
+                    )}
                     </>
                   ) : (
+                    <>
+                    <div className="flex gap-1">
+                      {OPENAI_VOICE_PRESETS.map((p) => (
+                        <Button
+                          key={p}
+                          type="button"
+                          size="sm"
+                          variant={editVoiceId === p ? 'default' : 'outline'}
+                          className="flex-1 h-7 text-[11px] px-1"
+                          onClick={() => {
+                            sound.playClick();
+                            setEditVoiceId(p);
+                          }}
+                        >
+                          {p}
+                        </Button>
+                      ))}
+                    </div>
                     <input
                       type="text"
                       value={editVoiceId}
@@ -645,6 +715,7 @@ export function SystemSettingsPopover() {
                       placeholder="音色 id（可空，如 alloy）"
                       className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
                     />
+                    </>
                   )}
                 <p className="text-[10px] text-stone-400 leading-relaxed">
                   Key 随本次请求发往本机网关代调第三方，网关不落盘。先验证再保存。

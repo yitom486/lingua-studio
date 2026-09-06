@@ -4,9 +4,11 @@ import {
   AZURE_DEFAULT_VOICES,
   azureTtsEndpoint,
   azureTtsHeaders,
+  azureVoicesEndpoint,
   bcp47ForTrack,
   buildAzureSsml,
   buildOpenAiSpeechPayload,
+  mapAzureVoiceList,
   getActiveTtsEngine,
   isHttpEndpoint,
   listTtsEngines,
@@ -210,5 +212,53 @@ describe('azure speech helpers', () => {
       '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ja-JP">' +
         '<voice name="ja-JP-NanamiNeural">こんにちは</voice></speak>'
     );
+  });
+
+  it('wraps style in the mstts namespace only when set', () => {
+    const styled = buildAzureSsml('你好', {
+      trackLanguage: 'ja',
+      voice: 'ja-JP-NanamiNeural',
+      style: 'cheerful',
+    });
+    expect(styled).toContain('xmlns:mstts="https://www.w3.org/2001/mstts"');
+    expect(styled).toContain('<mstts:express-as style="cheerful">你好</mstts:express-as>');
+    const plain = buildAzureSsml('你好', { trackLanguage: 'ja' });
+    expect(plain).not.toContain('mstts');
+    expect(plain).not.toContain('express-as');
+  });
+
+  it('maps the voices/list payload to dropdown options', () => {
+    expect(azureVoicesEndpoint('japaneast')).toBe(
+      'https://japaneast.tts.speech.microsoft.com/cognitiveservices/voices/list'
+    );
+    const options = mapAzureVoiceList(
+      [
+        {
+          Name: 'Microsoft Server Speech Text to Speech Voice (ja-JP, NanamiNeural)',
+          ShortName: 'ja-JP-NanamiNeural',
+          Gender: 'Female',
+          Locale: 'ja-JP',
+          VoiceType: 'Neural',
+          StyleList: ['chat', 'cheerful', 'customerservice'],
+        },
+        {
+          ShortName: 'ja-JP-KeitaNeural',
+          Gender: 'Male',
+          Locale: 'ja-JP',
+          VoiceType: 'Neural',
+        },
+        { ShortName: 'ko-KR-SunHiNeural', Gender: 'Female', VoiceType: 'Neural' },
+        { ShortName: 'ja-JP-StandardA', Gender: 'Female', VoiceType: 'Standard' },
+        { ShortName: 'broken' },
+        null,
+        'junk',
+      ],
+      'ja'
+    );
+    expect(options.map((o) => o.id)).toEqual(['ja-JP-KeitaNeural', 'ja-JP-NanamiNeural']);
+    expect(options[1]?.label).toBe('Nanami（女）');
+    expect(options[1]?.styles).toEqual(['chat', 'cheerful', 'customerservice']);
+    expect(options[0]?.gender).toBe('MALE');
+    expect(mapAzureVoiceList(null, 'ja')).toEqual([]);
   });
 });

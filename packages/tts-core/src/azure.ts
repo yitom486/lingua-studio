@@ -22,6 +22,10 @@ export function azureTtsEndpoint(region: string): string {
   return `https://${region.trim().toLowerCase()}.tts.speech.microsoft.com/cognitiveservices/v1`;
 }
 
+export function azureVoicesEndpoint(region: string): string {
+  return `https://${region.trim().toLowerCase()}.tts.speech.microsoft.com/cognitiveservices/voices/list`;
+}
+
 export function azureTtsHeaders(apiKey: string): Record<string, string> {
   return {
     'Ocp-Apim-Subscription-Key': (apiKey ?? '').trim(),
@@ -51,6 +55,8 @@ export function buildAzureSsml(
     trackLanguage?: TtsTrackLanguage | undefined;
     gender?: 'FEMALE' | 'MALE' | undefined;
     rate?: number | undefined;
+    /** 说话风格（如 cheerful / chat / customerservice），须为该音色 StyleList 成员 */
+    style?: string | undefined;
   }
 ): string {
   const track = options?.trackLanguage ?? 'en';
@@ -71,8 +77,70 @@ export function buildAzureSsml(
       inner = `<prosody rate="${sign}${relative}%">${inner}</prosody>`;
     }
   }
+  // 风格走 mstts 命名空间（须为该音色支持的风格，否则 Azure 回 400，由调用方保证）
+  const style = (options?.style ?? '').trim();
+  if (style) {
+    inner = `<mstts:express-as style="${style}">${inner}</mstts:express-as>`;
+  }
+  const msttsNs = style ? ' xmlns:mstts="https://www.w3.org/2001/mstts"' : '';
   return (
-    `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${lang}">` +
+    `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis"${msttsNs} xml:lang="${lang}">` +
     `<voice name="${voice}">${inner}</voice></speak>`
   );
+}
+
+/** Azure voices/list 单条（只取映射需要的子集，未知字段忽略）。 */
+export interface AzureVoiceListItem {
+  Name?: string | undefined;
+  ShortName: string;
+  Gender?: string | undefined;
+  Locale?: string | undefined;
+  VoiceType?: string | undefined;
+  StyleList?: string[] | undefined;
+}
+
+export interface AzureVoiceOption {
+  /** 如 ja-JP-NanamiNeural（可直接填回 voice）。 */
+  id: string;
+  /** 如 Nanami（女）。 */
+  label: string;
+  gender: 'FEMALE' | 'MALE';
+  locale: string;
+  styles: string[];
+}
+
+/**
+ * voices/list → 下拉选项：只要 Neural 音色，按语种前缀过滤，
+ * 名字从 ShortName 解析（ja-JP-NanamiNeural → Nanami），未知形状整条丢弃不抛错。
+ */
+export function mapAzureVoiceList(
+  items: unknown,
+  trackLanguage: TtsTrackLanguage
+): AzureVoiceOption[] {
+  if (!Array.isArray(items)) return [];
+  const prefix =
+    trackLanguage === 'ja' ? 'ja-JP' : trackLanguage === 'ko' ? 'ko-KR' : 'en-US';
+  const out: AzureVoiceOption[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Partial<AzureVoiceListItem>;
+    const id = typeof item.ShortName === 'string' ? item.ShortName : '';
+    if (!id || !id.startsWith(prefix)) continue;
+    if (item.VoiceType && item.VoiceType !== 'Neural') continue;
+    const nameMatch = id.match(/^[a-z]{2}-[A-Z]{2}-([A-Za-z]+)Neural$/);
+    const name = nameMatch?.[1] ?? id;
+    const gender = String(item.Gender ?? '').toLowerCase().startsWith('male') ? 'MALE' : 'FEMALE';
+    const styles = Array.isArray(item.StyleList)
+      ? item.StyleList.filter((s): s is string => typeof s === 'string' && s.length > 0)
+      : [];
+    out.push({
+      id,
+      label: `${name}（${gender === 'MALE' ? '男' : '女'}）`,
+      gender: gender as 'FEMALE' | 'MALE',
+      locale: typeof item.Locale === 'string' ? item.Locale : prefix,
+      styles,
+    });
+  }
+  out.sort((a, b) => a.id.localeCompare(b.id));
+  return out;
 }
