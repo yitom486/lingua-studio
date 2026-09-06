@@ -16,7 +16,7 @@ describe('Curriculum Hangul Repository & Seeds (Companion Integration)', () => {
     const res = await repo.getCurriculumHangul();
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
-      expect(res.value.length).toBe(24);
+      expect(res.value.length).toBe(42);
       const g = res.value.find((h) => h.id === 'hangul_g');
       expect(g).toBeDefined();
       expect(g?.jamo).toBe('ㄱ');
@@ -44,6 +44,34 @@ describe('Curriculum Hangul Repository & Seeds (Companion Integration)', () => {
     if (isOk(vowelRes)) {
       expect(vowelRes.value.length).toBe(10);
       expect(vowelRes.value.every((h) => h.type === 'VOWEL')).toBe(true);
+    }
+  });
+
+  it('should filter phase-2 y-vowels, compounds and codas correctly', async () => {
+    const yRes = await repo.getCurriculumHangul('YVOWEL');
+    expect(isOk(yRes)).toBe(true);
+    if (isOk(yRes)) {
+      expect(yRes.value.length).toBe(4);
+      expect(yRes.value.every((h) => h.type === 'YVOWEL')).toBe(true);
+      expect(yRes.value.map((h) => h.jamo).sort().join('')).toBe('ㅑㅕㅛㅠ');
+    }
+
+    const compoundRes = await repo.getCurriculumHangul('COMPOUND');
+    expect(isOk(compoundRes)).toBe(true);
+    if (isOk(compoundRes)) {
+      expect(compoundRes.value.length).toBe(7);
+      expect(compoundRes.value.every((h) => h.type === 'COMPOUND')).toBe(true);
+      const wa = compoundRes.value.find((h) => h.id === 'hangul_wa');
+      expect(wa?.romanization).toBe('wa');
+    }
+
+    const codaRes = await repo.getCurriculumHangul('CODA');
+    expect(isOk(codaRes)).toBe(true);
+    if (isOk(codaRes)) {
+      expect(codaRes.value.length).toBe(7);
+      expect(codaRes.value.every((h) => h.type === 'CODA')).toBe(true);
+      const codaG = codaRes.value.find((h) => h.id === 'hangul_coda_g');
+      expect(codaG?.romanization).toBe('k');
     }
   });
 
@@ -93,6 +121,27 @@ describe('Curriculum Hangul Repository & Seeds (Companion Integration)', () => {
       expect(progress.value.quizzesCount).toBeGreaterThanOrEqual(3);
     }
   });
+
+  it('should record phase-2 practice into the ko.hangul.compound skill', async () => {
+    const switchTrack = await repo.updateLearnerProfile(testUserId, { targetLanguage: 'ko' });
+    expect(isOk(switchTrack)).toBe(true);
+
+    const p1 = await repo.recordHangulPractice(testUserId, 'hangul_ya', true, 'YVOWEL');
+    expect(isOk(p1)).toBe(true);
+    const p2 = await repo.recordHangulPractice(testUserId, 'hangul_wa', true, 'COMPOUND');
+    expect(isOk(p2)).toBe(true);
+    const p3 = await repo.recordHangulPractice(testUserId, 'hangul_coda_g', false, 'CODA');
+    expect(isOk(p3)).toBe(true);
+
+    const snapshot = await repo.getProfileSnapshot(testUserId);
+    expect(isOk(snapshot)).toBe(true);
+    if (isOk(snapshot)) {
+      const compoundMetric = snapshot.value.allMetrics.find((m) => m.id === 'ko.hangul.compound');
+      expect(compoundMetric).toBeDefined();
+      expect(compoundMetric?.totalAttempts).toBe(3);
+      expect(compoundMetric?.correctAttempts).toBe(2);
+    }
+  });
 });
 
 describe('Curriculum Hangul Hono RPC Routes', () => {
@@ -101,7 +150,7 @@ describe('Curriculum Hangul Hono RPC Routes', () => {
     expect(resAll.status).toBe(200);
     const allHangul = (await resAll.json()) as HangulItem[];
     expect(Array.isArray(allHangul)).toBe(true);
-    expect(allHangul.length).toBe(24);
+    expect(allHangul.length).toBe(42);
 
     const resConsonant = await app.request('/api/curriculum/hangul?type=CONSONANT');
     expect(resConsonant.status).toBe(200);

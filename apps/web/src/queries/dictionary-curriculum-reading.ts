@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { HangulItem, KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
+import type { HangulItem, HangulScriptType, KanaItem, ReadingPassageSet, NewsTopic } from '@study-studio/protocol';
 import { logger } from '@study-studio/shared';
 import { apiClient, GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { DEFAULT_USER_ID, QUERY_KEYS } from './query-keys.js';
@@ -95,7 +95,7 @@ export function useHangulPracticeMutation(userId = DEFAULT_USER_ID) {
     mutationFn: async (payload: {
       hangulId: string;
       isCorrect: boolean;
-      scriptType?: 'CONSONANT' | 'VOWEL' | 'ROMANIZATION';
+      scriptType?: HangulScriptType;
     }) => {
       try {
         const res = await apiClient.api.curriculum.hangul.practice[':userId'].$post({

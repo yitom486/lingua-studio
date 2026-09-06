@@ -26,7 +26,7 @@ interface HangulStudioWorkbenchProps {
   onOpenTutor?: (ctx: AiTutorContext) => void;
 }
 
-type MatrixTab = 'CONSONANT' | 'VOWEL';
+type MatrixTab = 'CONSONANT' | 'VOWEL' | 'ADVANCED';
 type DrillMode = 'AUDIO_TO_JAMO' | 'JAMO_TO_ROMA' | 'MIXED';
 type RecognitionMode = 'AUDIO_TO_JAMO' | 'JAMO_TO_ROMA';
 const RECOGNITION_MODES: RecognitionMode[] = ['AUDIO_TO_JAMO', 'JAMO_TO_ROMA'];
@@ -73,11 +73,18 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   const [drillCorrect, setDrillCorrect] = useState(0);
   const [roundDone, setRoundDone] = useState(false);
 
-  // 题池跟随矩阵选项卡
+  // 题池跟随矩阵选项卡（进阶 = y 系母音 + 复合母音 + 收音代表音）
   const pool = useMemo(
-    () => allHangul.filter((h) => h.type === matrixTab),
+    () =>
+      matrixTab === 'ADVANCED'
+        ? allHangul.filter((h) => h.type !== 'CONSONANT' && h.type !== 'VOWEL')
+        : allHangul.filter((h) => h.type === matrixTab),
     [allHangul, matrixTab]
   );
+
+  /** 进阶三类统一回写 ko.hangul.compound（与网关 skill 映射同源）。 */
+  const scriptTypeFor = (item: HangulItem): 'CONSONANT' | 'VOWEL' | 'COMPOUND' =>
+    item.type === 'CONSONANT' ? 'CONSONANT' : item.type === 'VOWEL' ? 'VOWEL' : 'COMPOUND';
 
   const current: HangulItem | undefined = plan[drillIndex];
   const activeMode: RecognitionMode =
@@ -145,7 +152,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
     practiceMutation.mutate({
       hangulId: current.id,
       isCorrect: ok,
-      scriptType: current.type,
+      scriptType: scriptTypeFor(current),
     });
   };
 
@@ -168,7 +175,12 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
     onOpenTutor({
       questionText: `谚文「${current.jamo}」（${current.name}，罗马字 ${current.romanization}）的发音与构形，请讲解。`,
       correctAnswer: `${current.jamo} = ${current.romanization}`,
-      skillTag: current.type === 'VOWEL' ? 'ko.hangul.vowel' : 'ko.hangul.consonant',
+      skillTag:
+        current.type === 'VOWEL'
+          ? 'ko.hangul.vowel'
+          : current.type === 'CONSONANT'
+            ? 'ko.hangul.consonant'
+            : 'ko.hangul.compound',
       explanation: current.mnemonic ?? '',
     });
   };
@@ -180,7 +192,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-semibold">谚文工作室</h2>
-          <Badge variant="secondary">子音 14 · 母音 10</Badge>
+          <Badge variant="secondary">子音 14 · 母音 10 · 进阶 18</Badge>
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -216,8 +228,16 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
               <TabsIndicator />
               <TabsTrigger value="CONSONANT">子音 자음</TabsTrigger>
               <TabsTrigger value="VOWEL">母音 모음</TabsTrigger>
+              <TabsTrigger value="ADVANCED">进阶 복모음·받침</TabsTrigger>
             </TabsList>
           </Tabs>
+
+          {matrixTab === 'ADVANCED' && (
+            <div className="rounded-xl border border-dashed p-3 text-xs text-muted-foreground leading-relaxed">
+              进阶区 = y 系母音（ㅑㅕㅛㅠ）+ 复合母音（ㅒㅖㅘㅙㅝㅞㅢ；ㅐㅔㅚㅟ 已在母音区）+ 收音 7 代表音（ㄱㄴㄷㄹㅁㅂㅇ）。
+              收音只发代表音：点字母卡看变音要点（如鼻音化、颚化），自测成绩记入「复音与收音」画像。
+            </div>
+          )}
 
           {/* 字母矩阵 */}
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">

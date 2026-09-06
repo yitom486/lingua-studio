@@ -17,6 +17,7 @@ import type {
   AnnotationItem,
   KanaItem,
   HangulItem,
+  HangulScriptType,
   ReadingPassageSet,
   SubmitReadingPractice,
   PracticeCollection,
@@ -559,7 +560,7 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     userId: string,
     hangulId: string,
     isCorrect: boolean,
-    scriptType: 'CONSONANT' | 'VOWEL' | 'ROMANIZATION' = 'CONSONANT'
+    scriptType: HangulScriptType = 'CONSONANT'
   ): Promise<Result<{ proficiency: number }, BusinessError>> {
     return recordHangulPracticeDomain(this.deps, userId, hangulId, isCorrect, scriptType);
   }

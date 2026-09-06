@@ -7,7 +7,7 @@ import {
   translateToBusinessError,
   nowIso,
 } from '@study-studio/shared';
-import type { SubmitReadingPractice } from '@study-studio/protocol';
+import type { HangulScriptType, SubmitReadingPractice } from '@study-studio/protocol';
 import { skillMetrics } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 
@@ -86,18 +86,29 @@ export async function recordKanaPractice(
   }
 }
 /**
- * 记录谚文字母练习结果并回写学习者熟练度与每日打卡活动（子音/母音分技能）。
+ * 记录谚文字母练习结果并回写学习者熟练度与每日打卡活动
+ * （子音 / 基本母音 / 进阶复音收音三分技能）。
  */
 export async function recordHangulPractice(
   deps: RepoDeps,
   userId: string,
   hangulId: string,
   isCorrect: boolean,
-  scriptType: 'CONSONANT' | 'VOWEL' | 'ROMANIZATION' = 'CONSONANT'
+  scriptType: HangulScriptType = 'CONSONANT'
 ): Promise<Result<{ proficiency: number }, BusinessError>> {
   try {
-    const skillId = scriptType === 'VOWEL' ? 'ko.hangul.vowel' : 'ko.hangul.consonant';
-    const skillName = scriptType === 'VOWEL' ? '谚文母音认读与听写' : '谚文子音认读与听写';
+    const skillId =
+      scriptType === 'VOWEL'
+        ? 'ko.hangul.vowel'
+        : scriptType === 'CONSONANT' || scriptType === 'ROMANIZATION'
+          ? 'ko.hangul.consonant'
+          : 'ko.hangul.compound';
+    const skillName =
+      scriptType === 'VOWEL'
+        ? '谚文母音认读与听写'
+        : scriptType === 'CONSONANT' || scriptType === 'ROMANIZATION'
+          ? '谚文子音认读与听写'
+          : '谚文复音与收音认读';
 
     const existingRows = await deps.db
       .select()

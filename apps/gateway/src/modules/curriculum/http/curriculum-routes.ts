@@ -3,6 +3,7 @@ import { validator } from 'hono/validator';
 import { isOk, BusinessError, generateId } from '@study-studio/shared';
 import {
   listNewsTopics,
+  type HangulScriptType,
   type ReadingPassageOrigin,
   type ReadingPassageSet,
   type ReadingQuestion,
@@ -61,7 +62,7 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
         const body = c.req.valid('json');
         const hangulId = String(body.hangulId || '');
         const isCorrect = Boolean(body.isCorrect);
-        const scriptType = (body.scriptType || 'CONSONANT') as 'CONSONANT' | 'VOWEL' | 'ROMANIZATION';
+        const scriptType = (body.scriptType || 'CONSONANT') as HangulScriptType;
         const res = await deps.repo.recordHangulPractice(userId, hangulId, isCorrect, scriptType);
         if (isOk(res)) return c.json({ success: true, ...res.value });
         return formatBusinessErrorResponse(c, res.error);
