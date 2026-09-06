@@ -33,8 +33,7 @@ function stripNoise(raw: string): string {
 }
 
 /** 从 AI 回复中抽取追问候选；抽不到返回 []。 */
-export function extractFollowUps(aiText: string): string[] {
-  if (!aiText.trim()) return [];
+export function extractFollowUps(aiText: string): string[] {  if (!aiText.trim()) return [];
   const cleaned = stripNoise(aiText);
   const seen = new Set<string>();
   const out: string[] = [];
@@ -48,4 +47,46 @@ export function extractFollowUps(aiText: string): string[] {
     if (out.length >= MAX_FOLLOWUPS) break;
   }
   return out;
+}
+
+export const PREDICTED_BLOCK_MARKER = '【追问】';
+
+/**
+ * 解析模型按指令追加的末尾预测块：
+ *   …正文…
+ *   【追问】
+ *   1. ……？
+ *   2. ……？
+ * 返回 { chips, displayText }：displayText 为剥离预测块后的正文（用于展示与朗读）。
+ * 无合法块时 chips 为 [] 且 displayText 原样返回（调用方降级到 extractFollowUps）。
+ */
+export function extractPredictedFollowUps(aiText: string): { chips: string[]; displayText: string } {
+  const fallback = { chips: [] as string[], displayText: aiText };
+  const markerIdx = aiText.lastIndexOf(PREDICTED_BLOCK_MARKER);
+  if (markerIdx < 0) return fallback;
+  // 标记行本身必须独占一行（防正文偶然出现该词）
+  const lineStart = aiText.lastIndexOf('\n', markerIdx - 1) + 1;
+  const markerLineEnd = aiText.indexOf('\n', markerIdx);
+  const markerLine = aiText.slice(lineStart, markerLineEnd < 0 ? aiText.length : markerLineEnd).trim();
+  if (markerLine !== PREDICTED_BLOCK_MARKER) return fallback;
+  const tail = aiText.slice(markerLineEnd < 0 ? aiText.length : markerLineEnd + 1);
+  const tailLines = tail
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (tailLines.length === 0 || tailLines.length > 4) return fallback;
+  const chips: string[] = [];
+  for (const line of tailLines) {
+    const cleaned = line
+      .replace(/^\s*(?:\d+[.)、]|[•\-*])\s*/, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!/[?？]$/.test(cleaned)) continue;
+    if (cleaned.length < 2 || cleaned.length > MAX_FOLLOWUP_LENGTH) continue;
+    if (chips.includes(cleaned)) continue;
+    chips.push(cleaned);
+    if (chips.length >= MAX_FOLLOWUPS) break;
+  }
+  if (chips.length === 0) return fallback;
+  return { chips, displayText: aiText.slice(0, lineStart).trimEnd() };
 }

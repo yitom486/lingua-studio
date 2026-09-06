@@ -17,7 +17,7 @@ import { ErrorBoundary } from './common/ErrorBoundary.js';
 import { MarkdownText } from './common/MarkdownText.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { toSpeakableText } from '../lib/speakable.js';
-import { extractFollowUps } from '../lib/followups.js';
+import { extractFollowUps, extractPredictedFollowUps } from '../lib/followups.js';
 import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import {
   buildTutorBootstrapPrompt,
@@ -62,6 +62,12 @@ interface AiTutorDrawerProps {
 function normalizeTutorLanguage(lang: string): TrackLanguage {
   return normalizeTrackLanguage(lang);
 }
+
+// 与网关 agent-router.ts 的 lite 短问阈值对齐（prompt.length <= 24）。
+const LITE_SHORT_PROMPT_MAX = 24;
+// 追问室所有在线 EXPLAIN 发送统一追加：让模型预测用户接下来最可能问的短问题。
+const PREDICTED_FOLLOWUP_SUFFIX =
+  '\n\n【输出要求追加】回答末尾另起一段：先单独写一行【追问】，然后写 3 行，预测我接下来最可能想问的短问题（每行一个，以问号结尾，不展开讲解）。';
 
 function buildTutorClientSnapshot(
   ctx: AiTutorContext,
@@ -125,7 +131,10 @@ export function AiTutorDrawer({
       const threadId = usePreferencesStore.getState().learningThreadId;
 
       return gateway.sendTurnStream({
-        input,
+        // 与网关 agent-router.ts 的 lite 短问阈值对齐（prompt.length <= 24）：
+        // 短问题走极速规则通道，不追加预测指令；长问题走模型，追加【追问】预测指令。
+        input:
+          input.length > LITE_SHORT_PROMPT_MAX ? input + PREDICTED_FOLLOWUP_SUFFIX : input,
         intent,
         contextSnapshot: buildSnapshot(),
         agentOptions: {
@@ -381,14 +390,20 @@ export function AiTutorDrawer({
 
   const track = normalizeTutorLanguage(profile.targetLanguage);
   const tutorCopy = getTutorTrackCopy(track);
-  // 追问 chips 不再写死：优先取 AI 上一条回复里真正提出的问题，
-  // 抽不到（首轮/纯陈述/离线骨架）才回退轨道默认三条。
+  // 追问 chips 不再写死，优先级：模型预测的【追问】块 > 回复正文里的真问题 > 轨道默认。
+  // 抽不到（首轮/纯陈述/离线骨架/短问走 lite 通道）才回退轨道默认三条。
   const quickPrompts = React.useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m && m.sender === 'ai' && !m.isStreaming && m.text.trim()) {
-        const found = extractFollowUps(m.text);
-        if (found.length > 0) return found;
+        const predicted = extractPredictedFollowUps(m.text);
+        const inText = extractFollowUps(predicted.displayText);
+        const merged = [...predicted.chips];
+        for (const q of inText) {
+          if (!merged.includes(q)) merged.push(q);
+          if (merged.length >= 3) break;
+        }
+        if (merged.length > 0) return merged;
         break;
       }
     }
@@ -601,7 +616,13 @@ export function AiTutorDrawer({
                         </div>
                       ) : null}
                       {isAi ? (
-                        <MarkdownText text={msg.text} />
+                        <MarkdownText
+                          text={
+                            msg.isStreaming
+                              ? msg.text
+                              : extractPredictedFollowUps(msg.text).displayText
+                          }
+                        />
                       ) : (
                         msg.text
                       )}
@@ -662,7 +683,11 @@ export function AiTutorDrawer({
                         </div>
                       )}
                       {isAi && !msg.isStreaming && (() => {
-                        const speakable = toSpeakableText(msg.text, track);
+                        // 朗读只读正文：预测块是中文问题串，用日语声音硬读是灾难
+                        const speakable = toSpeakableText(
+                          extractPredictedFollowUps(msg.text).displayText,
+                          track
+                        );
                         return speakable ? (
                           <div className="mt-1.5">
                             <UnifiedTtsPlayer

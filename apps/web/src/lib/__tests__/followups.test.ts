@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { extractFollowUps } from '../followups.js';
+import { extractFollowUps, extractPredictedFollowUps } from '../followups.js';
 
 describe('extractFollowUps', () => {
   test('抽 AI 回复里的真问题', () => {
@@ -34,5 +34,30 @@ describe('extractFollowUps', () => {
       'か行的其他假名怎么写？',
       '濁点が和か怎么区分？',
     ]);
+  });
+});
+
+describe('extractPredictedFollowUps', () => {
+  test('末尾【追问】块被解析并从正文剥离', () => {
+    const reply =
+      '「か」像"力"旁带一点。\n\n【追问】\n1. 片假名カ和か有什么关系？\n2. か行的其他假名怎么写？\n3. が和か怎么区分？';
+    const { chips, displayText } = extractPredictedFollowUps(reply);
+    expect(chips).toEqual([
+      '片假名カ和か有什么关系？',
+      'か行的其他假名怎么写？',
+      'が和か怎么区分？',
+    ]);
+    expect(displayText).toBe('「か」像"力"旁带一点。');
+  });
+
+  test('无标记/标记行不独立/块内无问句 → 原样返回', () => {
+    expect(extractPredictedFollowUps('纯讲解。')).toEqual({ chips: [], displayText: '纯讲解。' });
+    expect(
+      extractPredictedFollowUps('提到【追问】这个词但不是块。')
+    ).toEqual({ chips: [], displayText: '提到【追问】这个词但不是块。' });
+    expect(extractPredictedFollowUps('正文\n【追问】\n今天天气不错')).toEqual({
+      chips: [],
+      displayText: '正文\n【追问】\n今天天气不错',
+    });
   });
 });
