@@ -529,6 +529,37 @@ export function useGenerateKanaWordsMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+/** 韩语词语（听写选词/词义回想，韩语表层形 + 英文释义，无需输入法）。 */
+export interface HangulWordItem {
+  id: string;
+  entryId: string;
+  korean: string;
+  meanings: string[];
+  audioText: string;
+  sourceLabel: string;
+}
+
+/** 调用 Gateway learning.content 生成韩语单词（词池=已安装韩语词典包，未安装抛错由 UI 显式引导）。 */
+export function useGenerateHangulWordsMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (payload?: { count?: number }) => {
+      const res = await apiClient.api.learning.content[':userId'].$post({
+        param: { userId },
+        json: {
+          action: 'generate_hangul_words',
+          count: payload?.count || 8,
+          collect: false,
+          language: 'ko',
+        },
+      });
+      if (!res.ok) throw new Error('生成韩语单词失败');
+      const data = (await res.json()) as { hangulWords?: HangulWordItem[] };
+      if (!data.hangulWords?.length) throw new Error('韩语单词为空');
+      return data.hangulWords;
+    },
+  });
+}
+
 /** 调用 Gateway learning.content 生成挖词听写 */
 export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
   return useMutation({

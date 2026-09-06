@@ -8,6 +8,7 @@ import {
   XCircle,
   Bot,
   Award,
+  BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
@@ -18,6 +19,9 @@ import { Badge } from './ui/badge.js';
 import {
   useCurriculumHangulQuery,
   useHangulPracticeMutation,
+  useGenerateHangulWordsMutation,
+  useCollectDictionaryEntryMutation,
+  type HangulWordItem,
 } from '../queries/useLearnerQueries.js';
 import type { HangulItem } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
@@ -27,7 +31,7 @@ interface HangulStudioWorkbenchProps {
 }
 
 type MatrixTab = 'CONSONANT' | 'VOWEL' | 'ADVANCED';
-type DrillMode = 'AUDIO_TO_JAMO' | 'JAMO_TO_ROMA' | 'MIXED';
+type DrillMode = 'AUDIO_TO_JAMO' | 'JAMO_TO_ROMA' | 'MIXED' | 'WORD_DICTATION' | 'WORD_MEANING';
 type RecognitionMode = 'AUDIO_TO_JAMO' | 'JAMO_TO_ROMA';
 const RECOGNITION_MODES: RecognitionMode[] = ['AUDIO_TO_JAMO', 'JAMO_TO_ROMA'];
 /** 题量档（0 = 全部）。 */
@@ -73,6 +77,15 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   const [drillCorrect, setDrillCorrect] = useState(0);
   const [roundDone, setRoundDone] = useState(false);
 
+  // 单词巩固（听写选词 / 词义回想）：词表来自 Gateway 本地韩语词典包，未安装走显式引导
+  const generateWords = useGenerateHangulWordsMutation();
+  const collectEntry = useCollectDictionaryEntryMutation();
+  const [wordList, setWordList] = useState<HangulWordItem[]>([]);
+  const [wordIndex, setWordIndex] = useState(0);
+  const [wordFailed, setWordFailed] = useState(false);
+  const isWordMode = drillMode === 'WORD_DICTATION' || drillMode === 'WORD_MEANING';
+  const currentWord: HangulWordItem | undefined = wordList[wordIndex];
+
   // 题池跟随矩阵选项卡（进阶 = y 系母音 + 复合母音 + 收音代表音）
   const pool = useMemo(
     () =>
@@ -88,7 +101,11 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
 
   const current: HangulItem | undefined = plan[drillIndex];
   const activeMode: RecognitionMode =
-    drillMode === 'MIXED' ? (mixedPlan[drillIndex] ?? 'AUDIO_TO_JAMO') : drillMode;
+    drillMode === 'MIXED'
+      ? (mixedPlan[drillIndex] ?? 'AUDIO_TO_JAMO')
+      : drillMode === 'JAMO_TO_ROMA'
+        ? 'JAMO_TO_ROMA'
+        : 'AUDIO_TO_JAMO';
 
   const options = useMemo(() => {
     if (!current) return [];
@@ -111,7 +128,46 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
     void speechStudio.speak(current.audioText || current.jamo, { lang: 'KO' });
   }, [isDrillActive, roundDone, activeMode, current, drillIndex]);
 
+  // 单词模式：激活后词表为空即拉取（未安装词典包走 wordFailed 显式引导）
+  useEffect(() => {
+    if (!isDrillActive || !isWordMode || wordList.length > 0 || generateWords.isPending || wordFailed) return;
+    generateWords.mutate(
+      { count: 8 },
+      {
+        onSuccess: (words) => {
+          setWordList(words);
+          setWordIndex(0);
+        },
+        onError: () => {
+          setWordFailed(true);
+          toast.error('韩语单词加载失败：请先安装韩语词典包。');
+        },
+      }
+    );
+  }, [isDrillActive, isWordMode, wordList.length, wordFailed, generateWords.isPending, generateWords.mutate]);
+
+  // 听写选词：新词切出即自动播报（作答后不再重播）
+  useEffect(() => {
+    if (!isDrillActive || drillMode !== 'WORD_DICTATION' || !currentWord) return;
+    void speechStudio.speak(currentWord.audioText || currentWord.korean, { lang: 'KO' });
+  }, [isDrillActive, drillMode, currentWord]);
+
   const startDrill = () => {
+    setDrillIndex(0);
+    setWordIndex(0);
+    setSelectedOption(null);
+    setIsAnswered(false);
+    setDrillAnswered(0);
+    setDrillCorrect(0);
+    setRoundDone(false);
+    if (isWordMode) {
+      // 单词模式：清空旧表，由 effect 拉取新一批（未安装词典包走显式引导）
+      setWordList([]);
+      setWordFailed(false);
+      setIsDrillActive(true);
+      sound.playClick();
+      return;
+    }
     const source = pool.length > 0 ? pool : allHangul;
     if (source.length === 0) {
       toast.error('谚文底座尚未加载，请稍后重试。');
@@ -134,6 +190,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   const stopDrill = () => {
     setIsDrillActive(false);
     setRoundDone(false);
+    setWordFailed(false);
     sound.playClick();
   };
 
@@ -169,6 +226,75 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
   };
 
   const accuracy = drillAnswered > 0 ? Math.round((drillCorrect / drillAnswered) * 100) : 0;
+
+  // 单词选项（听写选词：韩语表层形四选一；词义回想：英文释义四选一；均无需输入法）
+  const wordOptions = useMemo(() => {
+    if (!currentWord) return [];
+    if (drillMode === 'WORD_MEANING') {
+      const correct = currentWord.meanings[0] ?? '';
+      const distractors = wordList
+        .filter((w) => w.id !== currentWord.id)
+        .map((w) => w.meanings[0] ?? '')
+        .filter((m) => m && m !== correct)
+        .slice(0, 3);
+      return shuffle([correct, ...distractors]);
+    }
+    const distractors = wordList
+      .filter((w) => w.id !== currentWord.id)
+      .map((w) => w.korean)
+      .filter((k) => k && k !== currentWord.korean)
+      .slice(0, 3);
+    return shuffle([currentWord.korean, ...distractors]);
+  }, [currentWord, wordList, drillMode, wordIndex]);
+
+  const wordCorrectAnswer =
+    currentWord != null
+      ? drillMode === 'WORD_MEANING'
+        ? (currentWord.meanings[0] ?? '')
+        : currentWord.korean
+      : '';
+
+  /** 单词成绩记入 ko.hangul.compound（整词运用；entryId 仅作追踪，见 kana 同源实现）。 */
+  const answerWord = (option: string) => {
+    if (isAnswered || !currentWord) return;
+    const ok = option === wordCorrectAnswer;
+    setSelectedOption(option);
+    setIsAnswered(true);
+    setDrillAnswered((n) => n + 1);
+    if (ok) {
+      setDrillCorrect((n) => n + 1);
+      sound.playSuccess();
+    } else {
+      sound.playError();
+    }
+    practiceMutation.mutate({
+      hangulId: currentWord.entryId,
+      isCorrect: ok,
+      scriptType: 'COMPOUND',
+    });
+  };
+
+  const nextWord = () => {
+    if (wordIndex + 1 >= wordList.length) {
+      setRoundDone(true);
+      const acc = drillAnswered + 1 > 0 ? (drillCorrect + (selectedOption === wordCorrectAnswer ? 1 : 0)) / (drillAnswered + 1) : 0;
+      if (acc >= 0.8) fireSuccessConfetti();
+      return;
+    }
+    setWordIndex((i) => i + 1);
+    setSelectedOption(null);
+    setIsAnswered(false);
+  };
+
+  const askTutorWord = () => {
+    if (!onOpenTutor || !currentWord) return;
+    onOpenTutor({
+      questionText: `韩语单词「${currentWord.korean}」（${currentWord.meanings.join('；')}），请讲解用法与常见搭配。`,
+      correctAnswer: `${currentWord.korean} = ${currentWord.meanings[0] ?? ''}`,
+      skillTag: 'ko.hangul.compound',
+      explanation: `来源：${currentWord.sourceLabel}`,
+    });
+  };
 
   const askTutor = () => {
     if (!onOpenTutor || !current) return;
@@ -295,12 +421,19 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
               <span className="text-sm font-medium">自测模式</span>
               <select
                 value={drillMode}
-                onChange={(e) => setDrillMode(e.target.value as DrillMode)}
+                onChange={(e) => {
+                  setDrillMode(e.target.value as DrillMode);
+                  setIsDrillActive(false);
+                  setRoundDone(false);
+                  sound.playClick();
+                }}
                 className="rounded-md border bg-background px-2 py-1 text-sm"
               >
                 <option value="AUDIO_TO_JAMO">听音辨字</option>
                 <option value="JAMO_TO_ROMA">看字辨音</option>
                 <option value="MIXED">综合混合</option>
+                <option value="WORD_DICTATION">听写选词</option>
+                <option value="WORD_MEANING">词义回想</option>
               </select>
               <span className="text-sm font-medium ml-2">题量</span>
               <select
@@ -328,7 +461,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
               )}
             </div>
 
-            {isDrillActive && !roundDone && current && (
+            {isDrillActive && !roundDone && !isWordMode && current && (
               <div className="space-y-4">
                 <div className="text-sm text-muted-foreground">
                   第 {drillIndex + 1} / {plan.length} 题 · {activeMode === 'AUDIO_TO_JAMO' ? '听发音选字母' : '看字母选罗马字'}
@@ -398,12 +531,122 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
               </div>
             )}
 
+            {isDrillActive && isWordMode && !roundDone && wordFailed && wordList.length === 0 && (
+              <div className="rounded-xl border border-dashed p-6 text-center space-y-2">
+                <BookOpen className="h-6 w-6 mx-auto text-muted-foreground" />
+                <div className="text-sm font-medium">本地词典暂无韩语词语</div>
+                <div className="text-xs text-muted-foreground leading-relaxed">
+                  单词巩固取自已安装的韩语词典包（Kengdic）。请先到「设置 → 词典」安装韩语包，再回来练习；字母自测不受影响。
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setWordFailed(false);
+                    sound.playClick();
+                  }}
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                  重试
+                </Button>
+              </div>
+            )}
+
+            {isDrillActive && isWordMode && !roundDone && !wordFailed && wordList.length === 0 && (
+              <div className="rounded-xl border p-8 text-center text-sm text-muted-foreground">
+                韩语单词加载中…
+              </div>
+            )}
+
+            {isDrillActive && isWordMode && !roundDone && currentWord && (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  第 {wordIndex + 1} / {wordList.length} 词 · {drillMode === 'WORD_DICTATION' ? '听发音选单词（四选一，无需输入法）' : '看单词选英文释义'}
+                </div>
+                {drillMode === 'WORD_DICTATION' ? (
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={() => void speechStudio.speak(currentWord.audioText || currentWord.korean, { lang: 'KO' })}
+                  >
+                    <Volume2 className="h-5 w-5 mr-2" />
+                    重播发音
+                  </Button>
+                ) : (
+                  <div className="text-4xl font-bold text-center py-2">{currentWord.korean}</div>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {wordOptions.map((opt) => {
+                    const isCorrectOpt = opt === wordCorrectAnswer;
+                    const isPicked = opt === selectedOption;
+                    return (
+                      <button
+                        key={opt}
+                        disabled={isAnswered}
+                        onClick={() => answerWord(opt)}
+                        className={`rounded-xl border p-3 text-lg font-medium transition ${
+                          isAnswered && isCorrectOpt
+                            ? 'border-green-500 bg-green-500/10'
+                            : isAnswered && isPicked
+                              ? 'border-red-500 bg-red-500/10'
+                              : 'hover:border-primary'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+                {isAnswered && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      {selectedOption === wordCorrectAnswer ? (
+                        <>
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          回答正确 · {currentWord.korean} = {currentWord.meanings.join('；')}
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-4 w-4 text-red-500" />
+                          正确答案：{wordCorrectAnswer} · {currentWord.korean} = {currentWord.meanings.join('；')}
+                        </>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={nextWord}>
+                        {wordIndex + 1 >= wordList.length ? '查看战报' : '下一词'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          collectEntry.mutate(currentWord.entryId, {
+                            onSuccess: () => toast.success('已加入生词本，可到闪卡复习。'),
+                            onError: () => toast.error('加入生词本失败，请稍后重试。'),
+                          })
+                        }
+                      >
+                        <BookOpen className="h-3.5 w-3.5 mr-1" />
+                        转生词卡
+                      </Button>
+                      {onOpenTutor && (
+                        <Button size="sm" variant="outline" onClick={askTutorWord}>
+                          <Bot className="h-3.5 w-3.5 mr-1" />
+                          问 AI 老师
+                        </Button>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+            )}
+
             {isDrillActive && roundDone && (
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-2 py-4">
                 <Award className="h-8 w-8 mx-auto text-primary" />
                 <div className="text-lg font-semibold">本轮战报 · 正确率 {accuracy}%</div>
                 <div className="text-sm text-muted-foreground">
-                  共 {drillAnswered} 题 · 答对 {drillCorrect} 题（已回写学情画像与打卡）
+                  共 {drillAnswered} {isWordMode ? '词' : '题'} · 答对 {drillCorrect} {isWordMode ? '词' : '题'}（已回写学情画像与打卡）
                 </div>
                 <div className="flex justify-center gap-2 pt-2">
                   <ShimmerButton onClick={startDrill}>再来一轮</ShimmerButton>
