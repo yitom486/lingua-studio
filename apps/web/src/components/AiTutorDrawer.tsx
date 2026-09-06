@@ -403,6 +403,14 @@ export function AiTutorDrawer({
     );
   };
 
+  // “拓展追问”：让 AI 按本次问答给出值得深挖的延伸问题（编号短句，回来即变 chips）。
+  const handleExpandAsk = () => {
+    const tag = context?.skillTag ? `关于「${context.skillTag}」` : '';
+    handleSendMessage(
+      `基于以上${tag}的讨论，给我 3 个值得深挖的拓展问题：编号，每条一行，以问号结尾，简短，不要展开讲解。`
+    );
+  };
+
   // ---- 浮动定位（可任意拖拽）：默认右侧垂直居中，脱离文档流，不挤压主屏 ----
   const [panelPos, setPanelPos] = useState<{ right: number; top: number } | null>(null);
   const dragState = useRef<{ startX: number; startY: number; origRight: number; origTop: number } | null>(null);
@@ -713,6 +721,16 @@ export function AiTutorDrawer({
                 title="让 AI 按本次讲解现场出一道单选题"
               >
                 📝 就本轮考我一题
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExpandAsk}
+                disabled={isTyping}
+                className="h-7 rounded-full text-[11px] px-2.5 border-amber-500/50 text-amber-700 dark:text-amber-300"
+                title="让 AI 按本次问答给出值得深挖的拓展问题"
+              >
+                ✨ 拓展追问
               </Button>
             </div>
 

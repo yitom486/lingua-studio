@@ -25,4 +25,14 @@ describe('extractFollowUps', () => {
     expect(extractFollowUps('陈述句讲解。没有提问。')).toEqual([]);
     expect(extractFollowUps('')).toEqual([]);
   });
+
+  test('拓展追问返回的编号问句可直接变 chips', () => {
+    const reply =
+      '这 3 个问题值得深挖：\n1. 片假名カ和ひらがなか有什么关系？\n2. か行的其他假名怎么写？\n3. 濁点が和か怎么区分？';
+    expect(extractFollowUps(reply)).toEqual([
+      '片假名カ和ひらがなか有什么关系？',
+      'か行的其他假名怎么写？',
+      '濁点が和か怎么区分？',
+    ]);
+  });
 });
