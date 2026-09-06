@@ -428,7 +428,19 @@ export function SystemSettingsPopover() {
             <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-400 truncate">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
               <span className="truncate">
-                当前引擎: {activeSystemVoice?.name || '系统默认 · 随语种自动匹配'}
+                {(() => {
+                  if (!isCustomPluginEnabled) {
+                    return `当前引擎: ${activeSystemVoice?.name || '系统默认 · 随语种自动匹配'}`;
+                  }
+                  if (proxyProvider === 'azure-speech') {
+                    const saved =
+                      azureVoiceOptions.find((v) => v.value === customPluginVoiceId) ??
+                      azureVoiceOptions.find((v) => v.gender === gender) ??
+                      azureVoiceOptions[0];
+                    return `当前引擎: Azure · ${saved ? `${saved.label} · ${saved.value}` : '按语种自动'}`;
+                  }
+                  return `当前引擎: 兼容端点 · ${customPluginVoiceId || (gender === 'MALE' ? 'echo（男）' : 'alloy（女）')}`;
+                })()}
               </span>
             </div>
 

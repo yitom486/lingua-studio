@@ -111,8 +111,9 @@ function buildProviderRequest(input: Required<Pick<TtsProxySynthesizeInput, 'pro
     const region = (input.region ?? input.baseUrl ?? '').trim();
     if (!region) return { error: badInput('Azure Speech 需要填写区域（如 japaneast）。') };
     if (!apiKey) return { error: badInput('Azure Speech 需要 API Key，请先填写后再试。') };
-    const resolvedVoice = voice || AZURE_DEFAULT_VOICES[track];
-    const ssml = buildAzureSsml(text, { voice: resolvedVoice, trackLanguage: track, rate: input.rate });
+    const gender = input.gender ?? 'FEMALE';
+    const resolvedVoice = voice || AZURE_DEFAULT_VOICES[track]?.[gender] || AZURE_DEFAULT_VOICES.en.FEMALE;
+    const ssml = buildAzureSsml(text, { voice: resolvedVoice, trackLanguage: track, gender, rate: input.rate });
     return {
       url: azureTtsEndpoint(region),
       headers: azureTtsHeaders(apiKey),

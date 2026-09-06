@@ -173,6 +173,29 @@ describe('tts proxy (azure-speech)', () => {
     expect(isOk(noKey)).toBe(false);
   });
 
+  it('routes male auto voice to Keita (top gender reaches the cloud)', async () => {
+    let seenBody = '';
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seenBody = String(init?.body ?? '');
+      return okAudio();
+    });
+    const res = await synthesizeViaProxy(
+      {
+        provider: 'azure-speech',
+        text: 'おはよう',
+        trackLanguage: 'ja',
+        region: 'japaneast',
+        apiKey: 'azure-key',
+        gender: 'MALE',
+      },
+      fetchImpl
+    );
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(seenBody).toContain('ja-JP-KeitaNeural');
+    expect(res.value.voice).toBe('ja-JP-KeitaNeural');
+  });
+
   it('maps Azure empty-body 400 to invalid input (live behavior for bad SSML)', async () => {
     // 2026-09-06 japaneast 实测：坏 SSML 回 400 且 body 为空
     const fetchImpl = stubFetch(async () => new Response('', { status: 400 }));

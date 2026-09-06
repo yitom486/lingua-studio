@@ -170,10 +170,13 @@ describe('openai-compatible plugin endpoint', () => {
 });
 
 describe('azure speech helpers', () => {
-  it('exposes per-track default neural voices', () => {
-    expect(AZURE_DEFAULT_VOICES.ja).toBe('ja-JP-NanamiNeural');
-    expect(AZURE_DEFAULT_VOICES.ko).toBe('ko-KR-SunHiNeural');
-    expect(AZURE_DEFAULT_VOICES.en).toBe('en-US-JennyNeural');
+  it('exposes per-track per-gender default neural voices', () => {
+    expect(AZURE_DEFAULT_VOICES.ja.FEMALE).toBe('ja-JP-NanamiNeural');
+    expect(AZURE_DEFAULT_VOICES.ja.MALE).toBe('ja-JP-KeitaNeural');
+    expect(AZURE_DEFAULT_VOICES.ko.FEMALE).toBe('ko-KR-SunHiNeural');
+    expect(AZURE_DEFAULT_VOICES.ko.MALE).toBe('ko-KR-InJoonNeural');
+    expect(AZURE_DEFAULT_VOICES.en.FEMALE).toBe('en-US-JennyNeural');
+    expect(AZURE_DEFAULT_VOICES.en.MALE).toBe('en-US-GuyNeural');
   });
 
   it('builds the regional REST endpoint', () => {

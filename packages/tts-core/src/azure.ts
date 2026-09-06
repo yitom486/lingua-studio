@@ -5,11 +5,11 @@
  */
 import type { TtsTrackLanguage } from './types.js';
 
-/** 分轨道默认神经音色（通用、跨区可用）。 */
-export const AZURE_DEFAULT_VOICES: Record<TtsTrackLanguage, string> = {
-  ja: 'ja-JP-NanamiNeural',
-  ko: 'ko-KR-SunHiNeural',
-  en: 'en-US-JennyNeural',
+/** 分轨道×性别默认神经音色（顶部男女声在自动档下直达云端）。 */
+export const AZURE_DEFAULT_VOICES: Record<TtsTrackLanguage, Record<'FEMALE' | 'MALE', string>> = {
+  ja: { FEMALE: 'ja-JP-NanamiNeural', MALE: 'ja-JP-KeitaNeural' },
+  ko: { FEMALE: 'ko-KR-SunHiNeural', MALE: 'ko-KR-InJoonNeural' },
+  en: { FEMALE: 'en-US-JennyNeural', MALE: 'en-US-GuyNeural' },
 };
 
 export const AZURE_VOICE_LANG: Record<TtsTrackLanguage, string> = {
@@ -48,12 +48,16 @@ export function buildAzureSsml(
   options?: {
     voice?: string | undefined;
     trackLanguage?: TtsTrackLanguage | undefined;
+    gender?: 'FEMALE' | 'MALE' | undefined;
     rate?: number | undefined;
   }
 ): string {
   const track = options?.trackLanguage ?? 'en';
+  const gender = options?.gender ?? 'FEMALE';
   const voice =
-    (options?.voice ?? '').trim() || AZURE_DEFAULT_VOICES[track] || AZURE_DEFAULT_VOICES.en;
+    (options?.voice ?? '').trim() ||
+    AZURE_DEFAULT_VOICES[track]?.[gender] ||
+    AZURE_DEFAULT_VOICES.en.FEMALE;
   const lang = AZURE_VOICE_LANG[track] || AZURE_VOICE_LANG.en;
   const rate = options?.rate;
   // 注意：Azure 对无属性的 <prosody> 空壳直接回 400；无 rate 时不包 prosody
