@@ -31,7 +31,7 @@ export interface PlanIntent {
 export type TutorSurface = 'free' | 'question';
 
 export interface PresentedQuizPackage {
-  surface: 'quiz' | 'cards' | 'kana_drill' | 'reading_quiz' | 'writing';
+  surface: 'quiz' | 'cards' | 'kana_drill' | 'hangul_drill' | 'reading_quiz' | 'writing';
   layout?: 'SPLIT_PASSAGE_QUESTIONS' | 'SINGLE_COLUMN' | undefined;
   collectionId?: string | undefined;
   questions: GeneratedQuestion[];
@@ -154,7 +154,9 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
             ? 'WRITING'
             : pkg.surface === 'kana_drill'
               ? 'KANA'
-              : 'QUIZ',
+              : pkg.surface === 'hangul_drill'
+                ? 'HANGUL'
+                : 'QUIZ',
     }),
   clearPresentedQuiz: () => set({ presentedQuiz: null }),
   setPlanIntent: (planIntent) => set({ planIntent }),

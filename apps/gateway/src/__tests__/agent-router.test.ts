@@ -25,6 +25,12 @@ describe('selectAgentRoute', () => {
     expect(selectAgentRoute({ userPrompt: 'drill', intent: 'DRILL_KANA' }).route).toBe(
       'responses-lite'
     );
+    expect(selectAgentRoute({ userPrompt: 'drill', intent: 'DRILL_HANGUL' }).route).toBe(
+      'responses-lite'
+    );
+    expect(
+      selectAgentRoute({ userPrompt: 'drill', intent: 'DRILL_HANGUL' }).reason
+    ).toBe('drill_hangul_intent');
   });
 
   it('routes track-aware lite hints', () => {

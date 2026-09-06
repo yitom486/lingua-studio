@@ -14,6 +14,7 @@ import { MSG, resolveContentLanguage } from './learning-content/shared.js';
 import { handleQuizAction, buildDictation } from './learning-content/quiz.js';
 import { handleExplainAction, handleExampleSetAction } from './learning-content/explain.js';
 import { handleKanaDrillAction } from './learning-content/kana.js';
+import { handleHangulDrillAction } from './learning-content/hangul.js';
 import { handleKanaWordsAction, type KanaWord } from './learning-content/kana-words.js';
 import { handleWritingPromptAction } from './learning-content/writing.js';
 import { handlePassageAction } from './learning-content/passage.js';
@@ -27,6 +28,8 @@ export const LearningContentInputSchema = z.object({
     'explain',
     'example_set',
     'kana_drill',
+    // 谚文认读小测：从 curriculum_hangul 随机组看字母选罗马字题（系统随机，零成本）
+    'hangul_drill',
     // 假名单词听写/词义巩固：从本地词典随机抽取带假名读音的词语（系统随机，零成本）
     'generate_kana_words',
     'generate_passage',
@@ -159,6 +162,8 @@ export class LearningContentTool
           return handleExplainAction(repo, input, language);
         case 'kana_drill':
           return handleKanaDrillAction(repo, context, input);
+        case 'hangul_drill':
+          return handleHangulDrillAction(repo, context, input);
         case 'generate_kana_words':
           return handleKanaWordsAction(repo, context, input);
         case 'generate_writing_prompt':

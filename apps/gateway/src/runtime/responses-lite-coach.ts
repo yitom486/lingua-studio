@@ -9,12 +9,13 @@ import {
   extractPitchQueryTokens,
 } from '../infrastructure/db/seeds/pitch-seed.js';
 import { KANA_SEEDS } from '../infrastructure/db/seeds/kana-seed.js';
+import { HANGUL_SEEDS } from '../infrastructure/db/seeds/hangul-seed.js';
 
 export type LiteTrack = 'ja' | 'en' | 'ko';
 
 export interface LiteCoachHit {
   reply: string;
-  source: 'pitch-lexicon' | 'kana-seed' | 'particle-tip';
+  source: 'pitch-lexicon' | 'kana-seed' | 'hangul-seed' | 'particle-tip';
 }
 
 const PARTICLE_TIPS: Array<{
@@ -112,12 +113,27 @@ export function resolveResponsesLiteCoach(params: {
     }
   }
 
+  if (track === 'ko') {
+    const hangulFirst =
+      /谚文|韩语字母|자모|한글|怎么写|读作|罗马字|romanization/i.test(prompt) &&
+      !/조사|助词|문법|语法/i.test(prompt);
+    if (hangulFirst) {
+      const hangul = tryHangulCoachReply(prompt);
+      if (hangul) return hangul;
+    }
+  }
+
   const particle = tryParticleCoachReply(prompt, track);
   if (particle) return particle;
 
   if (track === 'ja') {
     const kana = tryKanaCoachReply(prompt);
     if (kana) return kana;
+  }
+
+  if (track === 'ko') {
+    const hangul = tryHangulCoachReply(prompt);
+    if (hangul) return hangul;
   }
 
   return null;
@@ -203,5 +219,61 @@ export function tryKanaCoachReply(prompt: string): LiteCoachHit | null {
       blocks.join('\n\n') +
       '\n\n可在「五十音工作室」继续自测；正式 TTS/听写仍走学习闭环工具。',
     source: 'kana-seed',
+  };
+}
+
+const HANGUL_TYPE_LABEL: Record<string, string> = {
+  CONSONANT: '子音',
+  VOWEL: '基本母音',
+  YVOWEL: 'y 系母音',
+  COMPOUND: '复合母音',
+  CODA: '收音代表音',
+};
+
+export function tryHangulCoachReply(prompt: string): LiteCoachHit | null {
+  const looksHangul =
+    /谚文|韩语字母|자모|한글|怎么写|读作|罗马字|romanization/i.test(prompt);
+  // 只认字母区间（ㄱ-ㅎㅏ-ㅣ），音节块（가-힣）不触发，避免劫持普通韩语闲聊
+  if (!looksHangul && !/[ㄱ-ㅎㅏ-ㅣ]/.test(prompt)) return null;
+
+  const tokens = new Set<string>();
+  for (const m of prompt.matchAll(/[ㄱ-ㅎㅏ-ㅣ]{1,4}/g)) tokens.add(m[0]!);
+  for (const m of prompt.matchAll(/\b([a-zA-Z]{1,4})\b/g)) {
+    tokens.add(m[1]!.toLowerCase());
+  }
+
+  const hits = HANGUL_SEEDS.filter((h) => {
+    for (const t of tokens) {
+      if (
+        h.jamo === t ||
+        h.name === t ||
+        h.romanization.toLowerCase() === t
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }).slice(0, 5);
+
+  if (hits.length === 0) {
+    if (!looksHangul) return null;
+    return {
+      reply:
+        '【谚文课程】未匹配到具体字母。可问「ㄱ怎么读」「ya 是哪个母音」，或打开「谚文工作室」对照练习。',
+      source: 'hangul-seed',
+    };
+  }
+
+  const blocks = hits.map(
+    (h, i) =>
+      `${i + 1}. ${h.jamo}（${h.name}）· ${h.romanization}（${HANGUL_TYPE_LABEL[h.type] ?? h.type}）` +
+      (h.mnemonic ? `\n   要点：${h.mnemonic}` : '')
+  );
+  return {
+    reply:
+      `【谚文课程】匹配到 ${hits.length} 条：\n\n` +
+      blocks.join('\n\n') +
+      '\n\n可在「谚文工作室」继续自测；正式 TTS/听写仍走学习闭环工具。',
+    source: 'hangul-seed',
   };
 }

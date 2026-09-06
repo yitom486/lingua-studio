@@ -211,6 +211,32 @@ describe('ContextBuilder.buildTurnSnapshot', () => {
     expect(Array.isArray(snapshot.metadata?.coachHints)).toBe(true);
   });
 
+  it('fills hangul mastery on ko track and omits kana mastery', async () => {
+    const builder = new ContextBuilder();
+    const snapshot = await builder.buildTurnSnapshot(
+      'u1',
+      mockRepo({
+        targetLanguage: 'ko',
+        overallLevel: 'A1',
+        metrics: [
+          { id: 'ko.hangul.consonant', name: '자음', proficiency: 0.8 },
+          { id: 'ko.hangul.vowel', name: '모음', proficiency: 0.6 },
+          { id: 'ko.hangul.compound', name: '복모음·받침', proficiency: 0.4 },
+        ],
+      }),
+      {
+        targetLanguage: 'ko',
+        ui: { activeTab: 'HANGUL' },
+      }
+    );
+
+    expect(snapshot.targetLanguage).toBe('ko');
+    expect(snapshot.learnerDigest?.hangulMastery?.consonant).toBe(0.8);
+    expect(snapshot.learnerDigest?.hangulMastery?.vowel).toBe(0.6);
+    expect(snapshot.learnerDigest?.hangulMastery?.compound).toBe(0.4);
+    expect(snapshot.learnerDigest?.kanaMastery).toBeUndefined();
+  });
+
   it('omits kana mastery and filters jp skills when track is en', async () => {
     const builder = new ContextBuilder();
     const snapshot = await builder.buildTurnSnapshot(

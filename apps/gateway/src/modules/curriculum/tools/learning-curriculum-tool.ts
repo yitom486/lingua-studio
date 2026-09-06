@@ -6,13 +6,14 @@ import {
   ToolLocations,
 } from '@study-studio/tool-core';
 import { ok, err, type Result, BusinessError, isOk } from '@study-studio/shared';
-import type { KanaItem } from '@study-studio/protocol';
+import type { HangulItem, KanaItem } from '@study-studio/protocol';
 import { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import { lookupPitchEntries, PITCH_LEXICON, type PitchLexiconEntry } from '../../../infrastructure/db/seeds/pitch-seed.js';
 
 export const LearningCurriculumInputSchema = z.object({
   action: z.enum([
     'get_kana_chart',
+    'get_hangul_chart',
     'search_entry',
     'list_pitch_benchmarks',
     'lookup_pitch',
@@ -34,6 +35,7 @@ export class LearningCurriculumTool
       {
         action: string;
         kana?: KanaItem[];
+        hangul?: HangulItem[];
         matched?: KanaItem[];
         pitchEntries?: PitchLexiconEntry[];
       }
@@ -41,7 +43,7 @@ export class LearningCurriculumTool
 {
   public readonly name = 'learning.curriculum';
   public readonly description =
-    '只读课程资产：五十音表、假名检索、声调基准词表。禁止由模型编造假名/声调。';
+    '只读课程资产：五十音表、谚文字母表、假名检索、声调基准词表。禁止由模型编造假名/谚文/声调。';
   public readonly location = ToolLocations.SERVER;
   public readonly permission = ToolPermissions.READ;
   public readonly schema = LearningCurriculumInputSchema;
@@ -56,6 +58,7 @@ export class LearningCurriculumTool
       {
         action: string;
         kana?: KanaItem[];
+        hangul?: HangulItem[];
         matched?: KanaItem[];
         pitchEntries?: PitchLexiconEntry[];
       },
@@ -66,6 +69,12 @@ export class LearningCurriculumTool
       const res = await this.learnerRepo.getCurriculumKana(input.filters?.type);
       if (!isOk(res)) return res;
       return ok({ action: input.action, kana: res.value });
+    }
+
+    if (input.action === 'get_hangul_chart') {
+      const res = await this.learnerRepo.getCurriculumHangul(input.filters?.type);
+      if (!isOk(res)) return res;
+      return ok({ action: input.action, hangul: res.value });
     }
 
     if (input.action === 'search_entry') {

@@ -39,6 +39,20 @@ describe('learning control tools (C1–C3 / D)', () => {
     }
   });
 
+  it('learning.curriculum returns hangul chart without LLM', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const tool = new LearningCurriculumTool(repo);
+    const res = await tool.execute(
+      { action: 'get_hangul_chart', filters: { type: 'CONSONANT' } },
+      { userId: 'u_test', sessionId: 's1' }
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.hangul?.length).toBe(14);
+      expect(res.value.hangul?.every((h) => h.type === 'CONSONANT')).toBe(true);
+    }
+  });
+
   it('learning.library lists news topics', async () => {
     const repo = new DrizzleLearnerRepository(':memory:');
     const tool = new LearningLibraryTool(repo);

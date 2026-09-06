@@ -21,6 +21,7 @@ export interface StreamTurnOptions {
     | 'GENERATE_QUIZ'
     | 'GRADE'
     | 'DRILL_KANA'
+    | 'DRILL_HANGUL'
     | 'REVIEW_MISTAKES'
     | 'FREE_COACH'
     | undefined;

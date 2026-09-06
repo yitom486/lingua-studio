@@ -35,6 +35,20 @@ function extractKanaMastery(
   };
 }
 
+function extractHangulMastery(
+  metrics: Array<{ id: string; proficiency: number }>
+): { consonant: number; vowel: number; compound: number } | undefined {
+  const consonant = metrics.find((m) => m.id === 'ko.hangul.consonant');
+  const vowel = metrics.find((m) => m.id === 'ko.hangul.vowel');
+  const compound = metrics.find((m) => m.id === 'ko.hangul.compound');
+  if (!consonant && !vowel && !compound) return undefined;
+  return {
+    consonant: consonant?.proficiency ?? 0,
+    vowel: vowel?.proficiency ?? 0,
+    compound: compound?.proficiency ?? 0,
+  };
+}
+
 /** 从错题与薄弱项压缩近期错因标签（限长） */
 export function deriveRecentErrorTags(
   mistakes: Array<{
@@ -83,6 +97,8 @@ export class ContextBuilder {
 
     const kanaMastery =
       track === 'ja' ? extractKanaMastery(profile.allMetrics ?? []) : undefined;
+    const hangulMastery =
+      track === 'ko' ? extractHangulMastery(profile.allMetrics ?? []) : undefined;
 
     return {
       targetLanguage: track,
@@ -101,6 +117,7 @@ export class ContextBuilder {
       learnerDigest: {
         topWeaknesses,
         ...(kanaMastery ? { kanaMastery } : {}),
+        ...(hangulMastery ? { hangulMastery } : {}),
       },
       topWeaknesses: topWeaknesses.map((w) => `${w.skillId} (${w.name})`),
       currentQuestion: currentQuestion
@@ -157,6 +174,8 @@ export class ContextBuilder {
     const allMetrics = snapshot?.allMetrics ?? [];
     const kanaMastery =
       track === 'ja' ? extractKanaMastery(allMetrics) : undefined;
+    const hangulMastery =
+      track === 'ko' ? extractHangulMastery(allMetrics) : undefined;
     const recentErrorTags = deriveRecentErrorTags(
       unresolvedMistakes
         .filter((m) => skillMatchesTrack(String(m.question?.testedSkillId || ''), track))
@@ -187,6 +206,7 @@ export class ContextBuilder {
         streakDays: profile?.streakDays || 0,
         recentErrorTags,
         ...(kanaMastery ? { kanaMastery } : {}),
+        ...(hangulMastery ? { hangulMastery } : {}),
         ...(isOk(planRes)
           ? {
               dailyPlanRemaining: planRes.value.steps

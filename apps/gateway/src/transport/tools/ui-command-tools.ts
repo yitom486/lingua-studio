@@ -14,6 +14,7 @@ export const UiNavigateInputSchema = z.object({
     'PRACTICE_PLAN',
     'CARDS',
     'KANA',
+    'HANGUL',
     'TEXTBOOK',
     'READING',
     'WRITING',
@@ -29,7 +30,7 @@ export const UiNavigateInputSchema = z.object({
 export type UiNavigateInput = z.infer<typeof UiNavigateInputSchema>;
 
 export const UiPresentInputSchema = z.object({
-  surface: z.enum(['quiz', 'cards', 'kana_drill', 'reading_quiz', 'writing']),
+  surface: z.enum(['quiz', 'cards', 'kana_drill', 'hangul_drill', 'reading_quiz', 'writing']),
   layout: z.enum(['SPLIT_PASSAGE_QUESTIONS', 'SINGLE_COLUMN']).optional(),
   collectionId: z.string().optional(),
   questions: z.array(GeneratedQuestionSchema).optional(),

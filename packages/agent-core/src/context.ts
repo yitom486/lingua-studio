@@ -22,6 +22,7 @@ export interface LearnerDigest {
   streakDays?: number | undefined;
   recentErrorTags?: string[] | undefined;
   kanaMastery?: { hiragana: number; katakana: number } | undefined;
+  hangulMastery?: { consonant: number; vowel: number; compound: number } | undefined;
   /** 今日计划尚未完成的步骤标题，供教练按序引导 */
   dailyPlanRemaining?: string[] | undefined;
 }
@@ -43,6 +44,7 @@ export interface ContextSnapshot {
     | 'GENERATE_QUIZ'
     | 'GRADE'
     | 'DRILL_KANA'
+    | 'DRILL_HANGUL'
     | 'REVIEW_MISTAKES'
     | 'FREE_COACH'
     | undefined;

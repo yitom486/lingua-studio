@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   resolveResponsesLiteCoach,
+  tryHangulCoachReply,
   tryKanaCoachReply,
   tryParticleCoachReply,
 } from '../runtime/responses-lite-coach.js';
@@ -20,6 +21,27 @@ describe('responses-lite coach', () => {
     expect(hit?.source).toBe('kana-seed');
     expect(hit?.reply).toContain('あ');
     expect(hit?.reply).toContain('ア');
+  });
+
+  it('hits hangul seed for jamo lookups', () => {
+    const hit = tryHangulCoachReply('ㄱ 怎么读，罗马字是什么');
+    expect(hit?.source).toBe('hangul-seed');
+    expect(hit?.reply).toContain('ㄱ');
+    expect(hit?.reply).toContain('기역');
+  });
+
+  it('resolves hangul prompts on ko track without hijacking syllable chat', () => {
+    const hit = resolveResponsesLiteCoach({
+      prompt: '谚文 ㅏ 怎么读',
+      track: 'ko',
+    });
+    expect(hit?.source).toBe('hangul-seed');
+    expect(
+      resolveResponsesLiteCoach({
+        prompt: '가방에 뭐가 있어요?',
+        track: 'ko',
+      })
+    ).toBeNull();
   });
 
   it('hits particle tips for に vs で', () => {

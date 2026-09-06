@@ -25,7 +25,7 @@ const CONTENT_TOOL_HINT =
 const LITE_HINT_JA =
   /读音|怎么读|発音|发音|声调|pitch|假名|五十音|平假名|片假名|助词|に\s*vs\s*で|で\s*vs\s*に|格助词/;
 
-const LITE_HINT_KO = /발음|어떻게\s*읽|조사|에서|은\/는|이\/가|假名|发音|助词/;
+const LITE_HINT_KO = /발음|어떻게\s*읽|조사|에서|은\/는|이\/가|谚文|자모|한글|假名|发音|助词/;
 
 const LITE_HINT_EN =
   /how\s+do\s+you\s+pronounce|pronunciation|ipa|stress|preposition|collocation|怎么读|发音|介词/;
@@ -54,6 +54,10 @@ export function selectAgentRoute(input: AgentRouteInput): AgentRouteDecision {
 
   if (intent === 'DRILL_KANA') {
     return { route: 'responses-lite', reason: 'drill_kana_intent' };
+  }
+
+  if (intent === 'DRILL_HANGUL') {
+    return { route: 'responses-lite', reason: 'drill_hangul_intent' };
   }
 
   // 明确的发音/助词课程资产查询才走 lite；开放讲解交给 Codex
