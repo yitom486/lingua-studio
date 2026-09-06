@@ -11,13 +11,17 @@ import { markdownToAst } from './markdown-to-ast.js';
  *   不臆造、不静默降级。
  */
 
-export const MAX_PDF_BYTES = 20 * 1024 * 1024;
-export const MAX_PDF_PAGES = 60;
+export const MAX_PDF_BYTES = 200 * 1024 * 1024;
+export const MAX_PDF_PAGES = 400;
+/** 单次导入最多 OCR 页数（约 0.7s/页；大书请按课分段选页导入） */
+export const MAX_OCR_PAGES_PER_IMPORT = 30;
 
 export interface PdfImportInput {
   userId: string;
   filename: string;
   bytes: Uint8Array;
+  /** 1-based 选页（不传 = 全书；大书请按课分段） */
+  pages?: number[];
 }
 
 export interface PdfImportClassification {
@@ -25,6 +29,7 @@ export interface PdfImportClassification {
   pageCount: number;
   pagesNeedingOcr: number[];
   ocrUsed: boolean;
+  selectedPages: number[];
 }
 
 export interface PdfImportStats {
@@ -67,7 +72,7 @@ export async function convertPdfToAst(
   }
   if (input.bytes.length === 0 || input.bytes.length > MAX_PDF_BYTES) {
     return err(
-      new BusinessError('E_INVALID_INPUT', 'PDF 文件过大（上限 20MB），请拆分后再导入', 'VALIDATION')
+      new BusinessError('E_INVALID_INPUT', 'PDF 文件过大（上限 200MB），请检查文件', 'VALIDATION')
     );
   }
   const magic = Buffer.from(input.bytes.subarray(0, 5)).toString('latin1');
@@ -110,40 +115,111 @@ export async function convertPdfToAst(
   const pagesNeedingOcr = Array.isArray(classification.pagesNeedingOcr)
     ? classification.pagesNeedingOcr.filter((n): n is number => typeof n === 'number')
     : [];
+  if (!Number.isFinite(pageCount) || pageCount < 1) {
+    return err(new BusinessError('E_PDF_PARSE', 'PDF 页数识别失败，文件可能已损坏', 'TOOL_EXECUTION'));
+  }
   if (pageCount > MAX_PDF_PAGES) {
     return err(
       new BusinessError(
         'E_INVALID_INPUT',
-        `PDF 共 ${pageCount} 页（上限 ${MAX_PDF_PAGES} 页），请拆分后再导入`,
+        `PDF 共 ${pageCount} 页（上限 ${MAX_PDF_PAGES} 页），请按课分段选页导入`,
         'VALIDATION'
       )
     );
   }
 
-  let markdown = typeof classification.markdown === 'string' ? classification.markdown : '';
+  // 选页校验（1-based；不传 = 全书）
+  let selectedPages: number[] | null = null;
+  if (input.pages !== undefined) {
+    const cleaned = [...new Set(input.pages)].filter(
+      (n) => Number.isInteger(n) && n >= 1 && n <= pageCount
+    );
+    if (cleaned.length === 0) {
+      return err(
+        new BusinessError('E_INVALID_INPUT', `选页超出范围（本书共 ${pageCount} 页）`, 'VALIDATION')
+      );
+    }
+    if (cleaned.length > MAX_PDF_PAGES) {
+      return err(
+        new BusinessError('E_INVALID_INPUT', `一次最多导入 ${MAX_PDF_PAGES} 页，请缩小范围`, 'VALIDATION')
+      );
+    }
+    cleaned.sort((a, b) => a - b);
+    selectedPages = cleaned;
+  }
+  const inScope = (n: number) => !selectedPages || selectedPages.includes(n);
+
+  let markdown = '';
   let ocrUsed = false;
-  if (!markdown.trim() && pagesNeedingOcr.length > 0) {
-    // 扫描页：按需准备 OCR 运行时（PDFium + ORT + 模型，不进安装包）
+  if (selectedPages) {
+    // 选页导入：文字页直提 + 扫描页 OCR（Auto 只路由需 OCR 页）
     try {
+      const selectedNeeding = pagesNeedingOcr.filter(inScope);
+      if (selectedNeeding.length > MAX_OCR_PAGES_PER_IMPORT) {
+        return err(
+          new BusinessError(
+            'E_INVALID_INPUT',
+            `所选页中有 ${selectedNeeding.length} 页需 OCR（单次上限 ${MAX_OCR_PAGES_PER_IMPORT} 页），请缩小选页范围`,
+            'VALIDATION'
+          )
+        );
+      }
       const runtime = await ensurePdfRuntime({
         ...(deps.loadInspector ? { loadInspector: deps.loadInspector } : {}),
         ...(deps.runtimeDir ? { runtimeDir: deps.runtimeDir } : {}),
-        needOcr: true,
+        needOcr: selectedNeeding.length > 0,
       });
       inspector = runtime.inspector;
-      const ocr = await inspector.processPdfWithOcr(input.bytes);
-      markdown = typeof ocr.markdown === 'string' ? ocr.markdown : '';
-      ocrUsed = true;
-      const hosted = Array.isArray(ocr.pagesRecommendingHosted) ? ocr.pagesRecommendingHosted.length : 0;
-      if (hosted > 0) {
-        logger.info('[pdf-import] 部分页面 OCR 置信度低，建议改用文字版 PDF', { hosted });
+      if (selectedNeeding.length > 0) {
+        const ocr = await inspector.processPdfWithOcr(input.bytes, { pageNumbers: selectedPages });
+        markdown = typeof ocr.markdown === 'string' ? ocr.markdown : '';
+        ocrUsed = true;
+      } else {
+        const part = await inspector.processPdf(input.bytes, selectedPages);
+        markdown = typeof part.markdown === 'string' ? part.markdown : '';
       }
     } catch (e) {
+      logger.warn('[pdf-import] selected pages failed', { message: errorMessage(e) });
       return err(
         e instanceof BusinessError
           ? e
-          : new BusinessError('E_OCR_FAILED', 'OCR 运行时准备失败，请检查网络后重试', 'NETWORK')
+          : new BusinessError('E_PDF_PARSE', '选页提取失败，请稍后重试', 'TOOL_EXECUTION')
       );
+    }
+  } else {
+    markdown = typeof classification.markdown === 'string' ? classification.markdown : '';
+    if (!markdown.trim() && pagesNeedingOcr.length > 0) {
+      if (pagesNeedingOcr.length > MAX_OCR_PAGES_PER_IMPORT) {
+        return err(
+          new BusinessError(
+            'E_INVALID_INPUT',
+            `本书 ${pagesNeedingOcr.length} 页需 OCR（单次上限 ${MAX_OCR_PAGES_PER_IMPORT} 页），请按课分段选页导入`,
+            'VALIDATION'
+          )
+        );
+      }
+      // 扫描页：按需准备 OCR 运行时（PDFium + ORT + 模型，不进安装包）
+      try {
+        const runtime = await ensurePdfRuntime({
+          ...(deps.loadInspector ? { loadInspector: deps.loadInspector } : {}),
+          ...(deps.runtimeDir ? { runtimeDir: deps.runtimeDir } : {}),
+          needOcr: true,
+        });
+        inspector = runtime.inspector;
+        const ocr = await inspector.processPdfWithOcr(input.bytes);
+        markdown = typeof ocr.markdown === 'string' ? ocr.markdown : '';
+        ocrUsed = true;
+        const hosted = Array.isArray(ocr.pagesRecommendingHosted) ? ocr.pagesRecommendingHosted.length : 0;
+        if (hosted > 0) {
+          logger.info('[pdf-import] 部分页面 OCR 置信度低，建议改用文字版 PDF', { hosted });
+        }
+      } catch (e) {
+        return err(
+          e instanceof BusinessError
+            ? e
+            : new BusinessError('E_OCR_FAILED', 'OCR 运行时准备失败，请检查网络后重试', 'NETWORK')
+        );
+      }
     }
   }
 
@@ -173,7 +249,13 @@ export async function convertPdfToAst(
   return ok({
     book,
     markdown,
-    classification: { pdfType, pageCount, pagesNeedingOcr, ocrUsed },
+    classification: {
+      pdfType,
+      pageCount,
+      pagesNeedingOcr: pagesNeedingOcr.filter(inScope),
+      ocrUsed,
+      selectedPages: selectedPages ?? [],
+    },
     stats,
   });
 }

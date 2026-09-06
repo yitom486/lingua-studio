@@ -19,10 +19,16 @@ export function createPdfImportRoutes() {
         );
       }
       let file: File | null = null;
+      let startPage: number | undefined;
+      let endPage: number | undefined;
       try {
         const body = await c.req.parseBody();
         const candidate = body['file'];
         if (candidate instanceof File) file = candidate;
+        const sp = body['startPage'];
+        const ep = body['endPage'];
+        if (typeof sp === 'string' && /^\d+$/.test(sp)) startPage = Number(sp);
+        if (typeof ep === 'string' && /^\d+$/.test(ep)) endPage = Number(ep);
       } catch {
         return formatBusinessErrorResponse(
           c,
@@ -42,7 +48,21 @@ export function createPdfImportRoutes() {
         );
       }
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const res = await convertPdfToAst({}, { userId, filename: file.name || 'upload.pdf', bytes });
+      // 选页（大书按课分段）：起止页合法才组 pages，否则全书
+      let pages: number[] | undefined;
+      if (startPage !== undefined && endPage !== undefined && startPage >= 1 && endPage >= startPage) {
+        pages = [];
+        for (let p = startPage; p <= endPage; p++) pages.push(p);
+      }
+      const res = await convertPdfToAst(
+        {},
+        {
+          userId,
+          filename: file.name || 'upload.pdf',
+          bytes,
+          ...(pages ? { pages } : {}),
+        }
+      );
       if (!isOk(res)) return formatBusinessErrorResponse(c, res.error);
       return c.json({
         book: res.value.book,

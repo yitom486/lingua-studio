@@ -105,6 +105,23 @@ export function TextbookCurriculum({
             打开教材导入器
           </button>
         )}
+        {/* 注意：导入器必须在 early return 内也挂载，否则空库时点击无反应 */}
+        <TextbookImporterModal
+          isOpen={isImporterOpen}
+          onClose={() => setIsImporterOpen(false)}
+          onImportBook={(newBook) => {
+            importTextbook.mutate(newBook);
+            setSelectedBookId(newBook.id);
+            setSelectedLessonId(newBook.lessons[0]?.id ?? '');
+          }}
+          onAddCardsBatch={(cards) => {
+            if (onAddCardsBatch) {
+              onAddCardsBatch(cards);
+            } else {
+              cards.forEach((c) => onAddCardFromTextbook(c));
+            }
+          }}
+        />
       </div>
     );
   }

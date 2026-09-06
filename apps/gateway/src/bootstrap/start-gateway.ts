@@ -11,6 +11,8 @@ import { PORT } from './config.js';
 export function startGateway(app: CreatedApp, server: GatewayServer, port = PORT) {
   const started = Bun.serve<{ sessionId?: string | undefined }>({
     port,
+    // 大书上传：Bun 默认请求体上限接不住百 MB 级 PDF（实测 100MB+ 被秒断），显式放开。
+    maxRequestBodySize: 512 * 1024 * 1024,
     async fetch(req, upgradeServer) {
       const url = new URL(req.url);
 

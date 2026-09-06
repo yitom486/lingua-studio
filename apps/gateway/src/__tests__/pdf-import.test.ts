@@ -162,10 +162,52 @@ describe('convertPdfToAst', () => {
     );
     expect(txt.ok).toBe(false);
     const many = await convertPdfToAst(
-      { loadInspector: stubInspector({ pdfType: 'TextBased', pageCount: 61, markdown: JA_MD }) },
+      { loadInspector: stubInspector({ pdfType: 'TextBased', pageCount: 401, markdown: JA_MD }) },
       { userId: 'u1', filename: 'big.pdf', bytes: PDF_HEAD }
     );
     expect(many.ok).toBe(false);
+  });
+
+  test('选页：越界拒绝；文字选页直提；OCR 超 30 页拒绝', async () => {
+    const base = { userId: 'u1', filename: 'big.pdf', bytes: PDF_HEAD };
+    const calls: Array<{ pages?: number[]; ocrPages?: number[] }> = [];
+    const loadInspector = async () => ({
+      processPdf: (pdf: Uint8Array, pages?: number[]) => {
+        if (pages !== undefined) calls.push({ pages });
+        else calls.push({});
+        void pdf;
+        return {
+          pdfType: 'Mixed',
+          pageCount: 371,
+          markdown: null,
+          pagesNeedingOcr: Array.from({ length: 371 }, (_, i) => i + 1),
+          confidence: 0.9,
+        };
+      },
+      processPdfWithOcr: async (pdf: Uint8Array, options?: { pageNumbers?: number[] }) => {
+        if (options?.pageNumbers !== undefined) calls.push({ ocrPages: options.pageNumbers });
+        else calls.push({});
+        void pdf;
+        return { markdown: JA_MD, pagesRoutedToOcr: options?.pageNumbers ?? [], pagesRecommendingHosted: [] };
+      },
+    });
+    // 越界
+    const oob = await convertPdfToAst({ loadInspector }, { ...base, pages: [999] });
+    expect(oob.ok).toBe(false);
+    // OCR 31 页拒绝（先经过校验，不调 OCR）
+    const tooMany = await convertPdfToAst(
+      { loadInspector },
+      { ...base, pages: Array.from({ length: 31 }, (_, i) => i + 1) }
+    );
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.error.code).toBe('E_INVALID_INPUT');
+    // 正常选页：只 OCR 所选
+    const okRes = await convertPdfToAst({ loadInspector }, { ...base, pages: [1, 2, 3] });
+    expect(okRes.ok).toBe(true);
+    if (!okRes.ok) return;
+    expect(okRes.value.classification.ocrUsed).toBe(true);
+    expect(okRes.value.classification.selectedPages).toEqual([1, 2, 3]);
+    expect(okRes.value.stats.lessons).toBe(2);
   });
 });
 

@@ -46,6 +46,8 @@ export function TextbookImporterModal({
   const [parsedAST, setParsedAST] = useState<TextbookAST | null>(null);
   const [autoGenerateCards, setAutoGenerateCards] = useState<boolean>(true);
   const [pdfNote, setPdfNote] = useState<string | null>(null);
+  const [pdfStartPage, setPdfStartPage] = useState<string>('');
+  const [pdfEndPage, setPdfEndPage] = useState<string>('');
   const importPdf = useImportPdfMutation();
 
   // Dialog 以 open 控制可见性，无需提前 return
@@ -134,15 +136,27 @@ export function TextbookImporterModal({
     setParseError(null);
     setPdfNote(null);
     sound.playClick();
-    importPdf.mutate(file, {
+    const startPage = /^\d+$/.test(pdfStartPage.trim()) ? Number(pdfStartPage.trim()) : undefined;
+    const endPage = /^\d+$/.test(pdfEndPage.trim()) ? Number(pdfEndPage.trim()) : undefined;
+    importPdf.mutate(
+      {
+        file,
+        ...(startPage !== undefined ? { startPage } : {}),
+        ...(endPage !== undefined ? { endPage } : {}),
+      },
+      {
       onSuccess: (result) => {
         setParsedAST(result.book);
         setInputText(JSON.stringify(result.book, null, 2));
         const c = result.classification;
         const kind =
           c.pdfType === 'TextBased' ? '文字版' : c.pdfType === 'Scanned' ? '扫描版（已 OCR）' : c.pdfType;
+        const range =
+          c.selectedPages.length > 0
+            ? ` · 第 ${c.selectedPages[0]}–${c.selectedPages[c.selectedPages.length - 1]} 页`
+            : '';
         setPdfNote(
-          `识别为${kind} · ${c.pageCount} 页 · ${result.stats.lessons} 课 ${result.stats.dialogues} 句` +
+          `识别为${kind} · ${c.pageCount} 页${range} · ${result.stats.lessons} 课 ${result.stats.dialogues} 句` +
             (c.ocrUsed ? ' · 首次 OCR 已按需下载运行时（约 80MB，一次性）' : '')
         );
         sound.playCorrect();
@@ -316,6 +330,28 @@ export function TextbookImporterModal({
               <span className="text-[11px] text-stone-500 dark:text-stone-400">
                 文字版直接提取；扫描版自动 OCR（首次约 80MB 按需下载，不进安装包）· 扫描版韩语暂不支持
               </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-500 dark:text-stone-400">
+              <span>大书按课分段导（选填，1-based 页码）：</span>
+              <input
+                type="number"
+                min={1}
+                placeholder="起始页"
+                value={pdfStartPage}
+                onChange={(e) => setPdfStartPage(e.target.value)}
+                disabled={importPdf.isPending}
+                className="w-20 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 outline-none focus:border-amber-500"
+              />
+              <span>–</span>
+              <input
+                type="number"
+                min={1}
+                placeholder="结束页"
+                value={pdfEndPage}
+                onChange={(e) => setPdfEndPage(e.target.value)}
+                disabled={importPdf.isPending}
+                className="w-20 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 outline-none focus:border-amber-500"
+              />
             </div>
             {pdfNote && (
               <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{pdfNote}</p>

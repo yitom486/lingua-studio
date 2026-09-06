@@ -1,4 +1,4 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, or } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -104,7 +104,8 @@ export async function listDocuments(
 ): Promise<Result<DocumentItem[], BusinessError>> {
   try {
     const query = deps.db.select().from(documents);
-    const conditions = [eq(documents.userId, userId)];
+    // 内置课程是公共资产：curriculum_textbook 对所有用户可见（用户自有文档仍按 userId 隔离）
+    const conditions = [or(eq(documents.userId, userId), eq(documents.sourceKind, 'curriculum_textbook'))];
     if (sourceKind) {
       conditions.push(eq(documents.sourceKind, sourceKind));
     }

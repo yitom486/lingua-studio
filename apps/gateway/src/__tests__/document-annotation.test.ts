@@ -54,9 +54,9 @@ describe('Document & Annotation Repository (Companion Integration)', () => {
     const listRes = await repo.listDocuments(testUserId);
     expect(isOk(listRes)).toBe(true);
     if (isOk(listRes)) {
-      expect(listRes.value.length).toBe(1);
-      expect(listRes.value[0]!.title).toBe('新编日语 第一册');
-      expect(listRes.value[0]!.astJson).toBeDefined();
+      // curriculum_textbook 为公共资产，同列表可见；断言自有文档在列即可
+      expect(listRes.value.some((d) => d.id === 'doc_shinpen_01')).toBe(true);
+      expect(listRes.value.length).toBeGreaterThanOrEqual(1);
     }
 
     const getRes = await repo.getDocumentById('doc_shinpen_01');
@@ -171,6 +171,26 @@ describe('Document & Annotation Repository (Companion Integration)', () => {
     if (isOk(doc)) {
       expect(doc.value).toBeNull();
     }
+  });
+
+  it('curriculum_textbook 是公共资产：其他用户可见，自有文档仍隔离', async () => {
+    const mine: DocumentItem = {
+      id: 'doc_mine_01',
+      userId: testUserId,
+      title: '我的自有文档',
+      sourceKind: 'user_import',
+      language: 'ja',
+      content: '私有',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    expect(isOk(await repo.saveDocument(mine))).toBe(true);
+    const listRes = await repo.listDocuments('someone_else');
+    expect(isOk(listRes)).toBe(true);
+    if (!isOk(listRes)) return;
+    const kinds = listRes.value.map((d) => d.sourceKind);
+    expect(kinds).toContain('curriculum_textbook');
+    expect(listRes.value.some((d) => d.id === 'doc_mine_01')).toBe(false);
   });
 });
 

@@ -23,8 +23,8 @@ import { extractTarGz, extractZip, type ArchiveEntry } from './archive.js';
  */
 
 export interface PdfInspectorLike {
-  processPdf(pdf: Uint8Array): PdfClassifyResult;
-  processPdfWithOcr(pdf: Uint8Array): Promise<PdfOcrResult>;
+  processPdf(pdf: Uint8Array, pages?: number[]): PdfClassifyResult;
+  processPdfWithOcr(pdf: Uint8Array, options?: { pageNumbers?: number[] }): Promise<PdfOcrResult>;
 }
 
 export interface PdfClassifyResult {
@@ -116,6 +116,10 @@ async function downloadArtifact(
   const buf = new Uint8Array(await res.arrayBuffer());
   if (buf.length === 0 || buf.length > MAX_DOWNLOAD_BYTES) {
     throw new BusinessError('E_RUNTIME_DOWNLOAD', '构件体积异常，拒绝写入', 'TOOL_EXECUTION');
+  }
+  // ORT 上游无单文件摘要：至少校验体积量级（win x64 包约 70MB+），拦截下载截断
+  if (allowUnpinned && buf.length < 10 * 1024 * 1024) {
+    throw new BusinessError('E_RUNTIME_DOWNLOAD', '构件下载不完整（体积过小），请重试', 'NETWORK');
   }
   if (integrity) {
     const [algo, expected] = integrity.split('-', 2);
@@ -309,13 +313,16 @@ async function ensurePdfRuntimeInner(
     process.env.PDF_INSPECTOR_MODEL_CACHE = modelCacheDir;
   }
 
+  // 非 OCR 调用不得降级 withOcrLibs（否则一次文字版导入会清掉已就绪的 OCR 标记，
+  // 下次扫描导入被迫重下 80MB —— 真机抓到的 bug）。
+  const prevManifest = await readManifest(runtimeDir);
   await fsp.writeFile(
     path.join(runtimeDir, 'manifest.json'),
     JSON.stringify({
       version: 1,
       pdfInspector: PDF_INSPECTOR_VERSION,
       platform,
-      withOcrLibs: Boolean(pdfiumLib && ortLib),
+      withOcrLibs: options.needOcr ? Boolean(pdfiumLib && ortLib) : Boolean(prevManifest?.withOcrLibs),
     } satisfies ManifestShape)
   );
 

@@ -146,6 +146,7 @@ export interface ImportPdfResult {
     pageCount: number;
     pagesNeedingOcr: number[];
     ocrUsed: boolean;
+    selectedPages: number[];
   };
   stats: {
     lessons: number;
@@ -161,9 +162,11 @@ export interface ImportPdfResult {
  */
 export function useImportPdfMutation(userId = DEFAULT_USER_ID) {
   return useMutation({
-    mutationFn: async (file: File): Promise<ImportPdfResult> => {
+    mutationFn: async (vars: { file: File; startPage?: number; endPage?: number }): Promise<ImportPdfResult> => {
       const form = new FormData();
-      form.append('file', file, file.name);
+      form.append('file', vars.file, vars.file.name);
+      if (vars.startPage !== undefined) form.append('startPage', String(vars.startPage));
+      if (vars.endPage !== undefined) form.append('endPage', String(vars.endPage));
       const res = await fetch(
         `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/import-pdf`,
         { method: 'POST', body: form }
@@ -196,6 +199,7 @@ export function useImportPdfMutation(userId = DEFAULT_USER_ID) {
           pageCount: 0,
           pagesNeedingOcr: [],
           ocrUsed: false,
+          selectedPages: [],
         },
         stats: rest.stats ?? { lessons: 0, dialogues: 0 },
       };
