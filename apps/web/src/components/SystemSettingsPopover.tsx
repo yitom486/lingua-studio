@@ -237,6 +237,41 @@ export function SystemSettingsPopover() {
     });
   };
 
+  // Azure 区域与音色全部做成选择题：用户只输 Key 即可
+  const AZURE_REGIONS = [
+    'japaneast',
+    'koreacentral',
+    'southeastasia',
+    'eastasia',
+    'eastus',
+    'westus2',
+    'westeurope',
+    'australiaeast',
+  ];
+  const AZURE_VOICES: Record<string, Array<{ value: string; label: string }>> = {
+    JA: [
+      { value: 'ja-JP-NanamiNeural', label: '七海（女）' },
+      { value: 'ja-JP-KeitaNeural', label: '圭太（男）' },
+      { value: 'ja-JP-AoiNeural', label: '葵（女）' },
+      { value: 'ja-JP-DaichiNeural', label: '大地（男）' },
+    ],
+    KO: [
+      { value: 'ko-KR-SunHiNeural', label: 'SunHi（女）' },
+      { value: 'ko-KR-InJoonNeural', label: 'InJoon（男）' },
+    ],
+    EN: [
+      { value: 'en-US-JennyNeural', label: 'Jenny（女）' },
+      { value: 'en-US-GuyNeural', label: 'Guy（男）' },
+      { value: 'en-US-AriaNeural', label: 'Aria（女）' },
+      { value: 'en-US-DavisNeural', label: 'Davis（男）' },
+    ],
+  };
+  const azureVoiceOptions = AZURE_VOICES[speechLang] ?? AZURE_VOICES.EN ?? [];
+  const OPENAI_ENDPOINT_PRESETS = [
+    { label: 'OpenAI 官方', value: 'https://api.openai.com/v1/audio/speech' },
+    { label: '本地默认', value: 'http://127.0.0.1:8880/v1/audio/speech' },
+  ];
+
   const handleInstallDictionary = (packageId: string) => {
     const target = installableDictionaries.find((item) => item.id === packageId);
     if (!target || installDictionaryPackage.isPending) return;
@@ -475,51 +510,92 @@ export function SystemSettingsPopover() {
                 </Button>
               ))}
             </div>
-            {editEngine === 'openai-compatible' && (
-              <>
-                <input
-                  type="text"
-                  value={editUrl}
-                  onChange={(e) => setEditUrl(e.target.value)}
-                  placeholder="端点 URL，如 https://api.openai.com/v1/audio/speech"
-                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
-                />
-                <p className="text-[10px] text-stone-400 leading-relaxed">
-                  任何 OpenAI /v1/audio/speech 兼容端点：公有云、自建网关或本地兼容服务均可直填。
-                </p>
-              </>
-            )}
-            {editEngine === 'azure-speech' && (
-              <>
-                <input
-                  type="text"
-                  value={editRegion}
-                  onChange={(e) => setEditRegion(e.target.value)}
-                  placeholder="区域，如 japaneast / koreacentral / eastus"
-                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
-                />
-                <p className="text-[10px] text-stone-400 leading-relaxed">
-                  Azure Speech 原生 REST：区域 + Key 即可，不填音色按语种用默认神经音色。
-                </p>
-              </>
-            )}
+              {editEngine === 'openai-compatible' && (
+                <>
+                  <div className="flex gap-1">
+                    {OPENAI_ENDPOINT_PRESETS.map((p) => (
+                      <Button
+                        key={p.value}
+                        type="button"
+                        size="sm"
+                        variant={editUrl === p.value ? 'default' : 'outline'}
+                        className="flex-1 h-7 text-[11px]"
+                        onClick={() => {
+                          sound.playClick();
+                          setEditUrl(p.value);
+                        }}
+                      >
+                        {p.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={editUrl}
+                    onChange={(e) => setEditUrl(e.target.value)}
+                    placeholder="端点 URL，如 https://api.openai.com/v1/audio/speech"
+                    className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                  />
+                  <p className="text-[10px] text-stone-400 leading-relaxed">
+                    任何 OpenAI /v1/audio/speech 兼容端点：公有云、自建网关或本地兼容服务均可直填。
+                  </p>
+                </>
+              )}
+              {editEngine === 'azure-speech' && (
+                <>
+                  <Select value={editRegion} onValueChange={(v) => v && setEditRegion(v)}>
+                    <SelectTrigger className="h-8 text-[11px]">
+                      <SelectValue placeholder="选择区域，如 japaneast" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {AZURE_REGIONS.map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {r}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[10px] text-stone-400 leading-relaxed">
+                    Azure Speech 原生 REST：选区域 + 填 Key 即可，音色不选按语种用默认神经音色。
+                  </p>
+                </>
+              )}
             {editEngine !== 'system' && (
               <>
-                <input
-                  type="password"
-                  value={editApiKey}
-                  onChange={(e) => setEditApiKey(e.target.value)}
-                  placeholder="API Key（可空传本地服务；仅存本机）"
-                  autoComplete="off"
-                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
-                />
-                <input
-                  type="text"
-                  value={editVoiceId}
-                  onChange={(e) => setEditVoiceId(e.target.value)}
-                  placeholder="音色 id（可空，如 alloy / ja-JP-NanamiNeural）"
-                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
-                />
+                  <input
+                    type="password"
+                    value={editApiKey}
+                    onChange={(e) => setEditApiKey(e.target.value)}
+                    placeholder="API Key（可空传本地服务；仅存本机）"
+                    autoComplete="off"
+                    className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                  />
+                  {editEngine === 'azure-speech' ? (
+                    <Select
+                      value={editVoiceId || '__auto'}
+                      onValueChange={(v) => v && setEditVoiceId(v === '__auto' ? '' : v)}
+                    >
+                      <SelectTrigger className="h-8 text-[11px]">
+                        <SelectValue placeholder="音色（默认按语种自动）" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__auto">默认（按语种自动）</SelectItem>
+                        {azureVoiceOptions.map((v) => (
+                          <SelectItem key={v.value} value={v.value}>
+                            {v.label} · {v.value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={editVoiceId}
+                      onChange={(e) => setEditVoiceId(e.target.value)}
+                      placeholder="音色 id（可空，如 alloy）"
+                      className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                    />
+                  )}
                 <p className="text-[10px] text-stone-400 leading-relaxed">
                   Key 随本次请求发往本机网关代调第三方，网关不落盘。先验证再保存。
                 </p>
