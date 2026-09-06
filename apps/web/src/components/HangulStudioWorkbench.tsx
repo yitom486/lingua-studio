@@ -128,11 +128,11 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
     void speechStudio.speak(current.audioText || current.jamo, { lang: 'KO' });
   }, [isDrillActive, roundDone, activeMode, current, drillIndex]);
 
-  // 单词模式：激活后词表为空即拉取（未安装词典包走 wordFailed 显式引导）
+  // 单词模式：激活后词表为空即拉取（未安装词典包走 wordFailed 显式引导；题量跟随字母自测档，0=全部按 20 取）
   useEffect(() => {
     if (!isDrillActive || !isWordMode || wordList.length > 0 || generateWords.isPending || wordFailed) return;
     generateWords.mutate(
-      { count: 8 },
+      { count: drillCount > 0 ? drillCount : 20 },
       {
         onSuccess: (words) => {
           setWordList(words);
@@ -144,7 +144,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
         },
       }
     );
-  }, [isDrillActive, isWordMode, wordList.length, wordFailed, generateWords.isPending, generateWords.mutate]);
+  }, [isDrillActive, isWordMode, wordList.length, wordFailed, drillCount, generateWords.isPending, generateWords.mutate]);
 
   // 听写选词：新词切出即自动播报（作答后不再重播）
   useEffect(() => {
@@ -372,7 +372,42 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
             </div>
           )}
 
-          {/* 字母矩阵 */}
+          {/* 字母矩阵（进阶区按 y 系 / 复合 / 收音分组） */}
+          {matrixTab === 'ADVANCED' ? (
+            <div className="space-y-4">
+              {(
+                [
+                  { type: 'YVOWEL', label: 'y 系母音 ㅑㅕㅛㅠ' },
+                  { type: 'COMPOUND', label: '复合母音 ㅒㅖㅘㅙㅝㅞㅢ' },
+                  { type: 'CODA', label: '收音代表音（只发代表音）' },
+                ] as const
+              ).map((group) => (
+                <div key={group.type} className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">{group.label}</div>
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                    {pool
+                      .filter((h) => h.type === group.type)
+                      .map((h) => (
+                        <button
+                          key={h.id}
+                          onClick={() => {
+                            setActiveHangul(h);
+                            void speechStudio.speak(h.audioText || h.jamo, { lang: 'KO' });
+                            sound.playClick();
+                          }}
+                          className={`rounded-xl border p-3 text-center transition hover:border-primary ${
+                            activeHangul?.id === h.id ? 'border-primary bg-primary/5' : ''
+                          }`}
+                        >
+                          <div className="text-2xl font-bold">{h.jamo}</div>
+                          {showRomaji && <div className="text-xs text-muted-foreground mt-1">{h.romanization}</div>}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
             {pool.map((h) => (
               <button
@@ -391,6 +426,7 @@ export function HangulStudioWorkbench({ onOpenTutor }: HangulStudioWorkbenchProp
               </button>
             ))}
           </div>
+          )}
 
           {/* 选中字母详情 */}
           <AnimatePresence>

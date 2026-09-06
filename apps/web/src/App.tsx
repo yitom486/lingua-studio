@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
@@ -10,16 +10,39 @@ import { AppSidebar } from './components/AppSidebar.js';
 import { TodayPlanWorkbench } from './components/TodayPlanWorkbench.js';
 import { AdaptiveQuizWorkbench } from './components/AdaptiveQuizWorkbench.js';
 import { FsrsCardWorkbench } from './components/FsrsCardWorkbench.js';
-import { TextbookCurriculum } from './components/TextbookCurriculum.js';
-import { ListeningShadowingWorkbench } from './components/ListeningShadowingWorkbench.js';
-import { PitchAccentCoach } from './components/PitchAccentCoach.js';
-import { MistakeSprintWorkbench } from './components/MistakeSprintWorkbench.js';
 import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
-import { ReadingComprehensionWorkbench } from './components/ReadingComprehensionWorkbench.js';
-import { WritingStudioWorkbench } from './components/WritingStudioWorkbench.js';
-import { KanaStudioWorkbench } from './components/KanaStudioWorkbench.js';
-import { HangulStudioWorkbench } from './components/HangulStudioWorkbench.js';
-import { PracticePlanPanel } from './components/practice/PracticePlanPanel.js';
+// 首屏高频 Tab（TODAY/QUIZ/CARDS/RADAR）保持直连；其余重型工作台懒加载拆包，压 index 主包体积
+const PracticePlanPanel = lazy(() =>
+  import('./components/practice/PracticePlanPanel.js').then((m) => ({ default: m.PracticePlanPanel }))
+);
+const ReadingComprehensionWorkbench = lazy(() =>
+  import('./components/ReadingComprehensionWorkbench.js').then((m) => ({
+    default: m.ReadingComprehensionWorkbench,
+  }))
+);
+const WritingStudioWorkbench = lazy(() =>
+  import('./components/WritingStudioWorkbench.js').then((m) => ({ default: m.WritingStudioWorkbench }))
+);
+const TextbookCurriculum = lazy(() =>
+  import('./components/TextbookCurriculum.js').then((m) => ({ default: m.TextbookCurriculum }))
+);
+const ListeningShadowingWorkbench = lazy(() =>
+  import('./components/ListeningShadowingWorkbench.js').then((m) => ({
+    default: m.ListeningShadowingWorkbench,
+  }))
+);
+const PitchAccentCoach = lazy(() =>
+  import('./components/PitchAccentCoach.js').then((m) => ({ default: m.PitchAccentCoach }))
+);
+const KanaStudioWorkbench = lazy(() =>
+  import('./components/KanaStudioWorkbench.js').then((m) => ({ default: m.KanaStudioWorkbench }))
+);
+const HangulStudioWorkbench = lazy(() =>
+  import('./components/HangulStudioWorkbench.js').then((m) => ({ default: m.HangulStudioWorkbench }))
+);
+const MistakeSprintWorkbench = lazy(() =>
+  import('./components/MistakeSprintWorkbench.js').then((m) => ({ default: m.MistakeSprintWorkbench }))
+);
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 import { useEnsureGateway } from './hooks/useAgentGateway.js';
 import { useLearningShell } from './hooks/useLearningShell.js';
@@ -289,6 +312,13 @@ export function App() {
             title="当前工作区遇到临时渲染异常"
             message="此模块由于外部数据或音频上下文发生了临时异常。您的个人学情资产已安全持久化，可点击下方按钮重新加载。"
           >
+            <Suspense
+              fallback={
+                <div className="rounded-xl border p-8 text-center text-sm text-muted-foreground">
+                  工作台加载中…
+                </div>
+              }
+            >
             {activeTab === 'TODAY' && <TodayPlanWorkbench key={shell.track} />}
 
             {activeTab === 'PRACTICE_PLAN' && (
@@ -432,6 +462,7 @@ export function App() {
                 unresolvedMistakesCount={unresolvedMistakesCount}
               />
             )}
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>
