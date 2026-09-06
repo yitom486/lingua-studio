@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   SlidersHorizontal,
   Volume2,
@@ -140,8 +140,19 @@ export function SystemSettingsPopover() {
   const handleGenderChange = (newGender: TtsGender) => {
     sound.playClick();
     setGender(newGender);
+    // 男女声是主人：切换后 Azure 显式音色清零回到自动跟随，避免上下矛盾
+    setEditVoiceId('');
     toast.success(`已切换至：${getPersonaLabel(speechLang, newGender)}`);
   };
+
+  // 切语种时清空跨语种残留的显式音色（如 JA 音色 id 留在 KO 轨道会导致 400）；挂载时不动
+  const prevLangRef = useRef(speechLang);
+  useEffect(() => {
+    if (prevLangRef.current !== speechLang) {
+      prevLangRef.current = speechLang;
+      setEditVoiceId('');
+    }
+  }, [speechLang]);
 
   const handleVoicePick = (voiceURI: string | null) => {
     sound.playClick();
@@ -238,6 +249,7 @@ export function SystemSettingsPopover() {
   };
 
   // Azure 区域与音色全部做成选择题：用户只输 Key 即可
+  // 音色与顶部男女声是同一状态：选具体音色会同步男女声，切男女声/语种则回到自动跟随，永不矛盾
   const AZURE_REGIONS = [
     'japaneast',
     'koreacentral',
@@ -248,25 +260,30 @@ export function SystemSettingsPopover() {
     'westeurope',
     'australiaeast',
   ];
-  const AZURE_VOICES: Record<string, Array<{ value: string; label: string }>> = {
+  const AZURE_VOICES: Record<string, Array<{ value: string; label: string; gender: TtsGender }>> = {
     JA: [
-      { value: 'ja-JP-NanamiNeural', label: '七海（女）' },
-      { value: 'ja-JP-KeitaNeural', label: '圭太（男）' },
-      { value: 'ja-JP-AoiNeural', label: '葵（女）' },
-      { value: 'ja-JP-DaichiNeural', label: '大地（男）' },
+      { value: 'ja-JP-NanamiNeural', label: '七海（女）', gender: 'FEMALE' },
+      { value: 'ja-JP-KeitaNeural', label: '圭太（男）', gender: 'MALE' },
+      { value: 'ja-JP-AoiNeural', label: '葵（女）', gender: 'FEMALE' },
+      { value: 'ja-JP-DaichiNeural', label: '大地（男）', gender: 'MALE' },
     ],
     KO: [
-      { value: 'ko-KR-SunHiNeural', label: 'SunHi（女）' },
-      { value: 'ko-KR-InJoonNeural', label: 'InJoon（男）' },
+      { value: 'ko-KR-SunHiNeural', label: 'SunHi（女）', gender: 'FEMALE' },
+      { value: 'ko-KR-InJoonNeural', label: 'InJoon（男）', gender: 'MALE' },
     ],
     EN: [
-      { value: 'en-US-JennyNeural', label: 'Jenny（女）' },
-      { value: 'en-US-GuyNeural', label: 'Guy（男）' },
-      { value: 'en-US-AriaNeural', label: 'Aria（女）' },
-      { value: 'en-US-DavisNeural', label: 'Davis（男）' },
+      { value: 'en-US-JennyNeural', label: 'Jenny（女）', gender: 'FEMALE' },
+      { value: 'en-US-GuyNeural', label: 'Guy（男）', gender: 'MALE' },
+      { value: 'en-US-AriaNeural', label: 'Aria（女）', gender: 'FEMALE' },
+      { value: 'en-US-DavisNeural', label: 'Davis（男）', gender: 'MALE' },
     ],
   };
   const azureVoiceOptions = AZURE_VOICES[speechLang] ?? AZURE_VOICES.EN ?? [];
+  /** 当前实际生效的 Azure 音色：显式选择优先，否则跟随男女声 */
+  const effectiveAzureVoice =
+    azureVoiceOptions.find((v) => v.value === editVoiceId) ??
+    azureVoiceOptions.find((v) => v.gender === gender) ??
+    azureVoiceOptions[0];
   const OPENAI_ENDPOINT_PRESETS = [
     { label: 'OpenAI 官方', value: 'https://api.openai.com/v1/audio/speech' },
     { label: '本地默认', value: 'http://127.0.0.1:8880/v1/audio/speech' },
@@ -571,15 +588,29 @@ export function SystemSettingsPopover() {
                     className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
                   />
                   {editEngine === 'azure-speech' ? (
+                    <>
                     <Select
                       value={editVoiceId || '__auto'}
-                      onValueChange={(v) => v && setEditVoiceId(v === '__auto' ? '' : v)}
+                      onValueChange={(v) => {
+                        if (!v) return;
+                        sound.playClick();
+                        if (v === '__auto') {
+                          setEditVoiceId('');
+                          return;
+                        }
+                        // 选具体音色则男女声同步跟过去，上下永远对应
+                        setEditVoiceId(v);
+                        const picked = azureVoiceOptions.find((o) => o.value === v);
+                        if (picked && picked.gender !== gender) {
+                          setGender(picked.gender);
+                        }
+                      }}
                     >
                       <SelectTrigger className="h-8 text-[11px]">
                         <SelectValue placeholder="音色（默认按语种自动）" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__auto">默认（按语种自动）</SelectItem>
+                        <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
                         {azureVoiceOptions.map((v) => (
                           <SelectItem key={v.value} value={v.value}>
                             {v.label} · {v.value}
@@ -587,6 +618,12 @@ export function SystemSettingsPopover() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {effectiveAzureVoice && (
+                      <p className="text-[10px] text-stone-400 leading-relaxed">
+                        当前生效：{effectiveAzureVoice.label} · {effectiveAzureVoice.value}
+                      </p>
+                    )}
+                    </>
                   ) : (
                     <input
                       type="text"
