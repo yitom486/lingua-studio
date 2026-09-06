@@ -453,7 +453,32 @@ export function SystemSettingsPopover() {
               </div>
             </div>
 
-            {/* 音色男女声选择：标签随目标语种轨道切换 */}
+            {/* 引擎三选一：选择即在此，音色一并在此定 */}
+            <div className="grid grid-cols-3 gap-1">
+              {(
+                [
+                  { value: 'system', label: '系统语音' },
+                  { value: 'openai-compatible', label: 'OpenAI兼容' },
+                  { value: 'azure-speech', label: 'Azure' },
+                ] as const
+              ).map((o) => (
+                <Button
+                  key={o.value}
+                  type="button"
+                  size="sm"
+                  variant={editEngine === o.value ? 'default' : 'outline'}
+                  className="h-7 text-[11px] px-1"
+                  onClick={() => {
+                    sound.playClick();
+                    setEditEngine(o.value);
+                  }}
+                >
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+
+            {/* 男女声：不写死具体人名，只定性别方向，具体音色由下方下拉定 */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -464,7 +489,7 @@ export function SystemSettingsPopover() {
                     : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800/60 text-stone-600 dark:text-stone-400'
                 }`}
               >
-                <span className="truncate">{voicePack.female.label}</span>
+                <span className="truncate">女声</span>
                 {gender === 'FEMALE' && <Check className="w-3 h-3 text-amber-500" />}
               </button>
               <button
@@ -476,7 +501,7 @@ export function SystemSettingsPopover() {
                     : 'border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800/60 text-stone-600 dark:text-stone-400'
                 }`}
               >
-                <span className="truncate">{voicePack.male.label}</span>
+                <span className="truncate">男声</span>
                 {gender === 'MALE' && <Check className="w-3 h-3 text-amber-500" />}
               </button>
             </div>
@@ -497,10 +522,11 @@ export function SystemSettingsPopover() {
               </span>
             </div>
 
+            {/* 具体音色选择：随引擎切换，选中即生效（保存后持久） */}
             {editEngine === 'system' && langVoices.length > 0 && (
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-stone-500 dark:text-stone-400">
-                  手动指定系统音色（英语请优先选 David / Mark / Guy）
+                  系统音色（英语请优先选 David / Mark / Guy）
                 </label>
                 <Select
                   value={preferredURI || activeSystemVoice?.voiceURI || ''}
@@ -523,10 +549,112 @@ export function SystemSettingsPopover() {
               </div>
             )}
 
-            {editEngine !== 'system' && (
-              <p className="text-[10px] text-sky-700/90 dark:text-sky-300/90 leading-relaxed">
-                神经语音生效中，上方男女声直接切换云端音色；系统音色下拉已隐藏，到下方神经语音区选具体音色与风格。
-              </p>
+            {editEngine === 'azure-speech' && (
+              <div className="space-y-2">
+                <Select
+                  value={editVoiceId || '__auto'}
+                  onValueChange={(v) => {
+                    if (!v || v.startsWith('__group_')) return;
+                    sound.playClick();
+                    if (v === '__auto') {
+                      setEditVoiceId('');
+                      setEditStyle('');
+                      return;
+                    }
+                    setEditVoiceId(v);
+                    setEditStyle('');
+                    const picked = azureVoiceOptions.find((o) => o.id === v);
+                    if (picked && picked.gender !== gender) {
+                      setGender(picked.gender);
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-[11px]">
+                    <SelectValue placeholder="音色（默认按语种自动）">
+                      {azureVoiceTriggerLabel}
+                      {isVoicesFetching ? ' · 读取中…' : ''}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
+                    {groupedVoiceOptions.map((row) =>
+                      row.kind === 'header' ? (
+                        <SelectItem key={row.key} value={row.key} disabled>
+                          <span className="text-[10px] font-bold text-stone-400">
+                            —— {row.label} ——
+                          </span>
+                        </SelectItem>
+                      ) : (
+                        <SelectItem key={row.voice.id} value={row.voice.id}>
+                          {row.voice.label} · {row.voice.id}
+                        </SelectItem>
+                      )
+                    )}
+                  </SelectContent>
+                </Select>
+                {voiceStyles.length > 0 && (
+                  <Select
+                    value={editStyle || '__none'}
+                    onValueChange={(v) => {
+                      if (!v) return;
+                      sound.playClick();
+                      setEditStyle(v === '__none' ? '' : v);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-[11px]">
+                      <SelectValue placeholder="说话风格（默认自然）">
+                        {editStyle ? `风格：${editStyle}` : '说话风格（默认自然）'}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">自然（无风格）</SelectItem>
+                      {voiceStyles.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {remoteVoices.length > 0 ? (
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 leading-relaxed">
+                    已加载 {remoteVoices.length} 个{speechLang === 'JA' ? '日语' : speechLang === 'KO' ? '韩语' : '英语'}云端音色（含各音色可用风格）。
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-stone-400 leading-relaxed">
+                    到下方填好区域与 Key 后自动拉取该区全量音色与说话风格。
+                  </p>
+                )}
+              </div>
+            )}
+
+            {editEngine === 'openai-compatible' && (
+              <div className="space-y-2">
+                <div className="flex gap-1">
+                  {OPENAI_VOICE_PRESETS.map((p) => (
+                    <Button
+                      key={p}
+                      type="button"
+                      size="sm"
+                      variant={editVoiceId === p ? 'default' : 'outline'}
+                      className="flex-1 h-7 text-[11px] px-1"
+                      onClick={() => {
+                        sound.playClick();
+                        setEditVoiceId(p);
+                      }}
+                    >
+                      {p}
+                    </Button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={editVoiceId}
+                  onChange={(e) => setEditVoiceId(e.target.value)}
+                  placeholder="音色 id（可空，如 alloy）"
+                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                />
+              </div>
             )}
 
             {editEngine === 'system' && !hasNamed && (
@@ -562,41 +690,18 @@ export function SystemSettingsPopover() {
 
           <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
 
-          {/* 2. 神经语音（云端 / 本地）：经网关代理，Key 只存本机 */}
+          {/* 2. 连接配置：引擎与音色到上方选择区定，这里只填连通三件套 */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
               <Plug className="w-3.5 h-3.5 text-amber-500" />
-              <span>神经语音</span>
+              <span>神经语音连接</span>
               <span className="text-[10px] font-mono text-stone-400">
                 {editEngine === 'system'
-                  ? '系统语音'
+                  ? '未启用'
                   : editEngine === 'azure-speech'
                     ? 'Azure·已选'
                     : '兼容端点·已选'}
               </span>
-            </div>
-            <div className="grid grid-cols-3 gap-1">
-              {(
-                [
-                  { value: 'system', label: '系统语音' },
-                  { value: 'openai-compatible', label: 'OpenAI兼容' },
-                  { value: 'azure-speech', label: 'Azure' },
-                ] as const
-              ).map((o) => (
-                <Button
-                  key={o.value}
-                  type="button"
-                  size="sm"
-                  variant={editEngine === o.value ? 'default' : 'outline'}
-                  className="h-7 text-[11px] px-1"
-                  onClick={() => {
-                    sound.playClick();
-                    setEditEngine(o.value);
-                  }}
-                >
-                  {o.label}
-                </Button>
-              ))}
             </div>
               {editEngine === 'openai-compatible' && (
                 <>
@@ -651,123 +756,15 @@ export function SystemSettingsPopover() {
                 </>
               )}
             {editEngine !== 'system' && (
-              <>
-                  <input
-                    type="password"
-                    value={editApiKey}
-                    onChange={(e) => setEditApiKey(e.target.value)}
-                    placeholder="API Key（可空传本地服务；仅存本机）"
-                    autoComplete="off"
-                    className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
-                  />
-                  {editEngine === 'azure-speech' ? (
-                    <>
-                    <Select
-                      value={editVoiceId || '__auto'}
-                      onValueChange={(v) => {
-                        if (!v || v.startsWith('__group_')) return;
-                        sound.playClick();
-                        if (v === '__auto') {
-                          setEditVoiceId('');
-                          setEditStyle('');
-                          return;
-                        }
-                        // 选具体音色则男女声同步跟过去，上下永远对应；风格随音色重置
-                        setEditVoiceId(v);
-                        setEditStyle('');
-                        const picked = azureVoiceOptions.find((o) => o.id === v);
-                        if (picked && picked.gender !== gender) {
-                          setGender(picked.gender);
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="h-8 text-[11px]">
-                        <SelectValue placeholder="音色（默认按语种自动）">
-                          {azureVoiceTriggerLabel}
-                          {isVoicesFetching ? ' · 读取中…' : ''}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__auto">默认（跟随上方男女声）</SelectItem>
-                        {groupedVoiceOptions.map((row) =>
-                          row.kind === 'header' ? (
-                            <SelectItem key={row.key} value={row.key} disabled>
-                              <span className="text-[10px] font-bold text-stone-400">
-                                —— {row.label} ——
-                              </span>
-                            </SelectItem>
-                          ) : (
-                            <SelectItem key={row.voice.id} value={row.voice.id}>
-                              {row.voice.label} · {row.voice.id}
-                            </SelectItem>
-                          )
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {voiceStyles.length > 0 ? (
-                      <Select
-                        value={editStyle || '__none'}
-                        onValueChange={(v) => {
-                          if (!v) return;
-                          sound.playClick();
-                          setEditStyle(v === '__none' ? '' : v);
-                        }}
-                      >
-                        <SelectTrigger className="h-8 text-[11px]">
-                          <SelectValue placeholder="说话风格（默认自然）">
-                            {editStyle ? `风格：${editStyle}` : '说话风格（默认自然）'}
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none">自然（无风格）</SelectItem>
-                          {voiceStyles.map((s) => (
-                            <SelectItem key={s} value={s}>
-                              {s}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      remoteVoices.length === 0 && (
-                        <p className="text-[10px] text-stone-400 leading-relaxed">
-                          填好区域与 Key 后自动拉取该区全量音色与说话风格。
-                        </p>
-                      )
-                    )}
-                    {remoteVoices.length > 0 && (
-                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 leading-relaxed">
-                        已加载 {remoteVoices.length} 个{speechLang === 'JA' ? '日语' : speechLang === 'KO' ? '韩语' : '英语'}云端音色（含各音色可用风格）。
-                      </p>
-                    )}
-                    </>
-                  ) : (
-                    <>
-                    <div className="flex gap-1">
-                      {OPENAI_VOICE_PRESETS.map((p) => (
-                        <Button
-                          key={p}
-                          type="button"
-                          size="sm"
-                          variant={editVoiceId === p ? 'default' : 'outline'}
-                          className="flex-1 h-7 text-[11px] px-1"
-                          onClick={() => {
-                            sound.playClick();
-                            setEditVoiceId(p);
-                          }}
-                        >
-                          {p}
-                        </Button>
-                      ))}
-                    </div>
-                    <input
-                      type="text"
-                      value={editVoiceId}
-                      onChange={(e) => setEditVoiceId(e.target.value)}
-                      placeholder="音色 id（可空，如 alloy）"
-                      className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
-                    />
-                    </>
-                  )}
+              <input
+                type="password"
+                value={editApiKey}
+                onChange={(e) => setEditApiKey(e.target.value)}
+                placeholder="API Key（可空传本地服务；仅存本机）"
+                autoComplete="off"
+                className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+              />
+            )}
                 <p className="text-[10px] text-stone-400 leading-relaxed">
                   Key 随本次请求发往本机网关代调第三方，网关不落盘。先验证再保存。
                 </p>
@@ -793,8 +790,6 @@ export function SystemSettingsPopover() {
                     {testingNeural ? '试播中…' : '试播验证'}
                   </Button>
                 </div>
-              </>
-            )}
             <Button type="button" size="sm" className="w-full h-7 text-[11px]" onClick={handleSaveNeural}>
               保存语音配置
             </Button>
