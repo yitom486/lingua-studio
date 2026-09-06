@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff, RotateCcw, X } from 'lucide-react';
+import { Sparkles, Send, Bot, User, Square, Wifi, WifiOff, RotateCcw, X, Reply } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ContextSnapshot } from '@study-studio/agent-core';
 import { sound } from '../utils/audio.js';
@@ -390,9 +390,9 @@ export function AiTutorDrawer({
 
   const track = normalizeTutorLanguage(profile.targetLanguage);
   const tutorCopy = getTutorTrackCopy(track);
-  // 追问 chips 不再写死，优先级：模型预测的【追问】块 > 回复正文里的真问题 > 轨道默认。
-  // 抽不到（首轮/纯陈述/离线骨架/短问走 lite 通道）才回退轨道默认三条。
-  const quickPrompts = React.useMemo(() => {
+  // 底部 chips 只做回退：某条回答下已有卡片时不再重复摆一遍；
+  // 抽不到（首轮/纯陈述/离线骨架/短问走 lite 通道）才显示轨道默认三条。
+  const followupChips = React.useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m && m.sender === 'ai' && !m.isStreaming && m.text.trim()) {
@@ -403,11 +403,11 @@ export function AiTutorDrawer({
           if (!merged.includes(q)) merged.push(q);
           if (merged.length >= 3) break;
         }
-        if (merged.length > 0) return merged;
+        if (merged.length > 0) return { chips: [] as string[], fromFallback: false };
         break;
       }
     }
-    return tutorCopy.quickPrompts;
+    return { chips: tutorCopy.quickPrompts, fromFallback: true };
   }, [messages, tutorCopy.quickPrompts]);
 
   // “就本轮考我”：让 AI 按本次问答现场出一道单选题（对话内考，不进题库，不伪造入库）。
@@ -589,6 +589,18 @@ export function AiTutorDrawer({
               >
                 {messages.map((msg) => {
                 const isAi = msg.sender === 'ai';
+                // Gemini 式：每条 AI 回答自带追问卡片（预测块 > 正文真问题，上限 3；流式中不算）
+                const predicted =
+                  isAi && !msg.isStreaming && msg.text.trim()
+                    ? extractPredictedFollowUps(msg.text)
+                    : { chips: [] as string[], displayText: msg.text };
+                const mergedCards: string[] = [...predicted.chips];
+                if (isAi && !msg.isStreaming && msg.text.trim()) {
+                  for (const q of extractFollowUps(predicted.displayText)) {
+                    if (!mergedCards.includes(q)) mergedCards.push(q);
+                    if (mergedCards.length >= 3) break;
+                  }
+                }
                 return (
                   <div
                     key={msg.id}
@@ -616,13 +628,7 @@ export function AiTutorDrawer({
                         </div>
                       ) : null}
                       {isAi ? (
-                        <MarkdownText
-                          text={
-                            msg.isStreaming
-                              ? msg.text
-                              : extractPredictedFollowUps(msg.text).displayText
-                          }
-                        />
+                        <MarkdownText text={predicted.displayText} />
                       ) : (
                         msg.text
                       )}
@@ -684,10 +690,7 @@ export function AiTutorDrawer({
                       )}
                       {isAi && !msg.isStreaming && (() => {
                         // 朗读只读正文：预测块是中文问题串，用日语声音硬读是灾难
-                        const speakable = toSpeakableText(
-                          extractPredictedFollowUps(msg.text).displayText,
-                          track
-                        );
+                        const speakable = toSpeakableText(predicted.displayText, track);
                         return speakable ? (
                           <div className="mt-1.5">
                             <UnifiedTtsPlayer
@@ -698,6 +701,23 @@ export function AiTutorDrawer({
                           </div>
                         ) : null;
                       })()}
+                      {isAi && !msg.isStreaming && mergedCards.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-amber-900/10 dark:border-amber-500/10 space-y-1.5 font-sans">
+                          {mergedCards.map((q) => (
+                            <button
+                              key={q}
+                              type="button"
+                              onClick={() => handleSendMessage(q)}
+                              disabled={isTyping}
+                              title="对这个问题感兴趣？点一下直接问"
+                              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/15 text-left text-xs text-stone-700 dark:text-stone-200 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <span className="leading-relaxed">{q}</span>
+                              <Reply className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -725,18 +745,19 @@ export function AiTutorDrawer({
             </div>
 
             <div className="px-4 py-2 bg-stone-100/60 dark:bg-stone-900/40 border-t border-amber-900/10 dark:border-amber-500/10 flex flex-wrap gap-1.5 shrink-0">
-              {quickPrompts.map((prompt) => (
-                <Button
-                  key={prompt}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleSendMessage(prompt)}
-                  disabled={isTyping}
-                  className="h-7 rounded-full text-[11px] px-2.5"
-                >
-                  💬 {prompt}
-                </Button>
-              ))}
+              {followupChips.fromFallback &&
+                followupChips.chips.map((prompt) => (
+                  <Button
+                    key={prompt}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleSendMessage(prompt)}
+                    disabled={isTyping}
+                    className="h-7 rounded-full text-[11px] px-2.5"
+                  >
+                    💬 {prompt}
+                  </Button>
+                ))}
               <Button
                 variant="outline"
                 size="sm"
