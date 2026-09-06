@@ -13,6 +13,12 @@ import {
 } from './seeds/learning-seed.js';
 import { LEARNING_CONTENT_TEMPLATE_SEEDS } from './seeds/content-template-seed.js';
 import { PITCH_LEXICON } from './seeds/pitch-seed.js';
+import {
+  STARTER_LICENSE,
+  STARTER_SOURCE_ID,
+  STARTER_SOURCE_LABEL,
+  STARTER_WORD_SEEDS,
+} from './seeds/starter-words-seed.js';
 import { TEXTBOOK_BOOKS } from './seeds/textbook-seed.js';
 
 /**
@@ -533,5 +539,66 @@ export function seedInitialData(sqlite: Database): void {
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed local dictionary entries:', e);
+    }
+
+    // 8b. 开箱初级词包（日韩各 24，自撰中文释义）。INSERT OR IGNORE 按 id 补齐，
+    // 不依赖表空判断：老库升级也能补进；用户后装词典包与之并存，互不覆盖。
+    try {
+      const now = new Date().toISOString();
+      const insertStarterSource = sqlite.prepare(`
+        INSERT OR IGNORE INTO dictionary_sources (
+          id, language, provider, version, source_url, license_name, license_url, attribution, entry_count, imported_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const starterJaCount = STARTER_WORD_SEEDS.filter((w) => w.language === 'ja').length;
+      const starterKoCount = STARTER_WORD_SEEDS.filter((w) => w.language === 'ko').length;
+      insertStarterSource.run(
+        `${STARTER_SOURCE_ID}-ja`,
+        'ja',
+        'Study Studio',
+        'v1',
+        'https://study-studio.local/curriculum/starter-words',
+        STARTER_LICENSE,
+        'https://study-studio.local/licenses',
+        'Study Studio starter vocabulary with original Chinese glosses.',
+        starterJaCount,
+        now
+      );
+      insertStarterSource.run(
+        `${STARTER_SOURCE_ID}-ko`,
+        'ko',
+        'Study Studio',
+        'v1',
+        'https://study-studio.local/curriculum/starter-words',
+        STARTER_LICENSE,
+        'https://study-studio.local/licenses',
+        'Study Studio starter vocabulary with original Chinese glosses.',
+        starterKoCount,
+        now
+      );
+      const insertStarter = sqlite.prepare(`
+        INSERT OR IGNORE INTO local_dictionary_entries (
+          id, language, headword, reading, romanization, meanings_json,
+          pronunciation_json, part_of_speech, source_id, source_label, license_note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const w of STARTER_WORD_SEEDS) {
+        insertStarter.run(
+          w.id,
+          w.language,
+          w.headword,
+          w.reading ?? null,
+          null,
+          JSON.stringify(w.meanings),
+          null,
+          w.partOfSpeech ?? null,
+          STARTER_SOURCE_ID,
+          STARTER_SOURCE_LABEL,
+          STARTER_LICENSE,
+          now
+        );
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed starter words:', e);
     }
 }
