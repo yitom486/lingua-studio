@@ -14,8 +14,10 @@ import {
   Download,
   LoaderCircle,
   DatabaseBackup,
+  Plug,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { GATEWAY_BASE_URL } from '../lib/api-client.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 import { Button, buttonVariants } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -59,6 +61,28 @@ export function SystemSettingsPopover() {
   const setRate = useTtsStore((s) => s.setRate);
   const setPreferredVoice = useTtsStore((s) => s.setPreferredVoice);
   const speak = useTtsStore((s) => s.speak);
+
+  // 神经语音（经网关代理）：三选项 + 分服务商字段 + 有效性验证
+  type EngineChoice = 'system' | 'openai-compatible' | 'azure-speech';
+  const customPluginUrl = useTtsStore((s) => s.customPluginUrl);
+  const isCustomPluginEnabled = useTtsStore((s) => s.isCustomPluginEnabled);
+  const customPluginApiKey = useTtsStore((s) => s.customPluginApiKey);
+  const customPluginVoiceId = useTtsStore((s) => s.customPluginVoiceId);
+  const proxyProvider = useTtsStore((s) => s.proxyProvider);
+  const proxyRegion = useTtsStore((s) => s.proxyRegion);
+  const setCustomPluginConfig = useTtsStore((s) => s.setCustomPluginConfig);
+  const setCustomPluginAuth = useTtsStore((s) => s.setCustomPluginAuth);
+  const setProxyProvider = useTtsStore((s) => s.setProxyProvider);
+  const setProxyRegion = useTtsStore((s) => s.setProxyRegion);
+  const [editEngine, setEditEngine] = useState<EngineChoice>(
+    isCustomPluginEnabled ? proxyProvider : 'system'
+  );
+  const [editUrl, setEditUrl] = useState(customPluginUrl);
+  const [editRegion, setEditRegion] = useState(proxyRegion);
+  const [editApiKey, setEditApiKey] = useState(customPluginApiKey);
+  const [editVoiceId, setEditVoiceId] = useState(customPluginVoiceId);
+  const [validating, setValidating] = useState(false);
+  const [testingNeural, setTestingNeural] = useState(false);
 
   // 学情与画像
   const profile = useUserProfileStore((s) => s.profile);
@@ -131,6 +155,86 @@ export function SystemSettingsPopover() {
   const handlePreview = () => {
     sound.playClick();
     speak(getPreviewText(speechLang, gender), { lang: speechLang, gender, rate });
+  };
+
+  const persistNeuralForm = () => {
+    if (editEngine === 'system') {
+      setCustomPluginConfig(editUrl, false);
+    } else {
+      setCustomPluginConfig(editUrl, true);
+      setProxyProvider(editEngine);
+    }
+    setProxyRegion(editRegion);
+    setCustomPluginAuth(editApiKey, editVoiceId);
+  };
+
+  const handleSaveNeural = () => {
+    sound.playCorrect();
+    persistNeuralForm();
+    toast.success(
+      editEngine === 'system'
+        ? '已切回系统语音'
+        : `已启用 ${editEngine === 'azure-speech' ? 'Azure Speech' : 'OpenAI 兼容'}（经网关代理）`
+    );
+  };
+
+  const handleValidateNeural = async () => {
+    if (editEngine === 'system') return;
+    if (editEngine === 'azure-speech' && !editRegion.trim()) {
+      toast.error('请先填写 Azure 区域（如 japaneast）。');
+      return;
+    }
+    if (editEngine === 'openai-compatible' && !editUrl.trim()) {
+      toast.error('请先填写外挂端点 URL。');
+      return;
+    }
+    sound.playClick();
+    setValidating(true);
+    try {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/tts/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: editEngine,
+          trackLanguage: speechLang.toLowerCase(),
+          ...(editEngine === 'openai-compatible' ? { baseUrl: editUrl } : { region: editRegion }),
+          ...(editApiKey ? { apiKey: editApiKey } : {}),
+          ...(editVoiceId ? { voice: editVoiceId } : {}),
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as {
+        ok?: unknown;
+        voice?: unknown;
+        bytes?: unknown;
+        error?: { userMessage?: string };
+      } | null;
+      if (res.ok && data?.ok) {
+        persistNeuralForm();
+        toast.success(`Key 有效：${String(data.voice ?? '')}（探针 ${String(data.bytes ?? 0)} 字节）。`);
+      } else {
+        toast.error(data?.error?.userMessage ?? '验证失败，请检查配置。');
+      }
+    } catch {
+      toast.error('网关未响应：请确认网关已启动（localhost:8080）。');
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  const handleTestNeural = () => {
+    if (editEngine === 'system') return;
+    sound.playClick();
+    setTestingNeural(true);
+    persistNeuralForm();
+    void speak(getPreviewText(speechLang, gender), {
+      lang: speechLang,
+      gender,
+      onEnd: () => setTestingNeural(false),
+      onError: (e) => {
+        setTestingNeural(false);
+        toast.error(e instanceof Error ? e.message : '神经语音试播失败，请检查配置。');
+      },
+    });
   };
 
   const handleInstallDictionary = (packageId: string) => {
@@ -335,7 +439,122 @@ export function SystemSettingsPopover() {
 
           <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
 
-          {/* 2. 词典包：内容按需进入 SQLite，避免初装体积与无授权数据混入。 */}
+          {/* 2. 神经语音（云端 / 本地）：经网关代理，Key 只存本机 */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
+              <Plug className="w-3.5 h-3.5 text-amber-500" />
+              <span>神经语音</span>
+              <span className="text-[10px] font-mono text-stone-400">
+                {editEngine === 'system'
+                  ? '系统语音'
+                  : editEngine === 'azure-speech'
+                    ? 'Azure·已选'
+                    : '兼容端点·已选'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {(
+                [
+                  { value: 'system', label: '系统语音' },
+                  { value: 'openai-compatible', label: 'OpenAI兼容' },
+                  { value: 'azure-speech', label: 'Azure' },
+                ] as const
+              ).map((o) => (
+                <Button
+                  key={o.value}
+                  type="button"
+                  size="sm"
+                  variant={editEngine === o.value ? 'default' : 'outline'}
+                  className="h-7 text-[11px] px-1"
+                  onClick={() => {
+                    sound.playClick();
+                    setEditEngine(o.value);
+                  }}
+                >
+                  {o.label}
+                </Button>
+              ))}
+            </div>
+            {editEngine === 'openai-compatible' && (
+              <>
+                <input
+                  type="text"
+                  value={editUrl}
+                  onChange={(e) => setEditUrl(e.target.value)}
+                  placeholder="端点 URL，如 https://api.openai.com/v1/audio/speech"
+                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                />
+                <p className="text-[10px] text-stone-400 leading-relaxed">
+                  任何 OpenAI /v1/audio/speech 兼容端点：公有云、自建网关或本地兼容服务均可直填。
+                </p>
+              </>
+            )}
+            {editEngine === 'azure-speech' && (
+              <>
+                <input
+                  type="text"
+                  value={editRegion}
+                  onChange={(e) => setEditRegion(e.target.value)}
+                  placeholder="区域，如 japaneast / koreacentral / eastus"
+                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                />
+                <p className="text-[10px] text-stone-400 leading-relaxed">
+                  Azure Speech 原生 REST：区域 + Key 即可，不填音色按语种用默认神经音色。
+                </p>
+              </>
+            )}
+            {editEngine !== 'system' && (
+              <>
+                <input
+                  type="password"
+                  value={editApiKey}
+                  onChange={(e) => setEditApiKey(e.target.value)}
+                  placeholder="API Key（可空传本地服务；仅存本机）"
+                  autoComplete="off"
+                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                />
+                <input
+                  type="text"
+                  value={editVoiceId}
+                  onChange={(e) => setEditVoiceId(e.target.value)}
+                  placeholder="音色 id（可空，如 alloy / ja-JP-NanamiNeural）"
+                  className="w-full p-2 text-[11px] font-mono rounded-lg bg-white dark:bg-[#131211] border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200"
+                />
+                <p className="text-[10px] text-stone-400 leading-relaxed">
+                  Key 随本次请求发往本机网关代调第三方，网关不落盘。先验证再保存。
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-7 text-[11px]"
+                    disabled={validating}
+                    onClick={() => void handleValidateNeural()}
+                  >
+                    {validating ? '验证中…' : '验证有效性'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="flex-1 h-7 text-[11px]"
+                    disabled={testingNeural}
+                    onClick={handleTestNeural}
+                  >
+                    {testingNeural ? '试播中…' : '试播验证'}
+                  </Button>
+                </div>
+              </>
+            )}
+            <Button type="button" size="sm" className="w-full h-7 text-[11px]" onClick={handleSaveNeural}>
+              保存语音配置
+            </Button>
+          </div>
+
+          <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
+
+          {/* 3. 词典包：内容按需进入 SQLite，避免初装体积与无授权数据混入。 */}
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
               <BookOpen className="w-3.5 h-3.5 text-amber-500" />
@@ -395,7 +614,7 @@ export function SystemSettingsPopover() {
 
           <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
 
-          {/* 3. 学情画像与打卡目标入口 */}
+          {/* 4. 学情画像与打卡目标入口 */}
           <div className="space-y-2">
             <div className="flex items-center justify-between font-medium text-stone-700 dark:text-stone-300">
               <div className="flex items-center gap-1.5">
@@ -444,7 +663,7 @@ export function SystemSettingsPopover() {
             </div>
           </div>
 
-          {/* 4. 桌面端数据管理（仅 Tauri 壳内可见） */}
+          {/* 5. 桌面端数据管理（仅 Tauri 壳内可见） */}
           {isDesktop && (
             <>
               <div className="h-px bg-stone-100 dark:bg-stone-800/80" />

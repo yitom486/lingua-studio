@@ -194,4 +194,13 @@ describe('azure speech helpers', () => {
     expect(custom).toContain('en-US-GuyNeural');
     expect(custom).not.toContain('prosody');
   });
+
+  it('matches byte-for-byte the SSML verified against live Azure (japaneast)', () => {
+    // 2026-09-06 实测：该 exact 请求经网关代理返回 10800 字节 audio/mpeg；
+    // 无属性 <prosody> 空壳会被 Azure 回 400 空 body（已修，见下）。
+    expect(buildAzureSsml('こんにちは', { trackLanguage: 'ja' })).toBe(
+      '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ja-JP">' +
+        '<voice name="ja-JP-NanamiNeural">こんにちは</voice></speak>'
+    );
+  });
 });

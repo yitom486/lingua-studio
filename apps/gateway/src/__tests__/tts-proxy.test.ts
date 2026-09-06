@@ -172,6 +172,23 @@ describe('tts proxy (azure-speech)', () => {
     );
     expect(isOk(noKey)).toBe(false);
   });
+
+  it('maps Azure empty-body 400 to invalid input (live behavior for bad SSML)', async () => {
+    // 2026-09-06 japaneast 实测：坏 SSML 回 400 且 body 为空
+    const fetchImpl = stubFetch(async () => new Response('', { status: 400 }));
+    const res = await synthesizeViaProxy(
+      {
+        provider: 'azure-speech',
+        text: 'hi',
+        region: 'japaneast',
+        apiKey: 'azure-key',
+      },
+      fetchImpl
+    );
+    expect(isOk(res)).toBe(false);
+    if (isOk(res)) return;
+    expect(res.error.code).toBe('E_INVALID_INPUT');
+  });
 });
 
 describe('tts proxy validate', () => {
@@ -190,6 +207,22 @@ describe('tts proxy validate', () => {
     expect(res.value.ok).toBe(true);
     expect(res.value.bytes).toBe(audioBytes.length);
     expect(res.value.provider).toBe('openai-compatible');
+  });
+
+  it('sends the per-track probe text for azure validation', async () => {
+    let seenBody = '';
+    const fetchImpl = stubFetch(async (_url, init) => {
+      seenBody = String(init?.body ?? '');
+      return okAudio();
+    });
+    const res = await validateProxyCredentials(
+      { provider: 'azure-speech', text: '', trackLanguage: 'ja', region: 'japaneast', apiKey: 'k' },
+      fetchImpl
+    );
+    expect(isOk(res)).toBe(true);
+    // 日语探针即线上验证通过的那句
+    expect(seenBody).toContain('こんにちは');
+    expect(seenBody).toContain('ja-JP-NanamiNeural');
   });
 
   it('rejects unknown providers', async () => {
