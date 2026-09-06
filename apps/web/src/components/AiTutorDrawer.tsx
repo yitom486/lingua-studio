@@ -390,26 +390,6 @@ export function AiTutorDrawer({
 
   const track = normalizeTutorLanguage(profile.targetLanguage);
   const tutorCopy = getTutorTrackCopy(track);
-  // 底部 chips 只做回退：某条回答下已有卡片时不再重复摆一遍；
-  // 抽不到（首轮/纯陈述/离线骨架/短问走 lite 通道）才显示轨道默认三条。
-  const followupChips = React.useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m && m.sender === 'ai' && !m.isStreaming && m.text.trim()) {
-        const predicted = extractPredictedFollowUps(m.text);
-        const inText = extractFollowUps(predicted.displayText);
-        const merged = [...predicted.chips];
-        for (const q of inText) {
-          if (!merged.includes(q)) merged.push(q);
-          if (merged.length >= 3) break;
-        }
-        if (merged.length > 0) return { chips: [] as string[], fromFallback: false };
-        break;
-      }
-    }
-    return { chips: tutorCopy.quickPrompts, fromFallback: true };
-  }, [messages, tutorCopy.quickPrompts]);
-
   // “就本轮考我”：让 AI 按本次问答现场出一道单选题（对话内考，不进题库，不伪造入库）。
   const handleQuizMe = () => {
     const tag = context?.skillTag ? `关于「${context.skillTag}」` : '';
@@ -745,19 +725,6 @@ export function AiTutorDrawer({
             </div>
 
             <div className="px-4 py-2 bg-stone-100/60 dark:bg-stone-900/40 border-t border-amber-900/10 dark:border-amber-500/10 flex flex-wrap gap-1.5 shrink-0">
-              {followupChips.fromFallback &&
-                followupChips.chips.map((prompt) => (
-                  <Button
-                    key={prompt}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleSendMessage(prompt)}
-                    disabled={isTyping}
-                    className="h-7 rounded-full text-[11px] px-2.5"
-                  >
-                    💬 {prompt}
-                  </Button>
-                ))}
               <Button
                 variant="outline"
                 size="sm"
