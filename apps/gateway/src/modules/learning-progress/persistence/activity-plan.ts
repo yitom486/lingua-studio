@@ -16,6 +16,7 @@ import type {
 } from '@study-studio/learner-core';
 import {
   buildDailyPlanStepTemplates,
+  buildTrailStepTemplates,
   parseCompletedStepIds,
   parseDailyPlanStepTemplates,
   summarizeDailyStudyPlan,
@@ -38,6 +39,8 @@ import {
   mirrorLanguageProfileToMain,
 } from './profile-internals.js';
 import { getTodayString, getYesterdayString, safeJsonParse } from '../../../infrastructure/persistence/repo-utils.js';
+import { alphabetBasicsDoneFromMetrics } from './trail.js';
+import { getBeginnerTrail } from './trail.js';
 
 /**
  * 足迹/计划域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
@@ -231,6 +234,9 @@ export async function recordDailyActivity(
     listeningMinutes?: number;
     mistakesResolved?: number;
     reading?: number;
+    /** v4：字母 drill 当日计数（kana/hangul 与 quizzes 分离统计） */
+    kanaDrills?: number;
+    hangulDrills?: number;
     date?: string;
     language?: TrackLanguage | string;
   }
@@ -260,6 +266,8 @@ export async function recordDailyActivity(
     const newListening = (existing?.listeningMinutes ?? 0) + (delta.listeningMinutes ?? 0);
     const newMistakes = (existing?.mistakesResolvedCount ?? 0) + (delta.mistakesResolved ?? 0);
     const newReading = (existing?.readingCount ?? 0) + (delta.reading ?? 0);
+    const newKana = (existing?.kanaCount ?? 0) + (delta.kanaDrills ?? 0);
+    const newHangul = (existing?.hangulCount ?? 0) + (delta.hangulDrills ?? 0);
 
     const wasCompleted = Boolean(existing?.isGoalCompleted);
     const isCompleted =
@@ -353,6 +361,8 @@ export async function recordDailyActivity(
           listeningMinutes: newListening,
           mistakesResolvedCount: newMistakes,
           readingCount: newReading,
+          kanaCount: newKana,
+          hangulCount: newHangul,
           isGoalCompleted: isCompleted,
           intensityLevel: intensity,
           isOvertimeBurst: isBurst,
@@ -370,6 +380,8 @@ export async function recordDailyActivity(
         listeningMinutes: newListening,
         mistakesResolvedCount: newMistakes,
         readingCount: newReading,
+        kanaCount: newKana,
+        hangulCount: newHangul,
         isGoalCompleted: isCompleted,
         intensityLevel: intensity,
         isOvertimeBurst: isBurst,
@@ -562,11 +574,21 @@ export async function hydrateDailyStudyPlan(
     dailyGoalCards: profile.dailyGoalCards,
     dueCardsCount: dueRes.value.length,
     unresolvedMistakesCount: mistakesRes.value.length,
+    // 字母门：五十音/谚文累计尝试<15 视为没认完，只排字母跟读，不推精读与难题。
+    alphabetReady: alphabetBasicsDoneFromMetrics(snapshotRes.value.allMetrics ?? [], language),
     ...(topWeakness ? { topWeakness: { skillId: topWeakness.id, name: topWeakness.name } } : {}),
   };
 
   // P5-E3：练习计划 run 进度信号（活跃 run 或当日完成 run 才存在）
   const practiceSignal = await getPracticePlanRunSignal(deps, userId, language, targetDate);
+
+  // M1 带路合一：带路未走完时，当日计划即带路（未完成 stage 直映射为步骤）；
+  // 走完后回到标准计划。带路进度与模板同源，overlay 吃同一份当日计数。
+  const trailRes = await getBeginnerTrail(deps, userId, language);
+  const trailOpen = isOk(trailRes) && !trailRes.value.complete;
+  const trailStages = trailOpen && isOk(trailRes) ? trailRes.value.stages : [];
+  const trailCounts: Record<string, number> = {};
+  for (const s of trailStages) trailCounts[s.id] = s.progress;
 
   const existingRows = await deps.db
     .select()
@@ -604,7 +626,22 @@ export async function hydrateDailyStudyPlan(
         .where(eq(dailyStudyPlans.id, existing.id));
     }
   } else {
-    templates = buildDailyPlanStepTemplates(signals);
+    // 带路未走完：当日计划即带路（只列未完成 stage；做完的自动消失）。
+    templates = trailOpen
+      ? buildTrailStepTemplates(
+          trailStages
+            .filter((s) => !s.done)
+            .map((s) => ({
+              id: s.id,
+              day: s.day,
+              title: s.title,
+              hint: s.hint,
+              tab: s.tab,
+              criterionKind: s.criterion.kind,
+              goal: s.criterion.goal,
+            }))
+        )
+      : buildDailyPlanStepTemplates(signals);
     if (practiceSignal) templates = appendPracticePlanStep(templates, practiceSignal.totalItems);
     planId = existing?.id ?? generateId('plan');
     createdAt = existing?.createdAt ?? nowIso();
@@ -642,6 +679,7 @@ export async function hydrateDailyStudyPlan(
       unresolvedMistakesCount: mistakesRes.value.length,
       completedStepIds,
       practicePlan: practiceSignal,
+      ...(trailOpen ? { trail: trailCounts } : {}),
     })
   );
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   buildDailyPlanStepTemplates,
+  buildTrailStepTemplates,
   overlayDailyPlanProgress,
   parseDailyPlanStepTemplates,
   appendPracticePlanStep,
@@ -16,6 +17,7 @@ describe('daily plan sequencing', () => {
       dueCardsCount: 8,
       unresolvedMistakesCount: 2,
       topWeakness: { skillId: 'en.grammar.tense', name: '时态一致' },
+      alphabetReady: true,
     });
 
     expect(steps.map((s) => s.kind)).toEqual([
@@ -36,6 +38,7 @@ describe('daily plan sequencing', () => {
       dailyGoalCards: 10,
       dueCardsCount: 0,
       unresolvedMistakesCount: 0,
+      alphabetReady: true,
     });
 
     expect(steps.map((s) => s.kind)).toEqual(['NEW_WORDS', 'READING', 'QUIZ']);
@@ -49,6 +52,7 @@ describe('daily plan sequencing', () => {
       dailyGoalCards: 10,
       dueCardsCount: 3,
       unresolvedMistakesCount: 1,
+      alphabetReady: true,
     });
     const overlayed = overlayDailyPlanProgress(templates, {
       quizzesCount: 5,
@@ -90,6 +94,7 @@ describe('practice plan run step (P5-E3)', () => {
     dueCardsCount: 8,
     unresolvedMistakesCount: 2,
     topWeakness: { skillId: 'en.grammar.tense', name: '时态一致' },
+    alphabetReady: true,
   };
 
   it('appends practice step after the 5-step cap without being dropped', () => {
@@ -167,5 +172,114 @@ describe('practice plan run step (P5-E3)', () => {
     const parsed = parseDailyPlanStepTemplates(JSON.parse(JSON.stringify(templates)));
     expect(parsed).not.toBeNull();
     expect(parsed?.find((s) => s.id === PRACTICE_PLAN_STEP_ID)?.kind).toBe('PRACTICE_PLAN');
+  });
+});
+
+describe('daily plan alphabet gate（零基础不推精读）', () => {
+  const gatedBase = {
+    track: 'ja' as const,
+    dailyGoalQuizzes: 5,
+    dailyGoalCards: 10,
+    dueCardsCount: 0,
+    unresolvedMistakesCount: 0,
+    alphabetReady: false,
+  };
+
+  it('未过关：只排字母跟读，不推精读/自适应/新词', () => {
+    const steps = buildDailyPlanStepTemplates(gatedBase);
+    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET']);
+    expect(steps[0]?.navigateTo).toBe('KANA');
+    expect(steps[0]?.targetCount).toBe(5);
+  });
+
+  it('未过关但有到期卡/错题：保留复习与回炉，不加新东西', () => {
+    const steps = buildDailyPlanStepTemplates({
+      ...gatedBase,
+      dueCardsCount: 4,
+      unresolvedMistakesCount: 2,
+    });
+    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET', 'CARDS', 'MISTAKES']);
+  });
+
+  it('未过关：字母薄弱项不单开 GRAMMAR 步（ALPHABET 已覆盖）', () => {
+    const steps = buildDailyPlanStepTemplates({
+      ...gatedBase,
+      topWeakness: { skillId: 'jp.kana.hiragana', name: '平假名认读' },
+    });
+    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET']);
+  });
+
+  it('字母薄弱项回字母工作室，而非自适应做题', () => {
+    const steps = buildDailyPlanStepTemplates({
+      track: 'ja' as const,
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+      alphabetReady: true,
+      topWeakness: { skillId: 'jp.kana.katakana', name: '片假名认读' },
+    });
+    const grammar = steps.find((s) => s.kind === 'GRAMMAR')!;
+    expect(grammar.navigateTo).toBe('KANA');
+  });
+
+  it('ALPHABET 步随字母 drill 完成（quizzes 口径）', () => {
+    const templates = buildDailyPlanStepTemplates(gatedBase);
+    const overlayed = overlayDailyPlanProgress(templates, {
+      quizzesCount: 5,
+      cardsReviewedCount: 0,
+      readingCount: 0,
+      mistakesResolvedCount: 0,
+      unresolvedMistakesCount: 0,
+      completedStepIds: [],
+    });
+    expect(overlayed.find((s) => s.kind === 'ALPHABET')?.done).toBe(true);
+  });
+
+  it('ALPHABET 模板持久化往返', () => {
+    const templates = buildDailyPlanStepTemplates({ ...gatedBase, track: 'ko' as const });
+    expect(templates[0]?.navigateTo).toBe('HANGUL');
+    const parsed = parseDailyPlanStepTemplates(JSON.parse(JSON.stringify(templates)));
+    expect(parsed?.[0]?.kind).toBe('ALPHABET');
+  });
+});
+
+describe('trail-mapped plan steps（带路合一）', () => {
+  const stages = [
+    { id: 'ja-1', day: '第 1 天', title: '开口跟读', hint: '跟读', tab: 'KANA' as const, criterionKind: 'kana' as const, goal: 3 },
+    { id: 'ja-3', day: '第 3 天', title: '收藏生词', hint: '收3张', tab: 'CARDS' as const, criterionKind: 'cards' as const, goal: 3 },
+    { id: 'ja-4', day: '第 4 天', title: '第一次做题', hint: '做3道', tab: 'QUIZ' as const, criterionKind: 'quiz' as const, goal: 3 },
+  ];
+
+  it('stage 直映射为步骤（kind/tab/目标数一致，id 幂等）', () => {
+    const templates = buildTrailStepTemplates(stages);
+    expect(templates.map((t) => t.kind)).toEqual(['ALPHABET', 'NEW_WORDS', 'QUIZ']);
+    expect(templates.map((t) => t.navigateTo)).toEqual(['KANA', 'CARDS', 'QUIZ']);
+    expect(templates.map((t) => t.id)).toEqual(['step_trail_ja-1', 'step_trail_ja-3', 'step_trail_ja-4']);
+    expect(templates[0]?.trailStageId).toBe('ja-1');
+    expect(templates[0]?.title).toContain('第 1 天');
+  });
+
+  it('overlay 吃带路当日计数，不吃通用打卡口径', () => {
+    const templates = buildTrailStepTemplates(stages);
+    const overlayed = overlayDailyPlanProgress(templates, {
+      quizzesCount: 99,
+      cardsReviewedCount: 99,
+      readingCount: 99,
+      mistakesResolvedCount: 0,
+      unresolvedMistakesCount: 0,
+      completedStepIds: [],
+      trail: { 'ja-1': 3, 'ja-3': 1, 'ja-4': 0 },
+    });
+    expect(overlayed.find((s) => s.id === 'step_trail_ja-1')?.done).toBe(true);
+    expect(overlayed.find((s) => s.id === 'step_trail_ja-3')?.currentCount).toBe(1);
+    expect(overlayed.find((s) => s.id === 'step_trail_ja-4')?.done).toBe(false);
+  });
+
+  it('trail 映射步持久化往返', () => {
+    const templates = buildTrailStepTemplates(stages);
+    const parsed = parseDailyPlanStepTemplates(JSON.parse(JSON.stringify(templates)));
+    expect(parsed?.[0]?.trailStageId).toBe('ja-1');
+    expect(parsed?.[0]?.kind).toBe('ALPHABET');
   });
 });

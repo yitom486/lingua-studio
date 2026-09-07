@@ -11,19 +11,6 @@ describe('Beginner Trail (learning-progress domain)', () => {
     repo = new DrizzleLearnerRepository(':memory:');
   });
 
-  function seedCards(n: number, language = 'ja') {
-    const insert = repo
-      .getRawDb()
-      .prepare(
-        `INSERT INTO flashcards (
-          id, user_id, language, type, front, back, tags, fsrs
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-    for (let i = 0; i < n; i++) {
-      insert.run(`trail_card_${i}`, userId, language, 'VOCAB', `前${i}`, `后${i}`, '[]', '{}');
-    }
-  }
-
   async function seedQuizAttempts(n: number, testedSkillId = 'jp.particle.ni_vs_de') {
     for (let i = 0; i < n; i++) {
       const res = await repo.recordQuizAttempt({
@@ -41,18 +28,22 @@ describe('Beginner Trail (learning-progress domain)', () => {
     }
   }
 
-  async function seedReadingMetric(skillId = 'jp.reading.comprehension') {
-    const res = await repo.saveSkillMetric(userId, {
-      id: skillId,
-      dimension: 'VOCABULARY',
-      name: '阅读理解',
-      proficiency: 0.8,
-      totalAttempts: 1,
-      correctAttempts: 1,
-      consecutiveErrors: 0,
-      status: 'NORMAL',
-      lastPracticedAt: new Date().toISOString(),
-    });
+  async function seedCollectsToday(n: number) {
+    for (let i = 0; i < n; i++) {
+      const res = await repo.recordTermExposure({
+        userId,
+        language: 'ja',
+        headword: `带路词${i}`,
+        source: 'collect',
+        markCollected: true,
+        flashcardId: `trail_card_${i}`,
+      });
+      expect(isOk(res)).toBe(true);
+    }
+  }
+
+  async function seedReadingToday() {
+    const res = await repo.recordDailyActivity(userId, { reading: 1, language: 'ja' });
     expect(isOk(res)).toBe(true);
   }
 
@@ -86,18 +77,52 @@ describe('Beginner Trail (learning-progress domain)', () => {
     expect(res.value.stages[1]?.progress).toBe(3);
   });
 
-  it('marks complete when all five ja signals are satisfied', async () => {
+  it('marks complete when all five ja signals are satisfied today', async () => {
     for (let i = 0; i < 15; i++) {
       await repo.recordKanaPractice(userId, `kana_${i}`, true, 'HIRAGANA');
     }
-    seedCards(3);
+    await seedCollectsToday(3);
     await seedQuizAttempts(3);
-    await seedReadingMetric();
+    await seedReadingToday();
     const res = await repo.getBeginnerTrail(userId, 'ja');
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.complete).toBe(true);
     expect(res.value.stages.every((s) => s.done)).toBe(true);
+  });
+
+  it('昨天的量不算数：今天没动手就不打钩（回归：历史总量自动完成）', async () => {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    // 昨天刷了 10 次假名 + 收了 5 个词
+    const act = await repo.recordDailyActivity(userId, { kanaDrills: 10, language: 'ja', date: yesterday });
+    expect(isOk(act)).toBe(true);
+    repo
+      .getRawDb()
+      .prepare(
+        `INSERT INTO term_occurrences (id, user_id, language, term_key, source, document_id, quote, created_at)
+         VALUES (?, ?, 'ja', ?, 'collect', NULL, NULL, ?)`
+      )
+      .run('tocc_y', userId, '旧词', `${yesterday}T12:00:00.000Z`);
+    const res = await repo.getBeginnerTrail(userId, 'ja');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.stages[0]?.done).toBe(false);
+    expect(res.value.stages[0]?.progress).toBe(0);
+    expect(res.value.complete).toBe(false);
+  });
+
+  it('字母 drill 不串台到自适应做题（kana 15 次只推满前两天）', async () => {
+    for (let i = 0; i < 15; i++) {
+      await repo.recordKanaPractice(userId, `kana_x_${i}`, true, 'HIRAGANA');
+    }
+    const res = await repo.getBeginnerTrail(userId, 'ja');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.stages[0]?.done).toBe(true);
+    expect(res.value.stages[1]?.done).toBe(true);
+    // 第 4 天要的是 quiz_attempts 行，kana drill 不写该表
+    expect(res.value.stages[3]?.done).toBe(false);
+    expect(res.value.stages[3]?.progress).toBe(0);
   });
 
   it('serves ko and en tracks with their own stage lists', async () => {
@@ -122,5 +147,51 @@ describe('Beginner Trail (learning-progress domain)', () => {
     expect(data.complete).toBe(false);
     expect(Array.isArray(data.stages)).toBe(true);
     expect(data.stages?.length).toBe(5);
+  });
+
+  it('M1：带路未走完时当日计划即带路（网关 hydrate 直映射）', async () => {
+    await repo.updateLearnerProfile(userId, { targetLanguage: 'ja' });
+    const planRes = await repo.getOrCreateDailyStudyPlan(userId);
+    expect(isOk(planRes)).toBe(true);
+    if (!isOk(planRes)) return;
+    const ids = planRes.value.steps.map((s) => s.id);
+    expect(ids[0]).toBe('step_trail_ja-1');
+    expect(ids.every((id) => id.startsWith('step_trail_'))).toBe(true);
+    expect(planRes.value.steps[0]?.title).toContain('第 1 天');
+  });
+
+  it('M1：带路走完后计划回到标准步骤', async () => {
+    await repo.updateLearnerProfile(userId, { targetLanguage: 'ja' });
+    for (let i = 0; i < 15; i++) {
+      await repo.recordKanaPractice(userId, `m1_kana_${i}`, true, 'HIRAGANA');
+    }
+    for (let i = 0; i < 3; i++) {
+      await repo.recordTermExposure({
+        userId,
+        language: 'ja',
+        headword: `m1词${i}`,
+        source: 'collect',
+        markCollected: true,
+        flashcardId: `m1_card_${i}`,
+      });
+    }
+    for (let i = 0; i < 3; i++) {
+      await repo.recordQuizAttempt({
+        id: `m1_q_${i}`,
+        userId,
+        questionId: `m1_qq_${i}`,
+        userAnswer: 'に',
+        isCorrect: true,
+        score: 1,
+        timeSpentMs: 1000,
+        testedSkillId: 'jp.particle.ni_vs_de',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    await repo.recordDailyActivity(userId, { reading: 1, language: 'ja' });
+    const planRes = await repo.getOrCreateDailyStudyPlan(userId);
+    expect(isOk(planRes)).toBe(true);
+    if (!isOk(planRes)) return;
+    expect(planRes.value.steps.some((s) => s.id.startsWith('step_trail_'))).toBe(false);
   });
 });

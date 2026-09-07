@@ -71,8 +71,8 @@ export async function recordKanaPractice(
       lastPracticedAt: nowIso(),
     });
 
-    // 累计当日学习足迹
-    await deps.repo.recordDailyActivity(userId, { quizzes: 1 });
+    // 累计当日学习足迹（假名 drill 单独计数，不再与自适应做题混在一起；语种显式 ja，不跟 profile 默认走）
+    await deps.repo.recordDailyActivity(userId, { quizzes: 1, kanaDrills: 1, language: 'ja' });
 
     return ok({ proficiency });
   } catch (error) {
@@ -151,8 +151,8 @@ export async function recordHangulPractice(
       lastPracticedAt: nowIso(),
     });
 
-    // 累计当日学习足迹
-    await deps.repo.recordDailyActivity(userId, { quizzes: 1 });
+    // 累计当日学习足迹（谚文 drill 单独计数，不再与自适应做题混在一起；语种显式 ko）
+    await deps.repo.recordDailyActivity(userId, { quizzes: 1, hangulDrills: 1, language: 'ko' });
 
     return ok({ proficiency });
   } catch (error) {

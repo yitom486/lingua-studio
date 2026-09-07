@@ -1,4 +1,4 @@
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, gte } from 'drizzle-orm';
 import {
   ok,
   err,
@@ -7,14 +7,19 @@ import {
   BusinessError,
   translateToBusinessError,
 } from '@study-studio/shared';
-import { flashcards, quizAttempts } from '../../../infrastructure/db/index.js';
+import { quizAttempts, studyActivityLogs } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
+import { getTodayString } from '../../../infrastructure/persistence/repo-utils.js';
 
 /**
  * 新手带路（Beginner Trail）：零基础按天解锁的分阶段清单。
  * 定义为网关侧静态规则（与 proposeTemplateFromSnapshot 同源做法，见 STATIC #37）；
- * 进度全部取自既有学习资产（画像指标 / 闪卡数 / 做题数），不新增表、不写新状态。
+ * 进度取自当日学习资产（当日字母 drill / 当日收藏 / 当日做题 / 当日阅读），不新增表。
+ *
+ * 按天而非累计的原因：带路是“今天动手做”的引导，不是成就系统。
+ * 历史总量会自动打钩（如随手点过 8 次假名就跳过第 1 天），违背引导本意。
+ * “拥有多少”是收藏/画像的事，不归带路管。
  */
 
 export type TrailCriterionKind = 'kana' | 'hangul' | 'cards' | 'quiz' | 'reading';
@@ -162,35 +167,95 @@ export function getTrailStages(track: TrackLanguage): TrailStageDef[] {
   return JA_TRAIL;
 }
 
-/** 画像指标前缀（与 skillMatchesTrack 同源：ja 轨道读 jp.*）。 */
-function metricPrefix(track: TrackLanguage): string {
-  if (track === 'ko') return 'ko.';
-  if (track === 'en') return 'en.';
-  return 'jp.';
-}
-
-async function countUserCards(deps: RepoDeps, userId: string, track: TrackLanguage): Promise<number> {
-  const rows = await deps.db
-    .select({ n: count() })
-    .from(flashcards)
-    .where(and(eq(flashcards.userId, userId), eq(flashcards.language, track)));
-  return rows[0]?.n ?? 0;
-}
-
-async function countQuizAttempts(
+/** 当日打卡行（字母 drill / 阅读均为当日计数；无行回零）。 */
+async function todayActivityCounts(
   deps: RepoDeps,
   userId: string,
-  track: TrackLanguage
+  track: TrackLanguage,
+  today: string
+): Promise<{ kana: number; hangul: number; reading: number }> {
+  const rows = await deps.db
+    .select({
+      kana: studyActivityLogs.kanaCount,
+      hangul: studyActivityLogs.hangulCount,
+      reading: studyActivityLogs.readingCount,
+    })
+    .from(studyActivityLogs)
+    .where(
+      and(
+        eq(studyActivityLogs.userId, userId),
+        eq(studyActivityLogs.activityDate, today),
+        eq(studyActivityLogs.language, track)
+      )
+    )
+    .limit(1);
+  const row = rows[0];
+  return { kana: row?.kana ?? 0, hangul: row?.hangul ?? 0, reading: row?.reading ?? 0 };
+}
+
+/** 当日自适应做题数（quiz_attempts 行；字母 drill 不写该表，不会串台）。 */
+async function todayQuizCount(
+  deps: RepoDeps,
+  userId: string,
+  track: TrackLanguage,
+  todayStart: string
 ): Promise<number> {
   const rows = await deps.db
     .select({ n: count() })
     .from(quizAttempts)
-    .where(and(eq(quizAttempts.userId, userId), eq(quizAttempts.language, track)));
+    .where(
+      and(
+        eq(quizAttempts.userId, userId),
+        eq(quizAttempts.language, track),
+        gte(quizAttempts.createdAt, todayStart)
+      )
+    );
   return rows[0]?.n ?? 0;
 }
 
+/** 当日收藏数（collect 审计；词典/草稿/批注三漏斗都写，新卡直写的不算——带路要的是“今天动手收”）。 */
+function todayCollectCount(
+  deps: RepoDeps,
+  userId: string,
+  track: TrackLanguage,
+  todayStart: string
+): number {
+  const row = deps.sqlite
+    .query(
+      `SELECT COUNT(*) AS n FROM term_occurrences
+       WHERE user_id = ? AND language = ? AND source = 'collect' AND created_at >= ?`
+    )
+    .get(userId, track, todayStart) as { n: number } | null;
+  return row?.n ?? 0;
+}
+
+/** 字母基本功（累计值）：五十音/谚文认完没有的标志；能力判定用累计，带路日常用当天。 */
+export function alphabetBasicsDoneFromMetrics(
+  metrics: Array<{ id: string; totalAttempts: number }>,
+  track: TrackLanguage
+): boolean {
+  if (track === 'en') return true;
+  const prefix = track === 'ko' ? 'ko.hangul.' : 'jp.kana.';
+  const total = metrics
+    .filter((m) => m.id.startsWith(prefix))
+    .reduce((sum, m) => sum + m.totalAttempts, 0);
+  return total >= 15;
+}
+
+/** 字母基本功（累计值）：五十音/谚文认完没有的标志；能力判定用累计，带路日常用当天。 */
+export async function alphabetBasicsDone(
+  deps: RepoDeps,
+  userId: string,
+  track: TrackLanguage
+): Promise<boolean> {
+  if (track === 'en') return true;
+  const snapshotRes = await deps.repo.getProfileSnapshot(userId, track);
+  if (!isOk(snapshotRes)) return false;
+  return alphabetBasicsDoneFromMetrics(snapshotRes.value.allMetrics ?? [], track);
+}
+
 /**
- * 聚合新手带路进度：画像指标取字母/阅读尝试数，卡片/做题走计数查询。
+ * 聚合新手带路进度（全部按天；定义见文件头注释）。
  * 任一上游失败即整体转业务错（带路面无半吊子数据）。
  */
 export async function getBeginnerTrail(
@@ -199,32 +264,20 @@ export async function getBeginnerTrail(
   track: TrackLanguage
 ): Promise<Result<BeginnerTrail, BusinessError>> {
   try {
-    // 画像指标按语种分区存放（skill_metrics.language），必须用带路轨道覆盖 profile 默认语种
-    const snapshotRes = await deps.repo.getProfileSnapshot(userId, track);
-    if (!isOk(snapshotRes)) return err(snapshotRes.error);
-    const metrics = snapshotRes.value.allMetrics ?? [];
-
-    const prefix = metricPrefix(track);
-    const kanaAttempts = metrics
-      .filter((m) => m.id.startsWith('jp.kana.'))
-      .reduce((sum, m) => sum + m.totalAttempts, 0);
-    const hangulAttempts = metrics
-      .filter((m) => m.id.startsWith('ko.hangul.'))
-      .reduce((sum, m) => sum + m.totalAttempts, 0);
-    const readingAttempts = metrics
-      .filter((m) => m.id === `${prefix}reading.comprehension`)
-      .reduce((sum, m) => sum + m.totalAttempts, 0);
-    const [cardCount, quizCount] = await Promise.all([
-      countUserCards(deps, userId, track),
-      countQuizAttempts(deps, userId, track),
+    const today = getTodayString();
+    const todayStart = `${today}T00:00:00.000Z`;
+    const [activity, quiz, collects] = await Promise.all([
+      todayActivityCounts(deps, userId, track, today),
+      todayQuizCount(deps, userId, track, todayStart),
+      Promise.resolve(todayCollectCount(deps, userId, track, todayStart)),
     ]);
 
     const counts: Record<TrailCriterionKind, number> = {
-      kana: kanaAttempts,
-      hangul: hangulAttempts,
-      cards: cardCount,
-      quiz: quizCount,
-      reading: readingAttempts,
+      kana: activity.kana,
+      hangul: activity.hangul,
+      cards: collects,
+      quiz,
+      reading: activity.reading,
     };
 
     const stages = getTrailStages(track);

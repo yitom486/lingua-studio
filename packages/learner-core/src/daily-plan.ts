@@ -8,11 +8,20 @@ export const DAILY_PLAN_STEP_KINDS = [
   'QUIZ',
   'MISTAKES',
   'PRACTICE_PLAN',
+  /** 字母门：五十音/谚文未过关时的跟读 drill 步（零基础专属） */
+  'ALPHABET',
 ] as const;
 
 export type DailyPlanStepKind = (typeof DAILY_PLAN_STEP_KINDS)[number];
 
-export type DailyPlanNavigateTarget = 'CARDS' | 'QUIZ' | 'READING' | 'MISTAKES' | 'PRACTICE_PLAN';
+export type DailyPlanNavigateTarget =
+  | 'CARDS'
+  | 'QUIZ'
+  | 'READING'
+  | 'MISTAKES'
+  | 'PRACTICE_PLAN'
+  | 'KANA'
+  | 'HANGUL';
 
 /** P5-E3：练习计划 run 步骤的确定性 id（同一天多次读取/完成状态稳定） */
 export const PRACTICE_PLAN_STEP_ID = 'step_practice_plan';
@@ -27,6 +36,8 @@ export interface DailyPlanStepTemplate {
   skillId?: string | undefined;
   skillName?: string | undefined;
   targetCount?: number | undefined;
+  /** 带路映射步：关联带路 stage id（进度走当日带路计数，而非通用打卡口径）。 */
+  trailStageId?: string | undefined;
 }
 
 export interface DailyPlanStep extends DailyPlanStepTemplate {
@@ -52,6 +63,12 @@ export interface DailyPlanSignals {
   dueCardsCount: number;
   unresolvedMistakesCount: number;
   topWeakness?: { skillId: string; name: string } | undefined;
+  /**
+   * 字母门：五十音/谚文是否已过关（累计字母尝试≥15；en 恒 true）。
+   * 未过关时只排字母跟读（+到期卡/错题），不推精读与自适应难题——
+   * 五十音没认完的人做精读纯属劝退。
+   */
+  alphabetReady: boolean;
 }
 
 export interface DailyPlanProgressSignals {
@@ -66,6 +83,11 @@ export interface DailyPlanProgressSignals {
    * 由仓储从 practice_plan_runs / practice_item_attempts 聚合，不在 UI 侧累计。
    */
   practicePlan?: { submittedItems: number; totalItems: number } | undefined;
+  /**
+   * 带路当日计数（stageId → 今日进度；带路映射步专用，与通用打卡口径解耦）。
+   * 由仓储在带路未走完时随模板一起提供；缺省时带路步按 0 计。
+   */
+  trail?: Record<string, number> | undefined;
 }
 
 const KIND_SET = new Set<string>(DAILY_PLAN_STEP_KINDS);
@@ -77,11 +99,25 @@ export function isDailyPlanStepKind(value: unknown): value is DailyPlanStepKind 
 /**
  * 按教学顺序组当日步骤（最多 5 项）：
  * 到期闪卡优先复习；无到期则改学新词 → 薄弱语法 → 阅读 → 自适应做题 → 未消错题。
+ * 字母门：ja/ko 且 alphabetReady=false 时，只排字母跟读（+到期卡/错题），
+ * 不推精读与自适应难题；字母薄弱项由 ALPHABET 步覆盖，不再单开 GRAMMAR 步。
  */
 export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPlanStepTemplate[] {
   const steps: DailyPlanStepTemplate[] = [];
   const quizGoal = Math.max(1, signals.dailyGoalQuizzes);
   const cardGoal = Math.max(1, signals.dailyGoalCards);
+  const alphabetGate = !signals.alphabetReady && (signals.track === 'ja' || signals.track === 'ko');
+
+  if (alphabetGate) {
+    steps.push({
+      id: 'step_alphabet',
+      kind: 'ALPHABET',
+      title: signals.track === 'ko' ? '谚文跟读' : '五十音跟读',
+      summary: '点字母听发音并跟读，做 5 道小测；字母不过关不碰单词和文章。',
+      navigateTo: signals.track === 'ko' ? 'HANGUL' : 'KANA',
+      targetCount: 5,
+    });
+  }
 
   if (signals.dueCardsCount > 0) {
     const targetCount = Math.max(1, Math.min(signals.dueCardsCount, cardGoal));
@@ -93,7 +129,7 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
       navigateTo: 'CARDS',
       targetCount,
     });
-  } else {
+  } else if (!alphabetGate) {
     steps.push({
       id: 'step_new_words',
       kind: 'NEW_WORDS',
@@ -104,36 +140,42 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
     });
   }
 
-  if (signals.topWeakness) {
+  if (signals.topWeakness && !alphabetGate) {
     steps.push({
       id: 'step_grammar',
       kind: 'GRAMMAR',
       title: `攻克薄弱项 · ${signals.topWeakness.name}`,
       summary: '先看一句规则与例句，再做靶向练习，把薄弱点写回学情。',
-      navigateTo: 'QUIZ',
+      navigateTo: isAlphabetWeakness(signals.topWeakness.skillId)
+        ? signals.track === 'ko'
+          ? 'HANGUL'
+          : 'KANA'
+        : 'QUIZ',
       skillId: signals.topWeakness.skillId,
       skillName: signals.topWeakness.name,
       targetCount: 1,
     });
   }
 
-  steps.push({
-    id: 'step_reading',
-    kind: 'READING',
-    title: '精读一篇',
-    summary: '完成一篇阅读理解；划词可直接转入 FSRS 生词本。',
-    navigateTo: 'READING',
-    targetCount: 1,
-  });
+  if (!alphabetGate) {
+    steps.push({
+      id: 'step_reading',
+      kind: 'READING',
+      title: '精读一篇',
+      summary: '完成一篇阅读理解；划词可直接转入 FSRS 生词本。',
+      navigateTo: 'READING',
+      targetCount: 1,
+    });
 
-  steps.push({
-    id: 'step_quiz',
-    kind: 'QUIZ',
-    title: '自适应练习',
-    summary: `完成今日 ${quizGoal} 道练习，把做题记录写回技能雷达。`,
-    navigateTo: 'QUIZ',
-    targetCount: quizGoal,
-  });
+    steps.push({
+      id: 'step_quiz',
+      kind: 'QUIZ',
+      title: '自适应练习',
+      summary: `完成今日 ${quizGoal} 道练习，把做题记录写回技能雷达。`,
+      navigateTo: 'QUIZ',
+      targetCount: quizGoal,
+    });
+  }
 
   if (signals.unresolvedMistakesCount > 0) {
     steps.push({
@@ -149,12 +191,59 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
   return steps.slice(0, 5);
 }
 
+/** 字母类薄弱项（假名/谚文）：应回字母工作室，而非自适应做题。 */
+function isAlphabetWeakness(skillId: string): boolean {
+  return skillId.startsWith('jp.kana.') || skillId.startsWith('ko.hangul.');
+}
+
+export type TrailStepKind = 'kana' | 'hangul' | 'cards' | 'quiz' | 'reading';
+
+export interface TrailStageInput {
+  id: string;
+  day: string;
+  title: string;
+  hint: string;
+  tab: 'KANA' | 'HANGUL' | 'CARDS' | 'QUIZ' | 'READING';
+  criterionKind: TrailStepKind;
+  goal: number;
+}
+
+/**
+ * 带路未走完时的当日步骤：带路 stage 直映射为计划步（做完的 stage 不再列入）。
+ * kind/tab 映射：kana|hangul→ALPHABET（回字母工作室），cards→NEW_WORDS，
+ * quiz→QUIZ，reading→READING；id 取 `step_trail_<stageId>` 保证幂等。
+ */
+export function buildTrailStepTemplates(stages: TrailStageInput[]): DailyPlanStepTemplate[] {
+  return stages.map((s) => {
+    const kind: DailyPlanStepKind =
+      s.criterionKind === 'kana' || s.criterionKind === 'hangul'
+        ? 'ALPHABET'
+        : s.criterionKind === 'cards'
+          ? 'NEW_WORDS'
+          : s.criterionKind === 'quiz'
+            ? 'QUIZ'
+            : 'READING';
+    return {
+      id: `step_trail_${s.id}`,
+      kind,
+      title: `${s.day} · ${s.title}`,
+      summary: s.hint,
+      navigateTo: s.tab,
+      targetCount: s.goal,
+      trailStageId: s.id,
+    };
+  });
+}
+
 export function overlayDailyPlanProgress(
   templates: DailyPlanStepTemplate[],
   progress: DailyPlanProgressSignals
 ): DailyPlanStep[] {
   return templates.map((step) => {
-    const currentCount = currentCountForStep(step.kind, progress);
+    // 带路映射步：走当日带路计数（仓储随模板提供），不吃通用打卡口径。
+    const currentCount = step.trailStageId
+      ? (progress.trail?.[step.trailStageId] ?? 0)
+      : currentCountForStep(step.kind, progress);
     return {
       ...step,
       currentCount,
@@ -222,7 +311,9 @@ export function parseDailyPlanStepTemplates(raw: unknown): DailyPlanStepTemplate
       rec.navigateTo !== 'QUIZ' &&
       rec.navigateTo !== 'READING' &&
       rec.navigateTo !== 'MISTAKES' &&
-      rec.navigateTo !== 'PRACTICE_PLAN'
+      rec.navigateTo !== 'PRACTICE_PLAN' &&
+      rec.navigateTo !== 'KANA' &&
+      rec.navigateTo !== 'HANGUL'
     ) {
       return null;
     }
@@ -237,6 +328,9 @@ export function parseDailyPlanStepTemplates(raw: unknown): DailyPlanStepTemplate
     if (typeof rec.skillName === 'string') template.skillName = rec.skillName;
     if (typeof rec.targetCount === 'number' && Number.isFinite(rec.targetCount)) {
       template.targetCount = rec.targetCount;
+    }
+    if (typeof rec.trailStageId === 'string' && rec.trailStageId) {
+      template.trailStageId = rec.trailStageId;
     }
     templates.push(template);
   }
@@ -260,6 +354,8 @@ function currentCountForStep(
       return progress.readingCount;
     case 'QUIZ':
     case 'GRAMMAR':
+    case 'ALPHABET':
+      // 字母 drill 同步写 activity.quizzes（见 recordKanaPractice），故 ALPHABET 与 QUIZ 同口径。
       return progress.quizzesCount;
     case 'MISTAKES':
       return progress.mistakesResolvedCount;
@@ -282,6 +378,7 @@ function isStepDone(
     case 'NEW_WORDS':
     case 'READING':
     case 'QUIZ':
+    case 'ALPHABET':
       return currentCount >= target;
     case 'GRAMMAR':
       return progress.quizzesCount >= 1;

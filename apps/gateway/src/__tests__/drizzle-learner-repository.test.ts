@@ -362,6 +362,29 @@ describe('DrizzleLearnerRepository', () => {
   it('creates a stable daily study plan and overlays live activity', async () => {
     const userId = 'plan_user_01';
     await repo.updateLearnerProfile(userId, { targetLanguage: 'en' });
+    // M1：新用户先走完带路（收3词/做3题/读1篇），计划才回到标准步骤
+    for (let i = 0; i < 3; i++) {
+      await repo.recordTermExposure({
+        userId,
+        language: 'en',
+        headword: `plan词${i}`,
+        source: 'collect',
+        markCollected: true,
+        flashcardId: `plan_card_${i}`,
+      });
+      await repo.recordQuizAttempt({
+        id: `plan_q_${i}`,
+        userId,
+        questionId: `plan_qq_${i}`,
+        userAnswer: 'x',
+        isCorrect: true,
+        score: 1,
+        timeSpentMs: 1000,
+        testedSkillId: 'en.vocab',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    await repo.recordDailyActivity(userId, { reading: 1, language: 'en' });
 
     const first = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
     expect(isOk(first)).toBe(true);
@@ -397,6 +420,29 @@ describe('DrizzleLearnerRepository', () => {
       dailyGoalQuizzes: 1,
       dailyGoalCards: 1,
     });
+    // M1：先走完带路，计划才回到标准步骤（含 MISTAKES）
+    for (let i = 0; i < 3; i++) {
+      await repo.recordTermExposure({
+        userId,
+        language: 'en',
+        headword: `plan2词${i}`,
+        source: 'collect',
+        markCollected: true,
+        flashcardId: `plan2_card_${i}`,
+      });
+      await repo.recordQuizAttempt({
+        id: `plan2_q_${i}`,
+        userId,
+        questionId: `plan2_qq_${i}`,
+        userAnswer: 'x',
+        isCorrect: true,
+        score: 1,
+        timeSpentMs: 1000,
+        testedSkillId: 'en.vocab',
+        createdAt: new Date().toISOString(),
+      });
+    }
+    await repo.recordDailyActivity(userId, { reading: 1, language: 'en' });
     // 入库一道未消错题，使计划出现 MISTAKES 步骤
     const saveMistakeRes = await repo.saveMistake({
       id: 'mst_plan_02',
