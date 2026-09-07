@@ -339,7 +339,7 @@ export function useAssemblePracticeRunMutation(userId = DEFAULT_USER_ID) {
         run: PracticePlanRun;
         blocks: Array<{ blockId: string; collectionId: string; itemCount: number }>;
         totalItems: number;
-        skippedBlocks?: Array<{ blockId: string; kind: string }>;
+        skippedBlocks?: Array<{ blockId: string; kind: string; reason?: string }>;
       };
     },
     onSuccess: (_data, runId) => {

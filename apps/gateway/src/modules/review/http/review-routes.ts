@@ -93,5 +93,11 @@ export function createReviewRoutes(deps: GatewayDeps) {
       }
     }
   )
+  // 3b. 标记讲透（M2 学习门；幂等，卡不存在报 NOT_FOUND）。
+  .post('/api/cards/:userId/:cardId/studied', async (c) => {
+    const res = await deps.repo.markCardStudied(c.req.param('userId'), c.req.param('cardId'));
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error, 'markCardStudied');
+  })
 ;
 }

@@ -127,6 +127,8 @@ export const flashcards = sqliteTable(
     sourceEntryId: text('source_entry_id'),
     tags: text('tags').notNull(),
     fsrs: text('fsrs').notNull(),
+    /** v7：讲透时间（M2 学习门；NULL=没讲透，不进练习池 NEW 块）。 */
+    studiedAt: text('studied_at'),
   },
   (table) => ({
     userLangIdx: index('idx_flashcards_user_lang').on(table.userId, table.language),
@@ -242,6 +244,30 @@ export const curriculumKana = sqliteTable('curriculum_kana', {
   audioText: text('audio_text').notNull(),
   sortOrder: integer('sort_order').notNull(),
 });
+
+/**
+ * 假名逐项复习状态：与聚合 skill_metrics 分离，供自适应题队列使用。
+ * 同一假名的平假名、片假名和罗马字练习分别计算间隔。
+ */
+export const kanaPracticeStates = sqliteTable(
+  'kana_practice_states',
+  {
+    userId: text('user_id').notNull(),
+    kanaId: text('kana_id').notNull(),
+    scriptType: text('script_type').notNull(),
+    fsrsJson: text('fsrs_json').notNull(),
+    consecutiveErrors: integer('consecutive_errors').notNull().default(0),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.kanaId, table.scriptType] }),
+    userScriptIdx: index('idx_kana_practice_states_user_script').on(
+      table.userId,
+      table.scriptType,
+      table.updatedAt
+    ),
+  })
+);
 
 /**
  * 谚文字母课程底座表 (Curriculum Hangul) — 韩语专属（v1：14 子音 + 10 母音）

@@ -4,6 +4,7 @@ import { Loader2, Sparkles } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { PracticeRunner, type PracticeRunnerItem } from './PracticeRunner.js';
+import { useStudySessionStore } from '../../stores/useStudySessionStore.js';
 import { usePracticeRunSummaryQuery } from '../../queries/useLearnerQueries.js';
 import {
   useAssemblePracticeRunMutation,
@@ -39,11 +40,14 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
     assembleAttempted.current = runId;
     assemble.mutate(runId, {
         onSuccess: (data) => {
-          const skipped = data.skippedBlocks?.length ?? 0;
-          if (skipped > 0) {
-            toast.warning(`已装配题目，但 ${skipped} 个练习块暂无可用题被跳过`);
-          } else {
+          const skipped = data.skippedBlocks ?? [];
+          if (skipped.length === 0) {
             toast.success('已装配练习题目');
+          } else if (skipped.some((b) => b.reason === 'NEED_STUDY')) {
+            // M2 学习门：新词没讲透，一个都不给，先去讲透。
+            toast.warning('有新词还没讲透：先去生词闪卡把它们学透，再回来练', { duration: 6000 });
+          } else {
+            toast.warning(`已装配题目，但 ${skipped.length} 个练习块暂无可用题被跳过`);
           }
         },
         onError: (e) => toast.error('装配题目失败：' + e.message),
@@ -96,26 +100,41 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
 
   if (items.length === 0) {
     const assembleFailed = assemble.isError;
+    const needStudy = (assemble.data?.skippedBlocks ?? []).some((b) => b.reason === 'NEED_STUDY');
     return (
       <div className="flex flex-col items-center gap-3 py-12 text-slate-500">
         <Sparkles className="h-6 w-6" />
         <span className="text-sm">
           {assembleFailed
             ? `题目装配失败：${(assemble.error as Error).message}`
-            : '该运行暂无可用题目（可能练习块暂无可用题）。'}
+            : needStudy
+              ? '新词还没讲透，一个都没放进练习池。先去生词闪卡把它们学透再回来。'
+              : '该运行暂无可用题目（可能练习块暂无可用题）。'}
         </span>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={assemble.isPending}
-            onClick={() => {
-              assembleAttempted.current = null;
-              assemble.mutate(runId);
-            }}
-          >
-            {assemble.isPending ? '装配中…' : '重新装配'}
-          </Button>
+          {needStudy ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                useStudySessionStore.getState().setActiveTab('CARDS');
+                onExit?.();
+              }}
+            >
+              去生词闪卡讲透 →
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={assemble.isPending}
+              onClick={() => {
+                assembleAttempted.current = null;
+                assemble.mutate(runId);
+              }}
+            >
+              {assemble.isPending ? '装配中…' : '重新装配'}
+            </Button>
+          )}
           {onExit && <Button variant="ghost" size="sm" onClick={onExit}>返回</Button>}
         </div>
       </div>

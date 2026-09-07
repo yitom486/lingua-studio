@@ -145,6 +145,7 @@ import {
 import {
   getDueCards as getDueCardsDomain,
   saveCard as saveCardDomain,
+  markCardStudied as markCardStudiedDomain,
 } from '../modules/review/persistence/cards.js';
 import {
   getQuestions as getQuestionsDomain,
@@ -762,6 +763,16 @@ export class DrizzleLearnerRepository implements LearnerRepository {
    */
   public async saveCard(card: Flashcard): Promise<Result<void, BusinessError>> {
     return saveCardDomain(this.deps, card);
+  }
+
+  /**
+   * 标记讲透（M2 学习门；幂等）。实现已下沉 review 域，此处仅委托。
+   */
+  public async markCardStudied(
+    userId: string,
+    cardId: string
+  ): Promise<Result<{ cardId: string; studiedAt: string }, BusinessError>> {
+    return markCardStudiedDomain(this.deps, userId, cardId);
   }
 
   /**

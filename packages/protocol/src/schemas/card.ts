@@ -22,6 +22,8 @@ export const FlashcardSchema = z.object({
   phonetic: z.string().optional(),
   audioUrl: z.string().optional(),
   tags: z.array(z.string()),
+  /** 讲透时间（M2 学习门：NEW 卡须先讲透才进练习池；review 首刷不强制）。 */
+  studiedAt: z.string().optional(),
   fsrs: z.object({
     stability: z.number(),
     difficulty: z.number(),

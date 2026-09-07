@@ -341,6 +341,8 @@ export async function convertAnnotationToCard(
       phonetic: cardData.phonetic || undefined,
       audioUrl: undefined,
       tags: [cardData.tag || '课文批注', cardData.pos || '重点词句'],
+      // 划词摘录=用户亲手组装卡面，天然讲透
+      studiedAt: now,
       fsrs: {
         stability: 1.0,
         difficulty: 5.0,

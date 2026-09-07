@@ -90,17 +90,21 @@ export async function getDueCards(
         .limit(limit);
     }
 
-    const cards: Flashcard[] = rows.map((r) => ({
-      id: r.id,
-      userId: r.userId,
-      type: coerceCardType(r.type),
-      front: r.front,
-      back: r.back,
-      phonetic: r.phonetic ?? undefined,
-      audioUrl: r.audioUrl ?? undefined,
-      tags: JSON.parse(r.tags),
-      fsrs: JSON.parse(r.fsrs),
-    }));
+    const cards: Flashcard[] = rows.map((r) => {
+      const card: Flashcard = {
+        id: r.id,
+        userId: r.userId,
+        type: coerceCardType(r.type),
+        front: r.front,
+        back: r.back,
+        phonetic: r.phonetic ?? undefined,
+        audioUrl: r.audioUrl ?? undefined,
+        tags: JSON.parse(r.tags),
+        fsrs: JSON.parse(r.fsrs),
+      };
+      if (r.studiedAt) card.studiedAt = r.studiedAt;
+      return card;
+    });
 
     // 如果显式要求仅待复习，则过滤到期卡片；否则返回全量卡片（优先展示待复习）
     if (options?.dueOnly) {
@@ -151,6 +155,8 @@ export async function saveCard(
           audioUrl: card.audioUrl ?? null,
           tags: JSON.stringify(card.tags),
           fsrs: JSON.stringify(card.fsrs),
+          // 讲透只升不降：saveCard 透传已有值，不主动清零（清零无入口）。
+          ...(card.studiedAt ? { studiedAt: card.studiedAt } : {}),
         })
         .where(eq(flashcards.id, card.id));
     } else {
@@ -168,6 +174,7 @@ export async function saveCard(
         audioUrl: card.audioUrl ?? null,
         tags: JSON.stringify(card.tags),
         fsrs: JSON.stringify(card.fsrs),
+        studiedAt: card.studiedAt ?? null,
       });
     }
 
@@ -178,6 +185,41 @@ export async function saveCard(
         category: 'DATABASE',
         action: 'saveCard',
         entityId: card.id,
+      })
+    );
+  }
+}
+
+/**
+ * 标记讲透（M2 学习门；幂等：已标记直接成功）。
+ * 卡不存在或非本人返回 E_NOT_FOUND（不透露他人卡片存在性，统一口径）。
+ */
+export async function markCardStudied(
+  deps: RepoDeps,
+  userId: string,
+  cardId: string
+): Promise<Result<{ cardId: string; studiedAt: string }, BusinessError>> {
+  try {
+    const rows = await deps.db
+      .select({ id: flashcards.id })
+      .from(flashcards)
+      .where(and(eq(flashcards.id, cardId), eq(flashcards.userId, userId)))
+      .limit(1);
+    if (rows.length === 0) {
+      return err(new BusinessError('E_NOT_FOUND', '卡片不存在', 'LEARNER_STATE'));
+    }
+    const now = nowIso();
+    await deps.db
+      .update(flashcards)
+      .set({ studiedAt: now })
+      .where(eq(flashcards.id, cardId));
+    return ok({ cardId, studiedAt: now });
+  } catch (error) {
+    return err(
+      translateToBusinessError(error, {
+        category: 'DATABASE',
+        action: 'markCardStudied',
+        entityId: cardId,
       })
     );
   }

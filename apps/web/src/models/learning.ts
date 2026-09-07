@@ -38,6 +38,8 @@ export interface StudyCardItem {
   lastReviewedAt?: string;
   /** FSRS 到期时间（ISO）；缺省视为待复习 */
   dueAt?: string;
+  /** 讲透时间（M2 学习门；缺省=没讲透，不进练习池 NEW 块） */
+  studiedAt?: string;
 }
 
 export interface MistakeNotebookItem {

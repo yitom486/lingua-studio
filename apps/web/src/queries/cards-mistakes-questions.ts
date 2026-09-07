@@ -75,6 +75,7 @@ export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
                   ? { lastReviewedAt: rowStr(fsrs, 'lastReviewedAt') }
                   : {}),
                 ...(rowStr(fsrs, 'dueAt') ? { dueAt: rowStr(fsrs, 'dueAt') } : {}),
+                ...(rowStr(c, 'studiedAt') ? { studiedAt: rowStr(c, 'studiedAt') } : {}),
               };
             });
           }
@@ -471,5 +472,33 @@ export function usePrependQuestionMutation(userId = DEFAULT_USER_ID) {
 }
 
 // 双传输收敛：HTTP 版 useSubmitQuizMutation（仅记足迹，曾有同名 WS 版）已删除——
-// 唯一消费者 AdaptiveQuizWorkbench 使用 useAgentMutations 的 WS 版；答题足迹由
+// 唯一消费是 AdaptiveQuizWorkbench 使用 useAgentMutations 的 WS 版；答题足迹由
 // Gateway WS CLIENT_QUIZ_SUBMIT 落库路径统一累计。
+
+/** 标记讲透（M2 学习门；幂等，成功后失效卡片库）。 */
+export function useMarkCardStudiedMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (cardId: string): Promise<{ cardId: string; studiedAt: string }> => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/cards/${encodeURIComponent(userId)}/${encodeURIComponent(cardId)}/studied`,
+        { method: 'POST' }
+      );
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `标记讲透失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      return payload as { cardId: string; studiedAt: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+    },
+    onError: (e) => {
+      logger.debug('[useMarkCardStudiedMutation] failed', e);
+    },
+  });
+}

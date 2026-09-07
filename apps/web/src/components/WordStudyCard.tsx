@@ -30,13 +30,17 @@ export function WordStudyCard({
   language,
   collected,
   collectPending,
+  studyPending,
   onCollect,
+  onStudyComplete,
 }: {
   entry: StudyEntry;
   language: 'ja' | 'en' | 'ko';
   collected: boolean;
   collectPending: boolean;
+  studyPending: boolean;
   onCollect: (entryId: string) => void;
+  onStudyComplete: (entryId: string) => void;
 }) {
   const openTutor = useStudySessionStore((s) => s.openTutor);
 
@@ -118,7 +122,19 @@ export function WordStudyCard({
             </>
           )}
         </Button>
-        <span className="text-[11px] text-stone-400">学透了再收，收了就去复习——别裸考。</span>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="gap-1.5"
+          disabled={studyPending}
+          onClick={() => onStudyComplete(entry.id)}
+          title="先收后标讲透：这张卡进练习池 NEW 块；只收不标的不进"
+        >
+          <Check className="h-3.5 w-3.5" />
+          {studyPending ? '入库中…' : '学透了，入库开练'}
+        </Button>
+        <span className="text-[11px] text-stone-400">只收不标的不进练习池——别裸考。</span>
       </div>
     </div>
   );

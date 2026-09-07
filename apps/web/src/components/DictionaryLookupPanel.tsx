@@ -8,6 +8,8 @@ import {
   useDictionaryLookupQuery,
   useAnkiStatusQuery,
   usePushToAnkiMutation,
+  useMarkCardStudiedMutation,
+  useCardsQuery,
   type AnkiPushTts,
 } from '../queries/useLearnerQueries.js';
 import { useTtsStore } from '../stores/useTtsStore.js';
@@ -95,6 +97,10 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
   const [query, setQuery] = useState('');
   const lookup = useDictionaryLookupQuery(language, query);
   const collect = useCollectDictionaryEntryMutation();
+  const markStudied = useMarkCardStudiedMutation();
+  // 未讲透新卡计数（M2 学习门提示；与隔壁复习流同源查询，只读不写）。
+  const { data: myCards = [] } = useCardsQuery(undefined, language);
+  const unstudiedNewCount = myCards.filter((c) => c.state === 'NEW' && !c.studiedAt).length;
   const queryClient = useQueryClient();
   const history = useDictionaryHistoryQuery(language);
   // 讲透卡展开态：新查询自动展开首条（学透再练）；手动切换后不再抢。
@@ -135,6 +141,32 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
         );
       },
       onError: (error) => {
+        toast.error(error instanceof Error ? error.message : '暂时无法加入生词本，请稍后重试。');
+      },
+    });
+  };
+
+  // 学透了，入库开练（M2 学习门）：先收（已收则直接返回旧卡），再标讲透；
+  // 讲透的卡才进练习池 NEW 块，裸收的不进。
+  const studyCompleteEntry = (entryId: string) => {
+    if (collect.isPending || markStudied.isPending) return;
+    sound.playClick();
+    collect.mutate(entryId, {
+      onSuccess: (result) => {
+        setCollectedIds((prev) => (prev.includes(entryId) ? prev : [...prev, entryId]));
+        markStudied.mutate(result.card.id, {
+          onSuccess: () => {
+            sound.playCorrect();
+            toast.success('已学透入库：这张卡可以进练习池了，去复习或开练吧');
+          },
+          onError: (e) => {
+            sound.playMistake();
+            toast.error(e instanceof Error ? e.message : '标记讲透失败');
+          },
+        });
+      },
+      onError: (error) => {
+        sound.playMistake();
         toast.error(error instanceof Error ? error.message : '暂时无法加入生词本，请稍后重试。');
       },
     });
@@ -334,7 +366,9 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                     language={language}
                     collected={collectedIds.includes(entry.id)}
                     collectPending={collect.isPending}
+                    studyPending={collect.isPending || markStudied.isPending}
                     onCollect={collectEntry}
+                    onStudyComplete={studyCompleteEntry}
                   />
                 )}
                 </div>
@@ -360,6 +394,11 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
             </p>
           )}
         </div>
+      )}
+      {unstudiedNewCount > 0 && (
+        <p className="mt-3 rounded-xl border border-dashed border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[11px] text-stone-600 dark:text-stone-300">
+          生词本里有 {unstudiedNewCount} 张新卡还没讲透：展开上面词条点"学透了，入库开练"，否则它们进不了练习池（复习不受影响）。
+        </p>
       )}
     </section>
   );

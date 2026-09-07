@@ -608,6 +608,14 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
         ON placement_exams(user_id, language, created_at);
     `,
   },
+  {
+    // v7：闪卡讲透时间（M2 学习门；存量 NULL=没讲透，不挡复习，只挡练习池 NEW 块）。
+    version: 7,
+    name: 'flashcards-studied-at',
+    sql: `
+      ALTER TABLE flashcards ADD COLUMN studied_at TEXT;
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {

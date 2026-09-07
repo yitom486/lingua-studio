@@ -30,7 +30,7 @@ export interface AssembleResult {
   blocks: AssembledBlock[];
   totalItems: number;
   /** 因题池为空而未能装配的块（显式上报，UI 据此提示） */
-  skippedBlocks: Array<{ blockId: string; kind: string }>;
+  skippedBlocks: Array<{ blockId: string; kind: string; reason?: string }>;
 }
 
 /** learning.content 工具的结构化最小契约（避免装配层依赖完整 ToolDefinition）。 */
@@ -165,7 +165,7 @@ export async function assemblePracticeRun(
   const run = runRes.value;
 
   const blocks: AssembledBlock[] = [];
-  const skippedBlocks: Array<{ blockId: string; kind: string }> = [];
+  const skippedBlocks: Array<{ blockId: string; kind: string; reason?: string }> = [];
   // 同一 run 内跨块去重：同一道题不重复装入
   const usedQuestionIds = new Set<string>();
   let totalItems = 0;
@@ -179,6 +179,8 @@ export async function assemblePracticeRun(
     };
 
     // 1) VOCAB 块：从 FSRS 闪卡装配（REVIEW→到期卡优先；NEW→新卡优先）
+    // M2 学习门：NEW 块只吃讲透过的卡（studiedAt 非空）；没讲透的不硬凑，
+    // 记 NEED_STUDY 由 UI 指路讲透，未讲透绝不进练习池。
     if (isVocabBlock(block)) {
       const cardsRes = await repo.getDueCards(userId, block.count * 4 + 8, {
         language: run.language,
@@ -186,8 +188,11 @@ export async function assemblePracticeRun(
       });
       let cards = isOk(cardsRes) ? (cardsRes.value ?? []) : [];
       if (block.kind === 'VOCAB_NEW') {
-        cards = cards.filter((c) => c.fsrs.state === 'NEW');
-        if (cards.length === 0) cards = isOk(cardsRes) ? (cardsRes.value ?? []) : [];
+        cards = cards.filter((c) => c.fsrs.state === 'NEW' && c.studiedAt);
+        if (cards.length === 0) {
+          skippedBlocks.push({ blockId: block.id, kind: block.kind, reason: 'NEED_STUDY' });
+          continue;
+        }
       }
       pushFresh(buildVocabQuestionsFromCards(cards, block.count, run.language));
     }

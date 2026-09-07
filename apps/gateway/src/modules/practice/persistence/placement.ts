@@ -254,6 +254,13 @@ export async function finishPlacementExam(
       } else {
         level = written.value;
       }
+      // 考试豁免：考过的人名下未讲透卡一次全标记（逐词讲透免了，不是免了复习）。
+      deps.sqlite
+        .query(
+          `UPDATE flashcards SET studied_at = ?
+           WHERE user_id = ? AND language = ? AND studied_at IS NULL`
+        )
+        .run(now, userId, exam.language);
     }
     return ok({ passed, accuracy, graded: graded.length, level });
   } catch (error) {

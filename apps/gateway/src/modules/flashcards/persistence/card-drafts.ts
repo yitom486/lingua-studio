@@ -433,8 +433,8 @@ export async function acceptCardDraft(
         .query(
           `INSERT INTO flashcards
              (id, user_id, language, type, front, back, phonetic, audio_url,
-              source_entry_id, tags, fsrs)
-           VALUES (?, ?, ?, 'VOCABULARY', ?, ?, ?, NULL, NULL, ?, ?)`
+              source_entry_id, tags, fsrs, studied_at)
+           VALUES (?, ?, ?, 'VOCABULARY', ?, ?, ?, NULL, NULL, ?, ?, ?)`
         )
         .run(
           cardId,
@@ -444,7 +444,9 @@ export async function acceptCardDraft(
           draft.meanings.join('；'),
           draft.reading ?? null,
           JSON.stringify(['草稿接受', draft.source, draft.partOfSpeech ?? '词汇']),
-          fsrs
+          fsrs,
+          // 草稿接受=用户逐字段确认过，天然讲透
+          now
         );
       deps.sqlite
         .query(
