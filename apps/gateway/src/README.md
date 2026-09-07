@@ -1,6 +1,6 @@
 # `apps/gateway/src` — Agent Gateway 源码阅读指南
 
-> 这里是 Study Studio 的后端中枢：客户端唯一连接的 HTTP + WebSocket Gateway。
+> 这里是 Lingua Studio 的后端中枢：客户端唯一连接的 HTTP + WebSocket Gateway。
 >
 > Web 客户端（`apps/web`）和桌面端（`apps/desktop`）只应该认识 Gateway 的协议与领域命令；数据库、学习者领域规则、Agent 适配器以及外部模型都隐藏在本目录之后。
 
@@ -8,7 +8,7 @@
 
 ## 1. 先理解 Gateway 在系统中的位置
 
-Study Studio 采用**模块化单体（Modular Monolith）**，不是把每个学习功能拆成独立服务。Gateway 在一个进程内组合以下能力：
+Lingua Studio 采用**模块化单体（Modular Monolith）**，不是把每个学习功能拆成独立服务。Gateway 在一个进程内组合以下能力：
 
 ```text
 Web / Tauri 客户端

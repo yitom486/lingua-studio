@@ -1,6 +1,6 @@
 # `packages/` — 核心能力包阅读指南
 
-`packages/` 是 Study Studio 的共享能力层。这里的代码会被 `apps/gateway`、`apps/web` 或 Agent 适配器复用，但不同 Package 的职责边界并不相同。
+`packages/` 是 Lingua Studio 的共享能力层。这里的代码会被 `apps/gateway`、`apps/web` 或 Agent 适配器复用，但不同 Package 的职责边界并不相同。
 
 本目录采用的是**按能力拆分的模块化单体结构**：Package 不是独立部署的微服务，而是通过 workspace 依赖被同一个应用组合起来。
 

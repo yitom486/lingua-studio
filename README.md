@@ -1,6 +1,8 @@
-# Study Studio
+# Lingua Studio
 
-自适应多语种学习工作室（日语 / 英语 / 韩语）：FSRS 闪卡、靶向自适应出题、主观题多维批改、
+> AI-native adaptive language learning studio for Japanese, English, and Korean.
+
+Lingua Studio 是一个面向多语种学习的自适应学习工作室：提供 FSRS 闪卡、靶向自适应出题、主观题多维批改、
 错题本攻克流转、学情画像雷达。客户端只连接自研 Agent Gateway（HTTP + WebSocket），
 学习资产以 SQLite（`learner-core` Repository）为唯一事实源，可整体换模型而不丢失。
 
@@ -68,6 +70,21 @@ bun --filter @study-studio/web build   # Web 生产构建
 - 学习者模型：[`docs/learner-model.md`](./docs/learner-model.md)
 - 产品章程与路线：[`docs/project-charter.md`](./docs/project-charter.md)、[`docs/mvp-roadmap.md`](./docs/mvp-roadmap.md)
 - Gateway 领域迁移基线：[`docs/gateway-g0-baseline.md`](./docs/gateway-g0-baseline.md)
+
+## About
+
+Lingua Studio 将学习者模型、课程资产和 Agent 能力组合成一个可扩展的学习闭环：
+
+- **Adaptive practice**：根据技能熟练度和近期错误动态安排练习；
+- **Spaced repetition**：使用 FSRS 管理词汇、语法和混淆句型卡片；
+- **AI tutoring**：通过 Agent Gateway 提供流式讲解、批改、诊断和练习生成；
+- **Learner-first**：学习记录、错题、卡片和学情指标以 SQLite 为唯一事实源；
+- **Provider-agnostic**：Codex、Responses 或未来的其他 Agent 都通过统一 Adapter 接入；
+- **Web + Desktop**：同一套 Web 客户端可运行在浏览器和 Tauri 桌面端。
+
+GitHub 项目简介：
+
+> An adaptive, AI-native language learning studio with spaced repetition, targeted practice, learner modeling, and a provider-agnostic Agent Gateway.
 
 `.studio-internal/`（gitignored，不进公开仓库）为实现期内部沉淀：静态数据登记、
 AI Native 运行时设计、目标语种 UI 壳层、词典选型与各阶段计划。
