@@ -511,3 +511,22 @@ export const practiceItemAttempts = sqliteTable('practice_item_attempts', {
   submittedAt: text('submitted_at'),
   gradedAt: text('graded_at'),
 });
+
+/**
+ * Anki 卡片模板包（统一交换格式；用户模板优先，内置升级不覆盖 user_modified=1 的行）。
+ * 模板本身是呈现资产；FSRS 调度仍由 flashcards + learner-core 掌控。
+ */
+export const ankiCardFormats = sqliteTable('anki_card_formats', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  entryType: text('entry_type').notNull().default('term'),
+  deckName: text('deck_name'),
+  modelName: text('model_name'),
+  fieldsJson: text('fields_json').notNull(),
+  frontTemplate: text('front_template').notNull(),
+  backTemplate: text('back_template').notNull(),
+  css: text('css').notNull(),
+  templateVersion: integer('template_version').notNull().default(1),
+  userModified: integer('user_modified').notNull().default(0),
+  updatedAt: text('updated_at').notNull(),
+});

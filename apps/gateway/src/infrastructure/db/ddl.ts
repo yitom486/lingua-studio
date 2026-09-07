@@ -387,6 +387,21 @@ export function initSchema(sqlite: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_practice_attempts_run
       ON practice_item_attempts(run_id, block_id, status);
+
+    CREATE TABLE IF NOT EXISTS anki_card_formats (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      entry_type TEXT NOT NULL DEFAULT 'term',
+      deck_name TEXT,
+      model_name TEXT,
+      fields_json TEXT NOT NULL,
+      front_template TEXT NOT NULL,
+      back_template TEXT NOT NULL,
+      css TEXT NOT NULL,
+      template_version INTEGER NOT NULL DEFAULT 1,
+      user_modified INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // 增量列：已有库补字段

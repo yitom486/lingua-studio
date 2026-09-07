@@ -51,6 +51,18 @@ import {
   updateDictionarySourceConfig as updateDictionarySourceConfigDomain,
 } from '../modules/dictionary/persistence/dictionary.js';
 import {
+  listCardFormats as listCardFormatsDomain,
+  saveCardFormat as saveCardFormatDomain,
+  resetCardFormat as resetCardFormatDomain,
+  type SaveCardFormatInput,
+} from '../modules/flashcards/persistence/card-formats.js';
+import {
+  previewCard as previewCardDomain,
+  type PreviewCardRequest,
+  type PreviewCardResult,
+} from '../modules/flashcards/application/card-preview.js';
+import type { AnkiCardFormat } from '@study-studio/learner-core';
+import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
   ensureLanguageProfile as ensureLanguageProfileDomain,
   mirrorLanguageProfileToMain as mirrorLanguageProfileToMainDomain,
@@ -229,6 +241,43 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     patch: { enabled?: boolean; priority?: number }
   ): Promise<Result<{ id: string; enabled: boolean; priority: number }, BusinessError>> {
     return updateDictionarySourceConfigDomain(this.deps, sourceId, patch);
+  }
+
+  /**
+   * 卡片模板包：列出全部（含内置懒播种）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async listCardFormats(): Promise<Result<AnkiCardFormat[], BusinessError>> {
+    return listCardFormatsDomain(this.deps);
+  }
+
+  /**
+   * 卡片模板包：保存（新建或覆盖；校验不通过拒绝写入）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async saveCardFormat(
+    input: SaveCardFormatInput
+  ): Promise<Result<AnkiCardFormat, BusinessError>> {
+    return saveCardFormatDomain(this.deps, input);
+  }
+
+  /**
+   * 卡片模板包：恢复内置版本（仅内置 id）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async resetCardFormat(id: string): Promise<Result<AnkiCardFormat, BusinessError>> {
+    return resetCardFormatDomain(this.deps, id);
+  }
+
+  /**
+   * 卡片预览：模板 + 条目 → 字段/正反面 HTML（草稿只渲染不入库）。
+   * HTTP 预览与 `flashcards.render` Tool 共用此命令。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async previewCardFormat(
+    request: PreviewCardRequest
+  ): Promise<Result<PreviewCardResult, BusinessError>> {
+    return previewCardDomain(this.deps, request);
   }
 
   /**

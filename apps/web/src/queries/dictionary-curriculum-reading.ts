@@ -688,3 +688,120 @@ export function useGenerateDictationMutation(userId = DEFAULT_USER_ID) {
     },
   });
 }
+
+/** 卡片模板包（统一交换格式；与 learner-core AnkiCardFormat 同形，Web 侧本地声明避免打包 Node 侧）。 */
+export interface AnkiCardFormatInfo {
+  id: string;
+  name: string;
+  entryType: string;
+  deckName?: string;
+  modelName?: string;
+  fields: Record<string, string>;
+  frontTemplate: string;
+  backTemplate: string;
+  css: string;
+  templateVersion: number;
+  userModified: boolean;
+}
+
+export interface CardPreviewResult {
+  format: AnkiCardFormatInfo;
+  rendered: { fields: Record<string, string>; frontHtml: string; backHtml: string };
+  issues: string[];
+}
+
+/** 卡片模板列表（含内置懒播种）。 */
+export function useCardFormatsQuery(enabled = true) {
+  return useQuery<{ formats: AnkiCardFormatInfo[] }>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, 'card-formats'],
+    enabled,
+    queryFn: async () => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/formats`);
+      if (!response.ok) throw new Error('暂时无法读取卡片模板。');
+      return (await response.json()) as { formats: AnkiCardFormatInfo[] };
+    },
+    staleTime: 1000 * 60,
+  });
+}
+
+/** 保存模板（新建或覆盖；网关校验不通过时抛中文错）。 */
+export function useSaveCardFormatMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (format: AnkiCardFormatInfo) => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/flashcards/formats/${encodeURIComponent(format.id)}`,
+        { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(format) }
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(payload?.error?.userMessage ?? '模板保存失败。');
+      }
+      return (await response.json()) as { format: AnkiCardFormatInfo };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'card-formats'] });
+    },
+  });
+}
+
+/** 恢复内置版本（仅内置 id）。 */
+export function useResetCardFormatMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (formatId: string) => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/flashcards/formats/${encodeURIComponent(formatId)}/reset`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(payload?.error?.userMessage ?? '恢复内置模板失败。');
+      }
+      return (await response.json()) as { format: AnkiCardFormatInfo };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'card-formats'] });
+    },
+  });
+}
+
+export interface CardPreviewEntry {
+  headword: string;
+  reading?: string;
+  meanings: string[];
+  partOfSpeech?: string;
+  pitchLabel?: string;
+  frequency?: number;
+  sentence?: string;
+  sourceUrl?: string;
+  tags?: string[];
+}
+
+/** 预览渲染（草稿只渲染不入库；与工作台防抖调用）。 */
+export function usePreviewCardMutation() {
+  return useMutation({
+    mutationFn: async (payload: {
+      formatId?: string;
+      inlineFormat?: AnkiCardFormatInfo;
+      entry: CardPreviewEntry;
+    }) => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(data?.error?.userMessage ?? '预览渲染失败。');
+      }
+      return (await response.json()) as CardPreviewResult;
+    },
+  });
+}

@@ -7,6 +7,7 @@ import { createHealthRoutes } from './health-routes.js';
 import { createAgentRoutes } from './agent-routes.js';
 import { createLearningCompatRoutes } from './learning-routes.js';
 import { createDictionaryRoutes } from '../../modules/dictionary/http/dictionary-routes.js';
+import { createCardFormatRoutes } from '../../modules/flashcards/http/card-format-routes.js';
 import { createLearningProgressRoutes } from '../../modules/learning-progress/http/learning-progress-routes.js';
 import { createPracticeRoutes } from '../../modules/practice/http/practice-routes.js';
 import { createReviewRoutes } from '../../modules/review/http/review-routes.js';
@@ -45,6 +46,7 @@ export function createApp(deps: GatewayDeps) {
     .route('/', createHealthRoutes(deps))
     .route('/', createAgentRoutes(deps))
     .route('/', createDictionaryRoutes(deps))
+    .route('/', createCardFormatRoutes(deps))
     .route('/', createLearningProgressRoutes(deps))
     .route('/', createPracticeRoutes(deps))
     .route('/', createReviewRoutes(deps))

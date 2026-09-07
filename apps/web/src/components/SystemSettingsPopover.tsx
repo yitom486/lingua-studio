@@ -48,6 +48,7 @@ import {
   type AzureVoiceOption,
 } from '../queries/useLearnerQueries.js';
 import { useGatewayStore } from '../stores/useGatewayStore.js';
+import { AnkiTemplateWorkbench } from './AnkiTemplateWorkbench.js';
 import { getPlatform } from '../platform/capabilities.js';
 import { backupDesktopDatabase } from '../platform/tauri-capabilities.js';
 
@@ -111,6 +112,7 @@ export function SystemSettingsPopover() {
   const updateDictionaryPackage = useUpdateDictionaryPackageMutation();
   const installCustomDictionary = useInstallCustomDictionaryMutation();
   const [customDictLicenseOk, setCustomDictLicenseOk] = useState(false);
+  const [cardWorkbenchOpen, setCardWorkbenchOpen] = useState(false);
   const [customDictLang, setCustomDictLang] = useState<'ja' | 'en' | 'ko'>(shell.track);
   // 可安装包以 Gateway 目录为准（oewn-2025 / jmdict-e / kengdic-2021…），前端不写死 id。
   const installableDictionaries = dictionaryPackages.data?.packages ?? [];
@@ -858,9 +860,24 @@ export function SystemSettingsPopover() {
 
           {/* 3. 词典包：内容按需进入 SQLite，避免初装体积与无授权数据混入。 */}
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5 font-medium text-stone-700 dark:text-stone-300">
-              <BookOpen className="w-3.5 h-3.5 text-amber-500" />
-              <span>离线词典包</span>
+            <div className="flex items-center justify-between font-medium text-stone-700 dark:text-stone-300">
+              <div className="flex items-center gap-1.5">
+                <BookOpen className="w-3.5 h-3.5 text-amber-500" />
+                <span>离线词典包</span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 px-2 text-[11px]"
+                onClick={() => {
+                  sound.playClick();
+                  setCardWorkbenchOpen(true);
+                }}
+              >
+                卡片模板
+                <ChevronRight className="w-3 h-3" />
+              </Button>
             </div>
             {installableDictionaries.length > 0 ? (
               <div className="space-y-2">
@@ -1076,6 +1093,7 @@ export function SystemSettingsPopover() {
             </>
           )}
         </div>
+        <AnkiTemplateWorkbench open={cardWorkbenchOpen} onOpenChange={setCardWorkbenchOpen} />
       </PopoverContent>
     </Popover>
   );
