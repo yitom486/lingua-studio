@@ -21,6 +21,12 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
+import { openLookupPopup } from '../lib/lookup-popup-bus.js';
+import {
+  MANUAL_LOOKUP_ATTR,
+  normalizeSelectionText,
+  type LookupLanguage,
+} from '../lib/selection-text.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../models/textbook.js';
 import { useAnnotationsQuery, useAddAnnotationMutation } from '../queries/useLearnerQueries.js';
@@ -105,6 +111,24 @@ export function InteractivePdfReader({
         }
       }, 150);
     }
+  };
+
+  // 划选查词典：经总线复用全局查词浮层（本书自有浮层保留，各管各的选择）
+  const handleLookupSelection = () => {
+    const language: LookupLanguage =
+      book.language === 'EN' ? 'en' : book.language === 'KO' ? 'ko' : 'ja';
+    const text = normalizeSelectionText(selectedText);
+    if (!text || !selectionPopupPosition) {
+      toast.error('请先在课文中划选要查的词。');
+      return;
+    }
+    sound.playClick();
+    openLookupPopup({
+      text,
+      language,
+      x: selectionPopupPosition.x + 280,
+      y: selectionPopupPosition.y,
+    });
   };
 
   const handleSpeak = (text: string) => {
@@ -248,10 +272,11 @@ export function InteractivePdfReader({
         </div>
       </div>
 
-      {/* 核心阅读视口容器 */}
+      {/* 核心阅读视口容器（自有划选浮层：全局查词浮层不抢） */}
       <div
         ref={containerRef}
         onMouseUp={handleMouseUp}
+        data-manual-lookup="true"
         className="relative min-h-[600px] p-6 sm:p-10 rounded-3xl bg-white dark:bg-[#181614] border border-amber-900/10 dark:border-amber-500/15 shadow-sm overflow-hidden select-text"
         style={{ fontSize: `${(zoomLevel / 100) * 16}px` }}
       >
@@ -485,6 +510,15 @@ export function InteractivePdfReader({
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   导师点拨
+                </Button>
+                <Button
+                  onClick={handleLookupSelection}
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1 border-stone-700 text-stone-300 hover:bg-stone-800 text-[11px]"
+                >
+                  <BookOpen className="w-3.5 h-3.5 text-sky-400" />
+                  查词典
                 </Button>
               </div>
             </motion.div>

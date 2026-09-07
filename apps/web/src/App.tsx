@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { AiTutorDrawer } from './components/AiTutorDrawer.js';
+import { SelectionLookupPopup } from './components/SelectionLookupPopup.js';
 import { AgentChatPanel } from './components/AgentChatPanel.js';
 import { AppHeader } from './components/AppHeader.js';
 import { AppSidebar } from './components/AppSidebar.js';
@@ -226,6 +227,7 @@ export function App() {
       } transition-colors duration-200 flex font-sans relative overflow-x-hidden`}
     >
       <Toaster position="top-center" richColors />
+      <SelectionLookupPopup />
       <DotPattern
         width={26}
         height={26}

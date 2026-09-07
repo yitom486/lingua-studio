@@ -20,6 +20,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound, speechStudio } from '../utils/audio.js';
+import { openLookupPopup } from '../lib/lookup-popup-bus.js';
+import {
+  normalizeSelectionText,
+  type LookupLanguage,
+} from '../lib/selection-text.js';
 import { fireSuccessConfetti } from './magicui/index.js';
 import { ResizableSplitPane } from './ui/resizable-split-pane.js';
 import { Button, buttonVariants } from './ui/button.js';
@@ -199,6 +204,20 @@ export function ReadingComprehensionWorkbench({
     window.getSelection()?.removeAllRanges();
   };
 
+  // 划词查词典：经总线复用全局查词浮层（自有工具栏保留，各管各的选择）
+  const handleLookupSelection = () => {
+    if (!activeSet || !selectionRange?.text) return;
+    const language: LookupLanguage =
+      activeSet.language === 'EN' ? 'en' : activeSet.language === 'KO' ? 'ko' : 'ja';
+    const text = normalizeSelectionText(selectionRange.text);
+    if (!text) return;
+    sound.playClick();
+    const parentRect = passageRef.current?.getBoundingClientRect();
+    const x = parentRect ? parentRect.left + selectionRange.x : window.innerWidth / 2 - 130;
+    const y = parentRect ? parentRect.top + selectionRange.y + 44 : 120;
+    openLookupPopup({ text, language, x, y });
+  };
+
   // 划词转记忆卡
   const handleConvertToFlashcard = () => {
     if (!activeSet || !selectionRange?.text) return;
@@ -342,6 +361,7 @@ export function ReadingComprehensionWorkbench({
     <div
       ref={passageRef}
       onMouseUp={handleMouseUpPassage}
+      data-manual-lookup="true"
       className="h-full rounded-2xl border border-amber-900/10 dark:border-amber-500/15 bg-[#faf9f6] dark:bg-[#1a1816] shadow-xs flex flex-col overflow-hidden relative"
     >
       {/* 划词悬浮快捷栏 */}
@@ -368,6 +388,14 @@ export function ReadingComprehensionWorkbench({
             >
               <Highlighter className="w-3.5 h-3.5 text-amber-400" />
               标重点
+            </button>
+            <div className="w-[1px] h-3.5 bg-stone-700" />
+            <button
+              onClick={handleLookupSelection}
+              className="flex items-center gap-1 px-2.5 py-1.5 hover:bg-stone-800 rounded-lg transition-colors"
+            >
+              <Languages className="w-3.5 h-3.5 text-sky-400" />
+              查词
             </button>
             <div className="w-[1px] h-3.5 bg-stone-700" />
             <button

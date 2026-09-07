@@ -302,8 +302,11 @@ export function TextbookCurriculum({
           </div>
         </div>
 
-        {/* 右侧：课文精读 / 词汇 / 文法 / 专属测验 */}
-        <div className="lg:col-span-8 space-y-4">
+        {/* 右侧：课文精读 / 词汇 / 文法 / 专属测验（划选查词域：语种由课本声明） */}
+        <div
+          className="lg:col-span-8 space-y-4"
+          data-lookup-scope={currentBook.language === 'EN' ? 'en' : currentBook.language === 'KO' ? 'ko' : 'ja'}
+        >
           {/* 课次标题与快速靶向测验启动栏 */}
           <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-5 border border-amber-900/10 dark:border-amber-500/15 shadow-sm">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
