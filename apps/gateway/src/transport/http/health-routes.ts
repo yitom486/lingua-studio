@@ -7,7 +7,7 @@ export function createHealthRoutes(deps: GatewayDeps) {
   .get('/health', (c) =>
     c.json({
       status: 'ok',
-      service: 'Study Studio Agent Gateway',
+      service: 'Lingua Studio Agent Gateway',
       port: deps.port,
       timestamp: Date.now(),
     })
@@ -15,7 +15,7 @@ export function createHealthRoutes(deps: GatewayDeps) {
   .get('/api/health', (c) =>
     c.json({
       status: 'ok',
-      service: 'Study Studio Agent Gateway',
+      service: 'Lingua Studio Agent Gateway',
       port: deps.port,
       timestamp: Date.now(),
     })

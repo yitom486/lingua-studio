@@ -76,7 +76,7 @@ if (rootElement) {
       <ErrorBoundary
         variant="fullscreen"
         title="应用遇到了意外崩溃"
-        message="Study Studio 核心运行环境遇到了不可预期的错误。您的本地设置与学习资产已得到保护。"
+        message="Lingua Studio 核心运行环境遇到了不可预期的错误。您的本地设置与学习资产已得到保护。"
       >
         <QueryClientProvider client={queryClient}>
           <App />

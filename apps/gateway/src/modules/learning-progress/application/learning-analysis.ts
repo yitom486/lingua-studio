@@ -115,7 +115,7 @@ export interface AnalysisSnapshot {
   assembledAt: string;
 }
 
-const ANALYSIS_SYSTEM_PROMPT = `你是 Study Studio 的学习分析助手。
+const ANALYSIS_SYSTEM_PROMPT = `你是 Lingua Studio 的学习分析助手。
 基于提供的学习快照，给出可解释、可执行的学习建议。
 严格只返回一个 JSON 对象，不要任何额外文字、不要 markdown 代码块：
 {

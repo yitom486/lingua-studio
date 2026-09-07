@@ -105,7 +105,7 @@ describe('anki-connect transport', () => {
     const log: string[] = [];
     let createdModel: unknown;
     const stub = makeStub(log, {
-      deckNames: () => ['Study Studio'],
+      deckNames: () => ['Lingua Studio'],
       modelNames: () => [],
       createModel: (p) => {
         createdModel = p;
@@ -113,11 +113,11 @@ describe('anki-connect transport', () => {
       },
     });
     const client = createAnkiClient(undefined, stub);
-    const d = await ensureAnkiDeck(client, 'Study Studio');
+    const d = await ensureAnkiDeck(client, 'Lingua Studio');
     expect(isOk(d)).toBe(true);
     expect(log.includes('anki:createDeck')).toBe(false);
     const m = await ensureAnkiModel(client, {
-      modelName: 'Study Basic',
+      modelName: 'Lingua Basic',
       fields: ['Expression', 'Meaning'],
       css: '.card {}',
       front: 'F',
@@ -274,8 +274,8 @@ describe('pushCardToAnki end-to-end (stub AnkiConnect over loopback HTTP)', () =
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.noteId).toBe(42);
-    expect(res.value.deckName).toBe('Study Studio');
-    expect(res.value.modelName).toBe('Study Basic');
+    expect(res.value.deckName).toBe('Lingua Studio');
+    expect(res.value.modelName).toBe('Lingua Basic');
     expect(res.value.audioStored).toBe(false);
     expect(res.value.audioSkippedReason).toContain('TTS');
     expect(calls).toContain('anki:createDeck');

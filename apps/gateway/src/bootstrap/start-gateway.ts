@@ -31,6 +31,6 @@ export function startGateway(app: CreatedApp, server: GatewayServer, port = PORT
     websocket: createWebsocketHandlers(server) as never,
   });
 
-  console.log(`🚀 Study Studio Agent Gateway (Hono + Bun WS) listening on http://localhost:${started.port}`);
+  console.log(`🚀 Lingua Studio Agent Gateway (Hono + Bun WS) listening on http://localhost:${started.port}`);
   return started;
 }

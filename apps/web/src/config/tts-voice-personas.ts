@@ -38,7 +38,7 @@ export const TTS_VOICE_PACKS: Record<SupportedLanguage, TtsLanguageVoicePack> = 
       label: '男声 (Guy)',
       displayName: 'Guy',
       previewText:
-        'Hi there! I am your English assistant Guy. Welcome to Study Studio.',
+        'Hi there! I am your English assistant Guy. Welcome to Lingua Studio.',
     },
   },
   JA: {

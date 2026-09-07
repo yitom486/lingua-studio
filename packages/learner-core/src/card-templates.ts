@@ -384,10 +384,10 @@ const BUILTIN_CSS = [
 export const BUILTIN_CARD_FORMATS: AnkiCardFormat[] = [
   {
     id: 'study-basic',
-    name: 'Study Studio 基础',
+    name: 'Lingua Studio 基础',
     entryType: 'term',
-    deckName: 'Study Studio',
-    modelName: 'Study Basic',
+    deckName: 'Lingua Studio',
+    modelName: 'Lingua Basic',
     fields: {
       Expression: '{expression}',
       Reading: '{reading}',
@@ -405,7 +405,7 @@ export const BUILTIN_CARD_FORMATS: AnkiCardFormat[] = [
       '{{#Sentence}}<div class="sentence">{{Sentence}}</div>{{/Sentence}}',
     ].join('\n'),
     css: BUILTIN_CSS,
-    templateVersion: 2,
+    templateVersion: 3,
     userModified: false,
   },
 ];

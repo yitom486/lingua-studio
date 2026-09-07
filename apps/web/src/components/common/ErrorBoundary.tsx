@@ -66,7 +66,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   handleCopyDetails = () => {
     const { error, errorInfo } = this.state;
-    const diagnosticText = `Study Studio Error Diagnostic
+    const diagnosticText = `Lingua Studio Error Diagnostic
 Error: ${error?.name}: ${error?.message}
 Stack: ${error?.stack || 'N/A'}
 Component Stack: ${errorInfo?.componentStack || 'N/A'}

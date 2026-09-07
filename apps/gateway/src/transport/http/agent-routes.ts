@@ -242,7 +242,7 @@ export function createAgentRoutes(deps: GatewayDeps) {
     return c.json({
       ok: true,
       experimental: true,
-      warning: 'Realtime 为实验性预留接口，Study Studio 尚未接 UI/音频管线。',
+      warning: 'Realtime 为实验性预留接口，Lingua Studio 尚未接 UI/音频管线。',
     });
   })
   .post('/api/agent/codex/realtime/:threadId/stop', async (c) => {

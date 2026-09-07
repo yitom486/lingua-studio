@@ -58,7 +58,7 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
             </motion.div>
 
             <span className="font-bold text-base sm:text-lg text-stone-900 dark:text-stone-100 tracking-tight font-serif truncate">
-              Study Studio
+              Lingua Studio
             </span>
 
             {/* 极简网关连通状态指示灯 */}

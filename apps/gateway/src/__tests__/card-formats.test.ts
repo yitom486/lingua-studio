@@ -43,8 +43,8 @@ describe('card formats persistence', () => {
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     const builtin = res.value.find((f) => f.id === 'study-basic');
-    expect(builtin?.templateVersion).toBeGreaterThanOrEqual(2);
-    expect(builtin?.name).toBe('Study Studio 基础');
+    expect(builtin?.templateVersion).toBe(3);
+    expect(builtin?.name).toBe('Lingua Studio 基础');
     expect(builtin?.fields['Pitch']).toContain('{pitch-graph}');
     const mine = res.value.find((f) => f.id === 'my-own');
     expect(mine?.name).toBe('我的');
@@ -91,7 +91,7 @@ describe('card formats persistence', () => {
     const reset = await repo.resetCardFormat('study-basic');
     expect(isOk(reset)).toBe(true);
     if (!isOk(reset)) return;
-    expect(reset.value.name).toBe('Study Studio 基础');
+    expect(reset.value.name).toBe('Lingua Studio 基础');
     expect(reset.value.userModified).toBe(false);
     const customReset = await repo.resetCardFormat('custom-basic');
     expect(isOk(customReset)).toBe(false);

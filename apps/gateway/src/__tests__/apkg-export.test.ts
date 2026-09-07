@@ -40,8 +40,8 @@ describe('apkg export', () => {
     if (!isOk(back)) return;
     expect(back.value.noteCount).toBe(2);
     expect(back.value.cardCount).toBe(2);
-    expect(back.value.models[0]?.modelName).toBe('Study Basic');
-    expect(back.value.decks).toEqual([{ name: 'Study Studio', noteCount: 2 }]);
+    expect(back.value.models[0]?.modelName).toBe('Lingua Basic');
+    expect(back.value.decks).toEqual([{ name: 'Lingua Studio', noteCount: 2 }]);
   });
 
   it('空集合导出合法空包；上限截断如实标记', async () => {

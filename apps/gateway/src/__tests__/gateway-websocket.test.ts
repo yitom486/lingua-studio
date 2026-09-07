@@ -24,7 +24,7 @@ describe('Gateway WebSocket Server E2E', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe('ok');
-    expect(body.service).toBe('Study Studio Agent Gateway');
+    expect(body.service).toBe('Lingua Studio Agent Gateway');
   });
 
   it('should establish WebSocket connection and handle session init + ping + quiz submit', async () => {

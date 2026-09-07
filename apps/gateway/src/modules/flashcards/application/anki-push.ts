@@ -127,8 +127,8 @@ export async function pushCardToAnki(
     const rendered = renderCard(format, ctx);
     const fields: Record<string, string> = { ...rendered.fields };
 
-    const deckName = request.deckName ?? format.deckName ?? 'Study Studio';
-    const modelName = format.modelName ?? 'Study Basic';
+    const deckName = request.deckName ?? format.deckName ?? 'Lingua Studio';
+    const modelName = format.modelName ?? 'Lingua Basic';
     const client = createAnkiClient(settings.endpoint, fetchImpl);
     const version = await getAnkiVersion(client);
     if (!isOk(version)) return version;
@@ -179,7 +179,7 @@ export async function pushCardToAnki(
       }
     }
 
-    const tags = ['study-studio', ...(sourceLabel ? [sourceLabel] : [])];
+    const tags = ['lingua-studio', ...(sourceLabel ? [sourceLabel] : [])];
     const added = await addAnkiNote(client, { deckName, modelName, fields, tags });
     if (!isOk(added)) return added;
     const result: AnkiPushResult = {

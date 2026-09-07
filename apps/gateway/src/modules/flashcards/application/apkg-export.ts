@@ -89,7 +89,7 @@ export function buildStoredZip(files: Array<{ name: string; data: Uint8Array }>)
 
 function sanitizeFilename(name: string): string {
   const clean = name.replace(/[\\/:*?"<>|]/g, '').trim().slice(0, 80);
-  return clean || 'Study Studio';
+  return clean || 'Lingua Studio';
 }
 
 export async function exportApkgFromCards(
@@ -107,8 +107,8 @@ export async function exportApkgFromCards(
         new BusinessError('E_INVALID_INPUT', '找不到该卡片模板，请先选择或恢复内置模板', 'VALIDATION', false)
       );
     }
-    const deckName = options.deckName ?? format.deckName ?? 'Study Studio';
-    const modelName = format.modelName ?? 'Study Basic';
+    const deckName = options.deckName ?? format.deckName ?? 'Lingua Studio';
+    const modelName = format.modelName ?? 'Lingua Basic';
     const rows = await deps.db
       .select()
       .from(flashcards)
@@ -143,7 +143,7 @@ export async function exportApkgFromCards(
         return v.replace(/\x1f/g, ' ');
       });
       const guid = `ss${card.id.replace(/[^A-Za-z0-9]/g, '').slice(0, 24) || processed}`;
-      const tags = `study-studio${card.sourceEntryId ? '' : ' custom'}`;
+      const tags = `lingua-studio${card.sourceEntryId ? '' : ' custom'}`;
       notes.push({ id: processed, guid, mod: now, tags, flds: values.join('\x1f') });
     }
     const models = {
