@@ -137,6 +137,64 @@ export function createCardFormatRoutes(deps: GatewayDeps) {
           return formatBusinessErrorResponse(c, e, 'ankiPush');
         }
       })
+      // .apkg 分析（只读：牌组/笔记计数 + 模板草稿 + 映射推测 + 兼容性；不写库）。
+      .post('/api/flashcards/apkg/analyze', async (c) => {
+        try {
+          const body = (await c.req.json().catch(() => null)) as { filePath?: unknown } | null;
+          if (typeof body?.filePath !== 'string' || !body.filePath) {
+            return formatBusinessErrorResponse(c, new Error('请提供本机 .apkg 绝对路径'), 'apkgAnalyze');
+          }
+          const { readApkgFileBytes, analyzeApkg } = await import('../application/apkg-import.js');
+          const bytes = await readApkgFileBytes(body.filePath);
+          if (!isOk(bytes)) return formatBusinessErrorResponse(c, bytes.error, 'apkgAnalyze');
+          const label = body.filePath.split(/[\\/]/).pop() ?? 'package.apkg';
+          const res = await analyzeApkg(bytes.value, label);
+          if (isOk(res)) return c.json(res.value);
+          return formatBusinessErrorResponse(c, res.error, 'apkgAnalyze');
+        } catch (e) {
+          return formatBusinessErrorResponse(c, e, 'apkgAnalyze');
+        }
+      })
+      // .apkg 笔记搬家（笔记 → FSRS 卡；进度一律 NEW；去重；媒体只计数）。
+      .post('/api/flashcards/apkg/import-notes', async (c) => {
+        try {
+          const body = (await c.req.json().catch(() => null)) as {
+            filePath?: unknown;
+            userId?: unknown;
+            language?: unknown;
+            deckNames?: unknown;
+            maxNotes?: unknown;
+          } | null;
+          if (typeof body?.filePath !== 'string' || !body.filePath) {
+            return formatBusinessErrorResponse(c, new Error('请提供本机 .apkg 绝对路径'), 'apkgImport');
+          }
+          if (body?.language !== 'ja' && body?.language !== 'en' && body?.language !== 'ko') {
+            return formatBusinessErrorResponse(
+              c,
+              new Error('导入语种须为 ja/en/ko（决定卡片归属，不可猜）'),
+              'apkgImport'
+            );
+          }
+          const { readApkgFileBytes } = await import('../application/apkg-import.js');
+          const bytes = await readApkgFileBytes(body.filePath);
+          if (!isOk(bytes)) return formatBusinessErrorResponse(c, bytes.error, 'apkgImport');
+          const deckNames =
+            Array.isArray(body?.deckNames) &&
+            body.deckNames.every((d): d is string => typeof d === 'string')
+              ? (body.deckNames as string[])
+              : undefined;
+          const res = await deps.repo.importApkgNotes(bytes.value, {
+            userId: typeof body?.userId === 'string' && body.userId ? body.userId : 'default_user',
+            language: body.language,
+            ...(deckNames ? { deckNames } : {}),
+            ...(typeof body?.maxNotes === 'number' ? { maxNotes: Math.floor(body.maxNotes) } : {}),
+          });
+          if (isOk(res)) return c.json(res.value);
+          return formatBusinessErrorResponse(c, res.error, 'apkgImport');
+        } catch (e) {
+          return formatBusinessErrorResponse(c, e, 'apkgImport');
+        }
+      })
   );
 }
 

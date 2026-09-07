@@ -12,6 +12,7 @@ import { LearningLibraryTool } from '../../modules/library/tools/learning-librar
 import { DictionaryLookupTool } from '../../modules/dictionary/tools/dictionary-lookup-tool.js';
 import { FlashcardsRenderTool } from '../../modules/flashcards/tools/flashcards-render-tool.js';
 import { FlashcardsAnkiPushTool } from '../../modules/flashcards/tools/flashcards-anki-push-tool.js';
+import { FlashcardsApkgAnalyzeTool } from '../../modules/flashcards/tools/flashcards-apkg-analyze-tool.js';
 import { LearningContentTool } from './learning-content-tool.js';
 import { LearningPlanTool } from './learning-plan-tool.js';
 import { UiNavigateTool, UiPresentTool } from './ui-command-tools.js';
@@ -44,6 +45,7 @@ export function registerGatewayTools(
   registry.register(new DictionaryLookupTool(drizzle));
   registry.register(new FlashcardsRenderTool(drizzle));
   registry.register(new FlashcardsAnkiPushTool(drizzle));
+  registry.register(new FlashcardsApkgAnalyzeTool());
   registry.register(new UiNavigateTool());
   registry.register(new UiPresentTool());
 }

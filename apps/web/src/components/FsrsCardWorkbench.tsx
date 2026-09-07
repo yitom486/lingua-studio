@@ -14,6 +14,7 @@ import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
 import { DictionaryLookupPanel } from './DictionaryLookupPanel.js';
+import { ApkgImportDialog } from './ApkgImportDialog.js';
 import { PlanIntentBanner } from './PlanIntentBanner.js';
 import type { StudyCardItem } from '../models/learning.js';
 
@@ -22,6 +23,7 @@ export function FsrsCardWorkbench() {
   const updateCard = useUpdateCardMutation();
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
+  const [apkgOpen, setApkgOpen] = useState(false);
   const shell = useLearningShell();
   const cardSpeechLang: SupportedLanguage = trackToSpeechLang(shell.track);
   const dictionaryCopy =
@@ -102,6 +104,19 @@ export function FsrsCardWorkbench() {
         <span>
           当前卡片: {filteredCards.length ? currentCardIndex + 1 : 0} / {filteredCards.length}
         </span>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-[11px]"
+            onClick={() => {
+              sound.playClick();
+              setApkgOpen(true);
+            }}
+          >
+            从 Anki 搬家
+          </Button>
         <Tabs
           value={cardFilter}
           onValueChange={(val) => {
@@ -128,7 +143,10 @@ export function FsrsCardWorkbench() {
             ))}
           </TabsList>
         </Tabs>
+        </div>
       </div>
+
+      <ApkgImportDialog open={apkgOpen} onOpenChange={setApkgOpen} />
 
       {activeCard && (
         <div

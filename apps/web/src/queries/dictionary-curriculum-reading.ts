@@ -896,3 +896,85 @@ export function usePushToAnkiMutation() {
     },
   });
 }
+
+/** .apkg 分析结果（只读；模板草稿需用户确认映射后另存）。 */
+export interface ApkgModelDraft {
+  modelName: string;
+  ankiFields: string[];
+  front: string;
+  back: string;
+  css: string;
+  fieldMapping: Record<string, string | null>;
+  compatIssues: string[];
+  exampleNoteCount: number;
+}
+
+export interface ApkgAnalysis {
+  fileLabel: string;
+  noteCount: number;
+  cardCount: number;
+  decks: Array<{ name: string; noteCount: number }>;
+  models: ApkgModelDraft[];
+  mediaFileCount: number;
+  mediaRefCount: number;
+  truncated: boolean;
+}
+
+export interface ApkgImportResult {
+  created: number;
+  skippedDuplicate: number;
+  skippedEmpty: number;
+  mediaSkipped: number;
+  decks: string[];
+  truncated: boolean;
+}
+
+/** .apkg 只读分析（牌组/笔记计数 + 模板草稿 + 映射推测；不写库）。 */
+export function useAnalyzeApkgMutation() {
+  return useMutation({
+    mutationFn: async (filePath: string) => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/apkg/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(data?.error?.userMessage ?? '.apkg 分析失败。');
+      }
+      return (await response.json()) as ApkgAnalysis;
+    },
+  });
+}
+
+/** .apkg 笔记搬家（笔记 → FSRS 卡；进度一律 NEW；去重；媒体只计数）。 */
+export function useImportApkgNotesMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      filePath: string;
+      userId?: string;
+      language: 'ja' | 'en' | 'ko';
+      deckNames?: string[];
+      maxNotes?: number;
+    }) => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/apkg/import-notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(data?.error?.userMessage ?? '.apkg 导入失败。');
+      }
+      return (await response.json()) as ApkgImportResult;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+    },
+  });
+}

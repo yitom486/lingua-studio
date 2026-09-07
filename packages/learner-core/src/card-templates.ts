@@ -340,3 +340,64 @@ export const BUILTIN_CARD_FORMATS: AnkiCardFormat[] = [
 export function getBuiltinCardFormat(id: string): AnkiCardFormat | undefined {
   return BUILTIN_CARD_FORMATS.find((f) => f.id === id);
 }
+
+/** 网上模板字段名 → 我方标记的推测（归一化比对；猜不出返回 null，由导入 UI 请用户确认）。 */
+const FIELD_GUESS_TABLE: Array<{ marker: FieldMarker; names: string[] }> = [
+  { marker: 'expression', names: ['expression', 'word', 'front', 'vocab', 'vocabulary', 'term', 'question', 'kanji', 'hanzi', 'korean'] },
+  { marker: 'reading', names: ['reading', 'yomi', 'kana', 'pronunciation', 'pinyin', 'romaja', 'romaji'] },
+  { marker: 'glossary', names: ['meaning', 'meanings', 'definition', 'definitions', 'back', 'gloss', 'glossary', 'answer', 'explanation', 'translation', 'chinese', 'chinesemeaning'] },
+  { marker: 'sentence', names: ['sentence', 'example', 'examples', 'context', 'passage'] },
+  { marker: 'audio', names: ['audio', 'sound', 'pronunciationaudio', 'tts'] },
+  { marker: 'tags', names: ['tags', 'tag'] },
+  { marker: 'url', names: ['url', 'link', 'source'] },
+  { marker: 'pitch-accent', names: ['pitch', 'accent', 'pitchaccent'] },
+  { marker: 'frequency', names: ['frequency', 'freq'] },
+  { marker: 'furigana', names: ['furigana'] },
+];
+
+function normalizeFieldName(name: string): string {
+  return name.toLowerCase().replace(/[\s_\-]+/g, '');
+}
+
+/** Anki 字段名 → 标记推测（null = 猜不出，需用户确认；否则导入成功也是空白卡）。 */
+export function guessFieldMapping(fieldNames: string[]): Record<string, FieldMarker | null> {
+  const mapping: Record<string, FieldMarker | null> = {};
+  for (const raw of fieldNames) {
+    const norm = normalizeFieldName(raw);
+    let hit: FieldMarker | null = null;
+    for (const row of FIELD_GUESS_TABLE) {
+      if (row.names.includes(norm)) {
+        hit = row.marker;
+        break;
+      }
+    }
+    mapping[raw] = hit;
+  }
+  return mapping;
+}
+
+/**
+ * 网上模板兼容性分析（v1 渲染能力对照；返回中文提示，调用方展示给用户确认）。
+ * 在 validateCardTemplate 基础上追加：script 脚本（永不执行）、{{Tags}}/{{Deck}} 等特殊名（v1 置空）、
+ * <style> 内联样式（Anki 归 Styling 栏，建议移到 CSS）。
+ */
+export function analyzeTemplateCompat(front: string, back: string, css: string): string[] {
+  const issues = [...validateCardTemplate(front).map((i) => `正面模板：${i}`)];
+  issues.push(...validateCardTemplate(back).map((i) => `背面模板：${i}`));
+  const combined = `${front}\n${back}`;
+  if (/<script[\s>]/i.test(combined)) {
+    issues.push('模板含 <script> 脚本：为安全起见永不执行，相关交互在 Anki 中将失效');
+  }
+  const specials = ['Tags', 'Deck', 'Card', 'Type', 'Subdeck'];
+  const used = extractCardFields(combined).filter((f) => specials.includes(f));
+  if (used.length > 0) {
+    issues.push(`使用了 v1 不渲染的特殊占位（${used.map((f) => `{{${f}}}`).join('、')}），将显示为空`);
+  }
+  if (/<style[\s>]/i.test(combined)) {
+    issues.push('模板内嵌 <style>：建议移到样式（CSS）栏，保持与 Anki 结构一致');
+  }
+  if (!css.trim()) {
+    issues.push('样式（CSS）为空：卡片将使用 Anki 默认外观');
+  }
+  return issues;
+}

@@ -71,6 +71,11 @@ import {
   type AnkiPushRequest,
   type AnkiPushResult,
 } from '../modules/flashcards/application/anki-push.js';
+import {
+  importApkgNotes as importApkgNotesDomain,
+  type ApkgImportNotesOptions,
+  type ApkgImportNotesResult,
+} from '../modules/flashcards/application/apkg-import.js';
 import type { AnkiCardFormat } from '@study-studio/learner-core';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
@@ -312,6 +317,17 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     request: AnkiPushRequest
   ): Promise<Result<AnkiPushResult, BusinessError>> {
     return pushCardToAnkiDomain(this.deps, fetch, request);
+  }
+
+  /**
+   * `.apkg` 笔记搬家：笔记 → 用户 FSRS 卡（进度一律 NEW，去重，媒体只计数）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async importApkgNotes(
+    bytes: Uint8Array,
+    options: ApkgImportNotesOptions
+  ): Promise<Result<ApkgImportNotesResult, BusinessError>> {
+    return importApkgNotesDomain(this.deps, bytes, options);
   }
 
   /**

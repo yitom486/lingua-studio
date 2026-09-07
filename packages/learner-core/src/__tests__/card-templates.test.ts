@@ -6,6 +6,8 @@ import {
   extractCardFields,
   extractFieldMarkers,
   getBuiltinCardFormat,
+  guessFieldMapping,
+  analyzeTemplateCompat,
   renderCard,
   renderCardTemplate,
   renderFieldTemplate,
@@ -119,8 +121,7 @@ describe('buildCardContext + renderCard end-to-end', () => {
   });
 });
 
-describe('validateCardFormat', () => {
-  it('内置模板通过校验', () => {
+describe('validateCardFormat', () => {  it('内置模板通过校验', () => {
     expect(validateCardFormat(BUILTIN_CARD_FORMATS[0]!)).toEqual([]);
   });
 
@@ -137,5 +138,42 @@ describe('validateCardFormat', () => {
 
   it('getBuiltinCardFormat 未知 id 返回 undefined（读侧永不抛）', () => {
     expect(getBuiltinCardFormat('no-such-format')).toBeUndefined();
+  });
+});
+
+describe('guessFieldMapping (网上模板字段映射推测)', () => {
+  it('常见字段名命中；猜不出返回 null', () => {
+    const mapping = guessFieldMapping(['Word', 'Meaning', 'Example', 'Sound', 'Something_Weird']);
+    expect(mapping['Word']).toBe('expression');
+    expect(mapping['Meaning']).toBe('glossary');
+    expect(mapping['Example']).toBe('sentence');
+    expect(mapping['Sound']).toBe('audio');
+    expect(mapping['Something_Weird']).toBeNull();
+  });
+
+  it('归一化（大小写/空格/下划线）', () => {
+    const mapping = guessFieldMapping([' front ', 'Yomi', 'CHINESE MEANING']);
+    expect(mapping[' front ']).toBe('expression');
+    expect(mapping['Yomi']).toBe('reading');
+    expect(mapping['CHINESE MEANING']).toBe('glossary');
+  });
+});
+
+describe('analyzeTemplateCompat (网上模板兼容性分析)', () => {
+  it('干净模板无提示', () => {
+    expect(analyzeTemplateCompat('{{Expression}}', '{{FrontSide}}{{Meaning}}', '.card {}')).toEqual([]);
+  });
+
+  it('脚本/特殊占位/内联样式/空 CSS 逐条提示', () => {
+    const issues = analyzeTemplateCompat(
+      '{{Expression}}<script>alert(1)</script>',
+      '{{FrontSide}}{{Tags}}{{cloze:Text}}<style>.x{}</style>',
+      ''
+    );
+    expect(issues.some((i) => i.includes('<script>'))).toBe(true);
+    expect(issues.some((i) => i.includes('{{Tags}}'))).toBe(true);
+    expect(issues.some((i) => i.includes('cloze'))).toBe(true);
+    expect(issues.some((i) => i.includes('<style>'))).toBe(true);
+    expect(issues.some((i) => i.includes('CSS'))).toBe(true);
   });
 });

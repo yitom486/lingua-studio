@@ -41,6 +41,8 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   'modules/dictionary/application/yomitan.ts -> modules/library/application/pdf-import/archive.js',
   // Anki 推送复用 tts-proxy 合成（只取音频字节；Key 随调用来、用完即弃，永不落盘）。
   'modules/flashcards/application/anki-push.ts -> modules/tts/application/tts-proxy.js',
+  // apkg 解包复用 library 的 extractZip（zip 炸弹/加密守卫；不写盘）。
+  'modules/flashcards/application/apkg-import.ts -> modules/library/application/pdf-import/archive.js',
 ]);
 
 function collectTs(dir: string, out: string[] = []): string[] {
