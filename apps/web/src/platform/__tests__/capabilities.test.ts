@@ -117,6 +117,50 @@ describe('WebPlatformCapabilities', () => {
     expect(written).toBe('copied');
   });
 
+  it('clipboardWriteText falls back to execCommand when clipboard API rejects', async () => {
+    const caps = new WebPlatformCapabilities();
+    (globalThis as { navigator: unknown }).navigator = {
+      clipboard: {
+        writeText: async () => {
+          throw new Error('denied');
+        },
+      },
+    };
+    const removed: unknown[] = [];
+    const area = {
+      value: '',
+      style: {} as Record<string, string>,
+      setAttribute: () => {},
+      focus: () => {},
+      select: () => {},
+    };
+    let execArg = '';
+    (globalThis as { document: unknown }).document = {
+      createElement: () => area,
+      body: {
+        appendChild: () => {},
+        removeChild: (node: unknown) => {
+          removed.push(node);
+        },
+      },
+      execCommand: (cmd: string) => {
+        execArg = cmd;
+        return true;
+      },
+    };
+    await caps.clipboardWriteText('fallback-copy');
+    expect(area.value).toBe('fallback-copy');
+    expect(execArg).toBe('copy');
+    expect(removed).toEqual([area]);
+  });
+
+  it('clipboardWriteText throws a user-facing error when no copy channel exists', async () => {
+    const caps = new WebPlatformCapabilities();
+    (globalThis as { navigator: unknown }).navigator = {};
+    (globalThis as { document: unknown }).document = { createElement: () => clickSpy };
+    await expect(caps.clipboardWriteText('x')).rejects.toThrow('复制失败');
+  });
+
   it('getPlatform returns a stable singleton', async () => {
     const { getPlatform } = await import('../capabilities.js');
     const a = getPlatform();

@@ -2,6 +2,7 @@ import React, { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Copy, Check, Home, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
+import { toast } from 'sonner';
 import { getPlatform } from '../../platform/capabilities.js';
 import { logger } from '@study-studio/shared';
 
@@ -79,7 +80,9 @@ UserAgent: ${getPlatform().getUserAgent()}
         setTimeout(() => this.setState({ copied: false }), 2000);
       })
       .catch(() => {
-        // 剪贴板不可用时静默失败，不破坏错误诊断 UI
+        // 剪贴板两条通道都失败时给用户明确反馈（详情区 select-text 可手动复制）。
+        logger.warn('[ErrorBoundary] 诊断日志复制失败：剪贴板不可用或被浏览器拒绝');
+        toast.error('复制失败：浏览器拒绝了剪贴板写入，请展开详情手动复制。');
       });
   };
 
