@@ -61,6 +61,11 @@ import {
   type RecordTermExposureInput,
   type RecordReadingExposuresInput,
 } from '../modules/dictionary/persistence/encountered-terms.js';
+import type { AgentAdapter } from '@study-studio/agent-core';
+import {
+  getTermExamples as getTermExamplesDomain,
+  type TermExampleItem,
+} from '../modules/dictionary/application/term-examples.js';
 import {
   proposeCardDrafts as proposeCardDraftsDomain,
   listCardDrafts as listCardDraftsDomain,
@@ -342,6 +347,22 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     input: RecordReadingExposuresInput
   ): Promise<Result<{ recorded: number; skipped: boolean }, BusinessError>> {
     return recordReadingExposuresDomain(this.deps, input);
+  }
+
+  /**
+   * 词条例句（缓存优先；未命中且有模型则生成入库）。
+   * adapter 由调用方（路由层）传入，仓储不持有模型。
+   */
+  public async getTermExamples(
+    input: { language: string; headword: string; reading?: string; meanings: string[] },
+    adapter?: AgentAdapter | undefined
+  ): Promise<Result<TermExampleItem[], BusinessError>> {
+    return getTermExamplesDomain(this.deps, adapter, {
+      language: input.language,
+      headword: input.headword,
+      ...(input.reading !== undefined ? { reading: input.reading } : {}),
+      meanings: input.meanings,
+    });
   }
 
   /** 批量提议生词草稿（幂等去重）。实现已下沉 flashcards 域，此处仅委托。 */

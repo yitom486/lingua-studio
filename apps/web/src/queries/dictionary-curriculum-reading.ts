@@ -567,6 +567,57 @@ export function useBackfillEncounteredTermsMutation(language: 'ja' | 'en' | 'ko'
   });
 }
 
+export type TermExampleItem = {
+  sentence: string;
+  translation: string;
+  cached: boolean;
+};
+
+/**
+ * 词条例句（网关缓存优先，未命中且已连模型则生成入库；失败回 null 由调用方隐藏）。
+ * queryKey 带词面+读音，staleTime 1 小时（例句永久有效，生成后不再变）。
+ */
+export function useTermExamplesQuery(
+  language: 'ja' | 'en' | 'ko',
+  headword: string,
+  opts?: { reading?: string; meanings?: string[]; enabled?: boolean }
+) {
+  const normalized = headword.trim();
+  const params = new URLSearchParams({ lang: language, headword: normalized });
+  if (opts?.reading) params.set('reading', opts.reading);
+  if (opts?.meanings?.length) params.set('meanings', opts.meanings.slice(0, 4).join('；'));
+  return useQuery<TermExampleItem[] | null>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, 'examples', language, normalized, opts?.reading ?? ''],
+    enabled: Boolean(normalized) && (opts?.enabled ?? true),
+    queryFn: async () => {
+      try {
+        const response = await fetch(
+          `${GATEWAY_BASE_URL}/api/dictionary/examples?${params.toString()}`
+        );
+        if (!response.ok) return null;
+        const data: unknown = await response.json().catch(() => null);
+        const list =
+          typeof data === 'object' && data !== null && 'examples' in data
+            ? (data as { examples: unknown }).examples
+            : null;
+        if (!Array.isArray(list)) return null;
+        const out: TermExampleItem[] = [];
+        for (const e of list) {
+          if (!e || typeof e !== 'object') continue;
+          const rec = e as Record<string, unknown>;
+          if (typeof rec.sentence !== 'string' || typeof rec.translation !== 'string') continue;
+          out.push({ sentence: rec.sentence, translation: rec.translation, cached: rec.cached === true });
+        }
+        return out;
+      } catch (e) {
+        logger.debug('[useTermExamplesQuery] failed', e);
+        return null;
+      }
+    },
+    staleTime: 1000 * 60 * 60,
+  });
+}
+
 /** 声调基准词表（Gateway curriculum，非 OJAD） */
 export function usePitchLexiconQuery(search = '') {
   return useQuery<PitchLexiconItem[]>({

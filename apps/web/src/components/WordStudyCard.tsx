@@ -2,6 +2,7 @@ import { BookPlus, Check, Sparkles, Volume2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sound, speechStudio, type SupportedLanguage } from '../utils/audio.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useTermExamplesQuery } from '../queries/useLearnerQueries.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 
@@ -43,6 +44,11 @@ export function WordStudyCard({
   onStudyComplete: (entryId: string) => void;
 }) {
   const openTutor = useStudySessionStore((s) => s.openTutor);
+  // 例句：网关缓存优先，未命中且已连模型则生成（失败静默隐藏，问 AI 兜底）
+  const examples = useTermExamplesQuery(language, entry.headword, {
+    ...(entry.reading ? { reading: entry.reading } : {}),
+    meanings: entry.meanings,
+  });
 
   const handleSpeak = () => {
     sound.playClick();
@@ -96,6 +102,20 @@ export function WordStudyCard({
           </li>
         ))}
       </ol>
+      {examples.data !== undefined && examples.data !== null && examples.data.length > 0 && (
+        <div className="space-y-1.5 rounded-xl bg-stone-50 dark:bg-stone-900/60 p-3">
+          <p className="text-[11px] font-bold text-stone-500 dark:text-stone-400">例句</p>
+          {examples.data.map((e, i) => (
+            <div key={i} className="space-y-0.5">
+              <p className="text-sm text-stone-800 dark:text-stone-100">{e.sentence}</p>
+              <p className="text-xs text-stone-500 dark:text-stone-400">{e.translation}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {examples.isFetching && (
+        <p className="text-[11px] text-stone-400">例句生成中…</p>
+      )}
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <Button type="button" size="sm" className="gap-1.5" onClick={handleAskAi} title="让 AI 讲用法和例句">
           <Sparkles className="h-3.5 w-3.5" />

@@ -219,6 +219,25 @@ export function createDictionaryRoutes(deps: GatewayDeps) {
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error);
   })
+  // 词条例句（缓存优先；未命中且网关已连模型则生成入库，供讲透卡展示）。
+  .get('/api/dictionary/examples', async (c) => {
+    const meaningsRaw = c.req.query('meanings') || '';
+    const res = await deps.repo.getTermExamples(
+      {
+        language: c.req.query('lang') || 'ja',
+        headword: c.req.query('headword') || '',
+        ...(c.req.query('reading') ? { reading: c.req.query('reading') as string } : {}),
+        meanings: meaningsRaw
+          .split('；')
+          .map((m) => m.trim())
+          .filter((m) => m)
+          .slice(0, 4),
+      },
+      deps.server.agentAdapter
+    );
+    if (isOk(res)) return c.json({ examples: res.value });
+    return formatBusinessErrorResponse(c, res.error, 'termExamples');
+  })
   // 1. 学习者全景画像与打卡进度
 ;
 }

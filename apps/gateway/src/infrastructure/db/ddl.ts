@@ -642,6 +642,34 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
         ON kana_practice_states(user_id, script_type, updated_at);
     `,
   },
+  {
+    // v9：草稿句子类型（kind/card_type；存量行读侧默认 word/VOCABULARY）。
+    version: 9,
+    name: 'card-drafts-kind',
+    sql: `
+      ALTER TABLE card_drafts ADD COLUMN kind TEXT NOT NULL DEFAULT 'word';
+      ALTER TABLE card_drafts ADD COLUMN card_type TEXT;
+    `,
+  },
+  {
+    // v10：词条例句缓存（AI 按需生成 + 永久缓存，供讲透卡/练习复用）。
+    version: 10,
+    name: 'term-examples',
+    sql: `
+      CREATE TABLE IF NOT EXISTS term_examples (
+        id TEXT PRIMARY KEY,
+        language TEXT NOT NULL,
+        term_key TEXT NOT NULL,
+        headword TEXT NOT NULL,
+        sentence TEXT NOT NULL,
+        translation TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'ai',
+        created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_term_examples_unique
+        ON term_examples(language, term_key, sentence);
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {
