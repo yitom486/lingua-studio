@@ -29,7 +29,7 @@ import {
 } from '../lib/selection-text.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../models/textbook.js';
-import { useAnnotationsQuery, useAddAnnotationMutation } from '../queries/useLearnerQueries.js';
+import { useAnnotationsQuery, useAddAnnotationMutation, useReadingPositionQuery, useSaveReadingPositionMutation } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -72,6 +72,39 @@ export function InteractivePdfReader({
   // 划线批注持久化查询与新增
   const { data: annotationsList = [] } = useAnnotationsQuery(book.id);
   const addAnnotation = useAddAnnotationMutation();
+
+  // 断点续读：位置键与批注同键（documentId 优先）；同课才恢复页码，不跨课串页。
+  const positionKey = book.documentId ?? book.id;
+  const { data: savedPosition } = useReadingPositionQuery(positionKey);
+  const savePosition = useSaveReadingPositionMutation();
+  const restoredLessonRef = useRef<string>('');
+  React.useEffect(() => {
+    if (restoredLessonRef.current === lesson.id) return;
+    if (savedPosition === undefined) return; // 查询中：读写都暂停，等结果
+    if (savedPosition && savedPosition.lessonId === lesson.id) {
+      const page = savedPosition.page;
+      if (typeof page === 'number' && Number.isFinite(page) && page >= 1 && page <= totalPages) {
+        setCurrentPage(Math.floor(page));
+      }
+      if (savedPosition.viewMode === 'STRUCTURED' || savedPosition.viewMode === 'PDF_PAGE') {
+        setViewMode(savedPosition.viewMode);
+      }
+    }
+    restoredLessonRef.current = lesson.id;
+  }, [savedPosition, lesson.id]);
+
+  // 翻页即记（防抖 800ms；恢复完成前不写，避免首屏 page=1 覆盖存量）。
+  React.useEffect(() => {
+    if (restoredLessonRef.current !== lesson.id) return;
+    const timer = setTimeout(() => {
+      savePosition.mutate({
+        documentId: positionKey,
+        locator: { lessonId: lesson.id, page: currentPage, viewMode },
+      });
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positionKey, lesson.id, currentPage, viewMode]);
 
   // 处理文本划选
   const handleMouseUp = (e: React.MouseEvent) => {

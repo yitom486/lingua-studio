@@ -45,6 +45,68 @@ export function createLibraryRoutes(deps: GatewayDeps) {
     }
     return formatBusinessErrorResponse(c, res.error);
   })
+  // 阅读位置：每用户每文档一条游标（locator 不透明，前端组装 lessonId/offset/page）。
+  .get('/api/documents/:userId/:documentId/position', async (c) => {
+    const res = await deps.repo.getReadingPosition(c.req.param('userId'), c.req.param('documentId'));
+    if (isOk(res)) return c.json({ position: res.value });
+    return formatBusinessErrorResponse(c, res.error, 'readingPositionGet');
+  })
+  .put('/api/documents/:userId/:documentId/position', async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => null)) as { locator?: unknown } | null;
+      const res = await deps.repo.saveReadingPosition(
+        c.req.param('userId'),
+        c.req.param('documentId'),
+        body?.locator
+      );
+      if (isOk(res)) return c.json({ position: res.value });
+      return formatBusinessErrorResponse(c, res.error, 'readingPositionSave');
+    } catch (e) {
+      return formatBusinessErrorResponse(c, e, 'readingPositionSave');
+    }
+  })
+  // 打开课次即记（reading 源）：课文生词表记为见过，同课同天一次（幂等）。
+  .post('/api/documents/:userId/:documentId/reading-exposures', async (c) => {
+    try {
+      const body = (await c.req.json().catch(() => null)) as {
+        lessonId?: unknown;
+        language?: unknown;
+        terms?: unknown;
+      } | null;
+      const termsRaw = Array.isArray(body?.terms) ? body.terms : [];
+      const terms: Array<{ headword: string; reading?: string }> = [];
+      for (const t of termsRaw.slice(0, 50)) {
+        if (!t || typeof t !== 'object') {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '某词条不正确', 'VALIDATION')
+          );
+        }
+        const rec = t as Record<string, unknown>;
+        if (typeof rec.headword !== 'string' || !rec.headword.trim()) {
+          return formatBusinessErrorResponse(
+            c,
+            new BusinessError('E_INVALID_INPUT', '某词条 headword 非法', 'VALIDATION')
+          );
+        }
+        terms.push({
+          headword: rec.headword,
+          ...(typeof rec.reading === 'string' ? { reading: rec.reading } : {}),
+        });
+      }
+      const res = await deps.repo.recordReadingExposures({
+        userId: c.req.param('userId'),
+        language: typeof body?.language === 'string' ? body.language : '',
+        documentId: c.req.param('documentId'),
+        lessonId: typeof body?.lessonId === 'string' ? body.lessonId : '',
+        terms,
+      });
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error, 'readingExposures');
+    } catch (e) {
+      return formatBusinessErrorResponse(c, e, 'readingExposures');
+    }
+  })
   .post(
     '/api/documents/:userId',
     validator('json', (value) => value as Record<string, unknown>),

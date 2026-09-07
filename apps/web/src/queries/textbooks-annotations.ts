@@ -139,6 +139,115 @@ export function useAddAnnotationMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+export interface ReadingPositionLocator {
+  lessonId?: string;
+  page?: number;
+  viewMode?: string;
+}
+
+/** 阅读位置查询（无记录回 null；documentId 为空时禁用）。 */
+export function useReadingPositionQuery(documentId?: string, userId = DEFAULT_USER_ID) {
+  return useQuery<ReadingPositionLocator | null>({
+    queryKey: [...QUERY_KEYS.DOCUMENTS, 'position', userId, documentId ?? ''],
+    queryFn: async () => {
+      if (!documentId) return null;
+      try {
+        const res = await fetch(
+          `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(documentId)}/position`
+        );
+        if (!res.ok) return null;
+        const payload: unknown = await res.json().catch(() => null);
+        const position =
+          typeof payload === 'object' && payload !== null && 'position' in payload
+            ? (payload as { position: unknown }).position
+            : null;
+        if (!position || typeof position !== 'object') return null;
+        const locator = (position as { locator?: unknown }).locator;
+        if (!locator || typeof locator !== 'object' || Array.isArray(locator)) return null;
+        const out: ReadingPositionLocator = {};
+        const rec = locator as Record<string, unknown>;
+        if (typeof rec.lessonId === 'string') out.lessonId = rec.lessonId;
+        if (typeof rec.page === 'number' && Number.isFinite(rec.page)) out.page = rec.page;
+        if (typeof rec.viewMode === 'string') out.viewMode = rec.viewMode;
+        return out;
+      } catch (e) {
+        logger.debug('[useReadingPositionQuery] failed', e);
+        return null;
+      }
+    },
+    enabled: Boolean(documentId),
+    staleTime: 1000 * 60 * 2,
+  });
+}
+
+/** 阅读位置保存（静默：失败只记 debug，不打扰阅读）。 */
+export function useSaveReadingPositionMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { documentId: string; locator: ReadingPositionLocator }) => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(vars.documentId)}/position`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locator: vars.locator }),
+        }
+      );
+      if (!res.ok) throw new Error(`保存阅读位置失败（HTTP ${res.status}）`);
+    },
+    onSuccess: (_, vars) => {
+      queryClient.setQueryData(
+        [...QUERY_KEYS.DOCUMENTS, 'position', userId, vars.documentId],
+        vars.locator
+      );
+    },
+    onError: (e) => logger.debug('[useSaveReadingPositionMutation] failed', e),
+  });
+}
+
+/**
+ * 打开课次即记（reading 源）：把该课生词表记为见过，同课同天一次。
+ * 词面/读音取自课文 AST（非 NLP），静默失败；返回 { recorded, skipped }。
+ */
+export function useRecordReadingExposuresMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      documentId: string;
+      lessonId: string;
+      language: string;
+      terms: Array<{ headword: string; reading?: string }>;
+    }): Promise<{ recorded: number; skipped: boolean }> => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(vars.documentId)}/reading-exposures`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lessonId: vars.lessonId,
+            language: vars.language,
+            terms: vars.terms.slice(0, 30),
+          }),
+        }
+      );
+      if (!res.ok) throw new Error(`记录阅读相遇失败（HTTP ${res.status}）`);
+      const payload: unknown = await res.json().catch(() => null);
+      const rec = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<
+        string,
+        unknown
+      >;
+      return {
+        recorded: typeof rec.recorded === 'number' ? rec.recorded : 0,
+        skipped: rec.skipped === true,
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DICTIONARY });
+    },
+    onError: (e) => logger.debug('[useRecordReadingExposuresMutation] failed', e),
+  });
+}
+
 export interface ImportPdfResult {
   book: TextbookAST;
   classification: {
@@ -227,13 +336,63 @@ export function useImportPdfMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
+export interface ImportDocumentResult {
+  documentId: string;
+  title: string;
+  lessons: number;
+}
+
+/**
+ * 统一文档导入（EPUB/MOBI/文本/URL 同一命令；PDF 专线另走 import-pdf）。
+ * 后端只接受本机绝对路径（filePath）/直传文本/网址，不收浏览器 File 上传——
+ * 浏览器 File 无本地路径，EPUB/MOBI 请填本机路径（桌面端）或改走网址/文本。
+ */
+export function useImportDocumentMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      vars: { filePath: string } | { url: string } | { text: string; filename?: string }
+    ): Promise<ImportDocumentResult> => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/library/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, ...vars }),
+      });
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `文档导入失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const body =
+        typeof payload === 'object' && payload !== null
+          ? (payload as { documentId?: unknown; title?: unknown; lessons?: unknown })
+          : {};
+      if (typeof body.documentId !== 'string') throw new Error('导入返回缺少 documentId');
+      return {
+        documentId: body.documentId,
+        title: typeof body.title === 'string' ? body.title : '未命名文档',
+        lessons: typeof body.lessons === 'number' ? body.lessons : 0,
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TEXTBOOKS });
+    },
+    onError: (e) => {
+      logger.debug('[useImportDocumentMutation] document import failed', e);
+    },
+  });
+}
+
 export interface EnrichLessonResult {
   enrichedLessons: number;
   vocabularies: number;
   grammarPoints: number;
   dropped: number;
+  draftsProposed: number;
 }
-
 /**
  * AI 抽生词：POST /api/documents/:userId/:documentId/enrich { lessonId? }。
  * 网关侧调模型抽取 + 接地校验后写回课文 AST；前端失效教材查询重拉。
@@ -265,6 +424,7 @@ export function useEnrichLessonMutation(userId = DEFAULT_USER_ID) {
         vocabularies: Number(p.vocabularies ?? 0),
         grammarPoints: Number(p.grammarPoints ?? 0),
         dropped: Number(p.dropped ?? 0),
+        draftsProposed: Number(p.draftsProposed ?? 0),
       };
     },
     onSuccess: () => {

@@ -128,6 +128,48 @@ describe('Document & Annotation Repository (Companion Integration)', () => {
     if (isOk(cardsRes)) {
       expect(cardsRes.value.some((c) => c.front === '浮橋（うきはし）')).toBe(true);
     }
+
+    // 6. 短 quote 转卡同步记相遇（collect 级，卡已回填）
+    const termsRes = await repo.listEncounteredTerms(testUserId, 'ja');
+    expect(isOk(termsRes)).toBe(true);
+    if (isOk(termsRes)) {
+      const hit = termsRes.value.find((t) => t.headword === '浮桥（うきはし）');
+      expect(hit?.status).toBe('collected');
+      expect(hit?.flashcardId).toBeDefined();
+    }
+  });
+
+  it('长 quote 转卡不记相遇（整句不污染词信号，但建卡不受影响）', async () => {
+    await repo.saveDocument({
+      id: 'doc_long_01',
+      userId: testUserId,
+      title: '长句文档',
+      sourceKind: 'user_import',
+      language: 'ja',
+      content: '春の夜の夢の浮橋とだえして峰にわかるる横雲の空。',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await repo.saveAnnotation({
+      id: 'ann_long_01',
+      documentId: 'doc_long_01',
+      userId: testUserId,
+      kind: 'KEY_POINT',
+      quote: '春の夜の夢の浮橋とだえして、峰にわかるる横雲の空。',
+      createdBy: 'USER',
+      startOffset: 0,
+      endOffset: 24,
+      createdAt: new Date().toISOString(),
+    });
+    const toCardRes = await repo.convertAnnotationToCard('ann_long_01', testUserId, {
+      front: '春の夜の夢の浮橋',
+      back: '春夜梦之浮桥',
+    });
+    expect(isOk(toCardRes)).toBe(true);
+    const termsRes = await repo.listEncounteredTerms(testUserId, 'ja');
+    if (isOk(termsRes)) {
+      expect(termsRes.value.length).toBe(0);
+    }
   });
 
   it('should handle deletion of annotations and documents', async () => {

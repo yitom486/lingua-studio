@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
-import { useImportPdfMutation, useMapPdfMutation, useAppendPdfMutation } from '../queries/useLearnerQueries.js';
+import { useImportPdfMutation, useMapPdfMutation, useAppendPdfMutation, useImportDocumentMutation } from '../queries/useLearnerQueries.js';
 import { sound } from '../utils/audio.js';
 import { getPlatform } from '../platform/capabilities.js';
 import type { TextbookBook, FuriganaWord } from '../models/textbook.js';
@@ -63,7 +63,11 @@ export function TextbookImporterModal({
   const importPdf = useImportPdfMutation();
   const mapPdf = useMapPdfMutation();
   const appendPdf = useAppendPdfMutation();
+  const importDoc = useImportDocumentMutation();
   const [appendTarget, setAppendTarget] = useState<string>('');
+  const [docPath, setDocPath] = useState<string>('');
+  const [docUrl, setDocUrl] = useState<string>('');
+  const [docNote, setDocNote] = useState<string | null>(null);
 
   // Dialog 以 open 控制可见性，无需提前 return
   // if (!isOpen) return null;
@@ -195,8 +199,29 @@ export function TextbookImporterModal({
     );
   };
 
-  const handlePdfImport = () => {
-    if (importPdf.isPending || appendPdf.isPending) return;
+  // EPUB/MOBI/URL 统一导入：后端只认本机路径/网址/文本，不收浏览器 File 上传
+  const handleDocImport = () => {
+    if (importDoc.isPending) return;
+    const path = docPath.trim();
+    const url = docUrl.trim();
+    if (!path && !url) return;
+    setParseError(null);
+    setDocNote(null);
+    sound.playClick();
+    importDoc.mutate(path ? { filePath: path } : { url }, {
+      onSuccess: (r) => {
+        sound.playCorrect();
+        setDocNote(`已导入《${r.title}》· ${r.lessons} 课，可在教材列表打开精读`);
+        toast.success(`文档导入成功：${r.title}（${r.lessons} 课）`);
+      },
+      onError: (err) => {
+        setParseError(err instanceof Error ? err.message : '文档导入失败');
+        sound.playMistake();
+      },
+    });
+  };
+
+  const handlePdfImport = () => {    if (importPdf.isPending || appendPdf.isPending) return;
     const path = pdfPath.trim();
     if (!pdfFile && !path) return;
     setParseError(null);
@@ -550,6 +575,49 @@ export function TextbookImporterModal({
                   ))}
                 </div>
               </div>
+            )}
+          </div>
+
+          <div className="p-3 rounded-2xl border border-dashed border-sky-500/40 bg-sky-500/5 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold text-stone-700 dark:text-stone-300">
+                EPUB / MOBI / 网页导入：
+              </span>
+              <input
+                type="text"
+                placeholder="本机绝对路径，例如 C:\Books\xxx.epub（MOBI 仅未压缩 DRM-free）"
+                value={docPath}
+                onChange={(e) => {
+                  setDocPath(e.target.value);
+                  if (e.target.value.trim()) setDocUrl('');
+                }}
+                disabled={importDoc.isPending}
+                className="flex-1 min-w-52 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 outline-none focus:border-sky-500 font-mono text-[11px]"
+              />
+              <input
+                type="text"
+                placeholder="或粘贴网址（https://…）"
+                value={docUrl}
+                onChange={(e) => {
+                  setDocUrl(e.target.value);
+                  if (e.target.value.trim()) setDocPath('');
+                }}
+                disabled={importDoc.isPending}
+                className="flex-1 min-w-52 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 outline-none focus:border-sky-500 font-mono text-[11px]"
+              />
+              <Button
+                size="sm"
+                disabled={(!docPath.trim() && !docUrl.trim()) || importDoc.isPending}
+                onClick={handleDocImport}
+              >
+                {importDoc.isPending ? '导入中…' : '开始导入'}
+              </Button>
+            </div>
+            <p className="text-[11px] text-stone-500 dark:text-stone-400">
+              目录驱动成课（EPUB 按 NCX/nav+spine 定位）；浏览器无本地路径时请用桌面端或网址
+            </p>
+            {docNote && (
+              <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{docNote}</p>
             )}
           </div>
 

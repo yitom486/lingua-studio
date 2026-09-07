@@ -2,11 +2,13 @@ import { eq, and, desc, or } from 'drizzle-orm';
 import {
   ok,
   err,
+  isOk,
   type Result,
   BusinessError,
   translateToBusinessError,
   generateId,
   nowIso,
+  logger,
 } from '@study-studio/shared';
 import type { DocumentItem, AnnotationItem, Flashcard } from '@study-studio/protocol';
 import {
@@ -17,6 +19,7 @@ import {
 } from '@study-studio/protocol';
 import { documents, annotations } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { recordTermExposure } from '../../dictionary/persistence/encountered-terms.js';
 
 /**
  * 文档/批注域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
@@ -356,6 +359,30 @@ export async function convertAnnotationToCard(
       .update(annotations)
       .set({ flashcardId: cardId })
       .where(eq(annotations.id, annotationId));
+
+    // 3. 相遇词强信号（等同收藏）：仅短 quote（≤12 字，词状才记，整句不污染信号），
+    //    语种取批注所属文档（documents.language），非法值由 recordTermExposure 白名单拒绝。
+    //    失败只 warn，永不挡建卡主路径。
+    const quoteHead = (ann.quote ?? '').trim().slice(0, 64);
+    if (quoteHead && [...quoteHead].length <= 12) {
+      const docRow = deps.sqlite
+        .query('SELECT language AS language FROM documents WHERE id = ?')
+        .get(ann.documentId) as { language: string } | null;
+      const exposure = await recordTermExposure(deps, {
+        userId,
+        language: typeof docRow?.language === 'string' ? docRow.language : '',
+        headword: quoteHead,
+        source: 'collect',
+        markCollected: true,
+        flashcardId: cardId,
+      });
+      if (!isOk(exposure)) {
+        logger.warn('[annotations] to-card exposure hook failed', {
+          code: exposure.error.code,
+          annotationId,
+        });
+      }
+    }
 
     return ok(newCard);
   } catch (error) {
