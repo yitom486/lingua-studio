@@ -1,0 +1,61 @@
+import { describe, expect, it } from 'bun:test';
+import { selectTurnTools } from '../router/turn-tools.js';
+
+describe('selectTurnTools', () => {
+  it('默认意图：基线 9 个 + 只读三件套，不开写', () => {
+    const tools = selectTurnTools({ userPrompt: '随便聊聊' });
+    for (const base of [
+      'learning.content',
+      'learning.assess',
+      'learning.progress',
+      'learning.plan',
+      'learning.curriculum',
+      'learning.library',
+      'dictionary.lookup',
+      'ui.navigate',
+      'ui.present',
+    ]) {
+      expect(tools.includes(base)).toBe(true);
+    }
+    expect(tools.includes('mistakes.list')).toBe(true);
+    expect(tools.includes('flashcards.due')).toBe(true);
+    expect(tools.includes('flashcards.render')).toBe(true);
+    expect(tools.includes('flashcards.collect')).toBe(false);
+    expect(tools.includes('mistakes.resolve')).toBe(false);
+    expect(tools.includes('flashcards.anki_push')).toBe(false);
+  });
+
+  it('GRADE 意图不带攻克词不开 resolve；带了才开', () => {
+    const plain = selectTurnTools({ intent: 'GRADE', userPrompt: '批改这道题' });
+    expect(plain.includes('mistakes.list')).toBe(true);
+    expect(plain.includes('mistakes.resolve')).toBe(false);
+    const mastered = selectTurnTools({ intent: 'GRADE', userPrompt: '这题我会了，标为已会' });
+    expect(mastered.includes('mistakes.resolve')).toBe(true);
+  });
+
+  it('REVIEW_MISTAKES 给读不给写；收藏必须明示', () => {
+    const review = selectTurnTools({ intent: 'REVIEW_MISTAKES', userPrompt: '复习错题' });
+    expect(review.includes('mistakes.list')).toBe(true);
+    expect(review.includes('flashcards.collect')).toBe(false);
+    const collect = selectTurnTools({ intent: 'FREE_COACH', userPrompt: '帮我收藏这个生词' });
+    expect(collect.includes('flashcards.collect')).toBe(true);
+  });
+
+  it('Anki/模板/导入提示词开对应工具', () => {
+    const push = selectTurnTools({ intent: 'FREE_COACH', userPrompt: '推送到Anki' });
+    expect(push.includes('flashcards.anki_push')).toBe(true);
+    expect(push.includes('flashcards.render')).toBe(true);
+    const tpl = selectTurnTools({ intent: 'FREE_COACH', userPrompt: '卡片模板改一下正面' });
+    expect(tpl.includes('flashcards.render')).toBe(true);
+    expect(tpl.includes('flashcards.anki_push')).toBe(false);
+    const imp = selectTurnTools({ intent: 'FREE_COACH', userPrompt: '导入我的Anki牌组' });
+    expect(imp.includes('flashcards.apkg_analyze')).toBe(true);
+  });
+
+  it('去重保序；未知意图回退教练基线', () => {
+    const tools = selectTurnTools({ intent: 'SOME_FUTURE_INTENT', userPrompt: '查词什麼意思' });
+    expect(new Set(tools).size).toBe(tools.length);
+    expect(tools.includes('mistakes.list')).toBe(true);
+    expect(tools.indexOf('learning.content') < tools.indexOf('mistakes.list')).toBe(true);
+  });
+});

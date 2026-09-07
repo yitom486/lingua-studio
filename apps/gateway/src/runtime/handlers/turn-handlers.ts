@@ -19,6 +19,7 @@ import {
   normalizeTrackLanguage,
 } from '../../services/learning-language-policy.js';
 import { selectAgentRoute } from '../../router/agent-router.js';
+import { selectTurnTools } from '../../router/turn-tools.js';
 import { resolveResponsesLiteCoach } from '../responses-lite-coach.js';
 import { buildTurnExecutionSummary, formatCodexLocalFallbackNote } from '../turn-summary-builder.js';
 
@@ -204,17 +205,13 @@ export async function handleTurnSend(
       let streamedFromCodex = false;
       let codexFailHint = '';
       if (!reply && decision.route === 'learning-loop') {
-        const learningTools = [
-          server.toolRegistry.get('learning.content'),
-          server.toolRegistry.get('learning.assess'),
-          server.toolRegistry.get('learning.progress'),
-          server.toolRegistry.get('learning.plan'),
-          server.toolRegistry.get('learning.curriculum'),
-          server.toolRegistry.get('learning.library'),
-          server.toolRegistry.get('dictionary.lookup'),
-          server.toolRegistry.get('ui.navigate'),
-          server.toolRegistry.get('ui.present'),
-        ].filter((tool): tool is ToolDefinition => Boolean(tool));
+        // 意图感知 Tool 子集（READ 按意图、WRITE 须明示；只在建新会话时生效）
+        const learningTools = selectTurnTools({
+          ...(typeof intent === 'string' ? { intent } : {}),
+          userPrompt,
+        })
+          .map((name) => server.toolRegistry.get(name))
+          .filter((tool): tool is ToolDefinition => Boolean(tool));
 
         // 按 lane 复用 Codex thread（coach 与 learning 互不共享）
         let agentSession =
