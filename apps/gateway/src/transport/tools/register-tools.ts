@@ -13,11 +13,18 @@ import { LearningCurriculumTool } from '../../modules/curriculum/tools/learning-
 import { LearningLibraryTool } from '../../modules/library/tools/learning-library-tool.js';
 import { LibraryImportTool } from '../../modules/library/tools/library-import-tool.js';
 import { DictionaryLookupTool } from '../../modules/dictionary/tools/dictionary-lookup-tool.js';
+import { LearningEncountersTool } from '../../modules/dictionary/tools/learning-encounters-tool.js';
 import { FlashcardsRenderTool } from '../../modules/flashcards/tools/flashcards-render-tool.js';
 import { FlashcardsDueTool } from '../../modules/flashcards/tools/flashcards-due-tool.js';
 import { FlashcardsCollectTool } from '../../modules/flashcards/tools/flashcards-collect-tool.js';
 import { FlashcardsAnkiPushTool } from '../../modules/flashcards/tools/flashcards-anki-push-tool.js';
 import { FlashcardsApkgAnalyzeTool } from '../../modules/flashcards/tools/flashcards-apkg-analyze-tool.js';
+import {
+  FlashcardsDraftProposeTool,
+  FlashcardsDraftsListTool,
+  FlashcardsDraftAcceptTool,
+  FlashcardsDraftDismissTool,
+} from '../../modules/flashcards/tools/flashcards-draft-tools.js';
 import { LearningContentTool } from './learning-content-tool.js';
 import { LearningPlanTool } from './learning-plan-tool.js';
 import { UiNavigateTool, UiPresentTool } from './ui-command-tools.js';
@@ -51,11 +58,16 @@ export function registerGatewayTools(
   registry.register(new LearningLibraryTool(drizzle));
   registry.register(new LibraryImportTool(drizzle));
   registry.register(new DictionaryLookupTool(drizzle));
+  registry.register(new LearningEncountersTool(drizzle));
   registry.register(new FlashcardsRenderTool(drizzle));
   registry.register(new FlashcardsDueTool(drizzle));
   registry.register(new FlashcardsCollectTool(drizzle));
   registry.register(new FlashcardsAnkiPushTool(drizzle));
   registry.register(new FlashcardsApkgAnalyzeTool());
+  registry.register(new FlashcardsDraftProposeTool(drizzle));
+  registry.register(new FlashcardsDraftsListTool(drizzle));
+  registry.register(new FlashcardsDraftAcceptTool(drizzle));
+  registry.register(new FlashcardsDraftDismissTool(drizzle));
   registry.register(new UiNavigateTool());
   registry.register(new UiPresentTool());
 }

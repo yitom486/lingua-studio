@@ -8,12 +8,14 @@ import {
   translateToBusinessError,
   generateId,
   nowIso,
+  logger,
 } from '@study-studio/shared';
 import type { Flashcard } from '@study-studio/protocol';
 import { localDictionaryEntries, flashcards, dictionarySearchHistory, dictionarySources, dictionaryTermMeta } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
 import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
+import { recordTermExposure } from './encountered-terms.js';
 
 /**
  * 词典域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
@@ -545,8 +547,9 @@ export async function collectDictionaryEntry(
       )
       .limit(1);
     const existing = existingRows[0];
+    let collection: DictionaryEntryCollection;
     if (existing) {
-      return ok({
+      collection = {
         created: false,
         card: {
           id: existing.id,
@@ -559,43 +562,62 @@ export async function collectDictionaryEntry(
           tags: JSON.parse(existing.tags) as string[],
           fsrs: JSON.parse(existing.fsrs),
         },
+      };
+    } else {
+      const meanings = JSON.parse(entry.meaningsJson) as string[];
+      const reading = entry.reading ?? entry.romanization ?? undefined;
+      const now = nowIso();
+      const card: Flashcard = {
+        id: generateId('card_dict'),
+        userId,
+        type: 'VOCABULARY',
+        front: entry.headword,
+        back: meanings.join('；'),
+        phonetic: reading,
+        tags: ['词典生词', entry.partOfSpeech ?? '词汇', entry.sourceLabel],
+        fsrs: {
+          stability: 1,
+          difficulty: 5,
+          reps: 0,
+          lapses: 0,
+          dueAt: now,
+          state: 'NEW',
+        },
+      };
+      await deps.db.insert(flashcards).values({
+        id: card.id,
+        userId,
+        language: normalizeTrackLanguage(entry.language),
+        type: card.type,
+        front: card.front,
+        back: card.back,
+        phonetic: card.phonetic ?? null,
+        audioUrl: null,
+        sourceEntryId: entry.id,
+        tags: JSON.stringify(card.tags),
+        fsrs: JSON.stringify(card.fsrs),
+      });
+      collection = { card, created: true };
+    }
+    // 相遇词强信号（收藏=见过+要背）：与 history 同级，失败只 warn，永不挡建卡主路径。
+    const exposure = await recordTermExposure(deps, {
+      userId,
+      language: entry.language,
+      headword: entry.headword,
+      ...(entry.reading || entry.romanization
+        ? { reading: entry.reading ?? entry.romanization ?? undefined }
+        : {}),
+      source: 'collect',
+      markCollected: true,
+      flashcardId: collection.card.id,
+    });
+    if (!isOk(exposure)) {
+      logger.warn('[encountered-terms] collect hook failed', {
+        code: exposure.error.code,
+        entryId,
       });
     }
-
-    const meanings = JSON.parse(entry.meaningsJson) as string[];
-    const reading = entry.reading ?? entry.romanization ?? undefined;
-    const now = nowIso();
-    const card: Flashcard = {
-      id: generateId('card_dict'),
-      userId,
-      type: 'VOCABULARY',
-      front: entry.headword,
-      back: meanings.join('；'),
-      phonetic: reading,
-      tags: ['词典生词', entry.partOfSpeech ?? '词汇', entry.sourceLabel],
-      fsrs: {
-        stability: 1,
-        difficulty: 5,
-        reps: 0,
-        lapses: 0,
-        dueAt: now,
-        state: 'NEW',
-      },
-    };
-    await deps.db.insert(flashcards).values({
-      id: card.id,
-      userId,
-      language: normalizeTrackLanguage(entry.language),
-      type: card.type,
-      front: card.front,
-      back: card.back,
-      phonetic: card.phonetic ?? null,
-      audioUrl: null,
-      sourceEntryId: entry.id,
-      tags: JSON.stringify(card.tags),
-      fsrs: JSON.stringify(card.fsrs),
-    });
-    return ok({ card, created: true });
+    return ok(collection);
   } catch (error) {
     return err(
       translateToBusinessError(error, {

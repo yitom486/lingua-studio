@@ -198,6 +198,27 @@ export function createDictionaryRoutes(deps: GatewayDeps) {
     if (isOk(result)) return c.json(result.value);
     return formatBusinessErrorResponse(c, result.error, 'collectDictionaryEntry');
   })
+  // 相遇词列表（按最近相遇倒序；仪表盘热力与复习选题消费）。
+  .get('/api/encountered-terms/:userId', async (c) => {
+    const limitRaw = Number(c.req.query('limit') ?? 50);
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+    const res = await deps.repo.listEncounteredTerms(
+      c.req.param('userId'),
+      c.req.query('lang') || 'ja',
+      limit
+    );
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
+  // 查词历史冷启动回填相遇词（幂等；重复调用只补审计不翻倍计数）。
+  .post('/api/encountered-terms/:userId/backfill', async (c) => {
+    const res = await deps.repo.backfillEncounteredTermsFromHistory(
+      c.req.param('userId'),
+      c.req.query('lang') || 'ja'
+    );
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
   // 1. 学习者全景画像与打卡进度
 ;
 }

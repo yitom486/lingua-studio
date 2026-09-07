@@ -59,6 +59,7 @@ export class DictionaryLookupTool
     if (!isOk(result)) return result;
 
     // 查词历史（画像信号；伪用户不记；失败静默不影响主路径）
+    // 相遇词弱信号（见过）与 history 同 provenance、同定级：只记真人发起的查词。
     if (context.userId && context.userId !== 'dictionary_http') {
       const entries = result.value;
       void this.learnerRepo
@@ -70,6 +71,18 @@ export class DictionaryLookupTool
           entries[0]?.id
         )
         .catch(() => {});
+      const top = entries[0];
+      if (top) {
+        void this.learnerRepo
+          .recordTermExposure({
+            userId: context.userId,
+            language: input.language,
+            headword: top.headword,
+            ...(top.reading ? { reading: top.reading } : {}),
+            source: 'lookup',
+          })
+          .catch(() => {});
+      }
     }
 
     const externalUrl =

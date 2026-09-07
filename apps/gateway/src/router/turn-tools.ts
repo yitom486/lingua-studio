@@ -1,7 +1,7 @@
 /**
  * 回合 Tool 子集选择（纯函数，可单测）。
  *
- * 背景：注册表已有 19 个 Tool，但 Turn 一直写死老 9 个——新 Tool（错题/抽认/Anki）
+ * 背景：注册表已有 24 个 Tool，但 Turn 一直写死老 9 个——新 Tool（错题/抽认/Anki/草稿/相遇）
  * 注册了也到不了 Codex。本模块按意图 + 提示词决定每回合注入的子集。
  *
  * 策略（token 预算与误写双控）：
@@ -30,7 +30,7 @@ const BASE_TOOLS = [
 ] as const;
 
 const READ_BY_INTENT: Record<string, string[]> = {
-  FREE_COACH: ['mistakes.list', 'flashcards.due', 'flashcards.render'],
+  FREE_COACH: ['mistakes.list', 'flashcards.due', 'flashcards.render', 'learning.encounters'],
   EXPLAIN: ['mistakes.list', 'flashcards.render'],
   GENERATE_QUIZ: ['mistakes.list'],
   GRADE: ['mistakes.list'],
@@ -39,6 +39,9 @@ const READ_BY_INTENT: Record<string, string[]> = {
 
 const WRITE_BY_HINT: Array<{ pattern: RegExp; tools: string[] }> = [
   { pattern: /收藏|加入生词|生词本|记住这个词/, tools: ['flashcards.collect'] },
+  { pattern: /草稿|待确认|整理成卡|做成卡片/, tools: ['flashcards.drafts_list', 'flashcards.draft_propose'] },
+  { pattern: /接受|确认入库|草稿.*入库|入库.*草稿/, tools: ['flashcards.draft_accept'] },
+  { pattern: /不要|丢弃|删掉.*草稿|草稿.*删/, tools: ['flashcards.draft_dismiss'] },
   { pattern: /攻克|解决这道|掌握了|我会了|标为已会/, tools: ['mistakes.resolve'] },
   { pattern: /anki|Anki|推送/, tools: ['flashcards.anki_push', 'flashcards.render'] },
   { pattern: /模板|卡片样式|正面|背面/, tools: ['flashcards.render'] },
@@ -49,6 +52,7 @@ const READ_BY_HINT: Array<{ pattern: RegExp; tools: string[] }> = [
   { pattern: /复习|到期|今日.*练|抽查/, tools: ['flashcards.due'] },
   { pattern: /错题|错了|回炉|薄弱/, tools: ['mistakes.list'] },
   { pattern: /查词|什么意思|怎么读/, tools: ['dictionary.lookup'] },
+  { pattern: /见过|眼熟|老是忘|总见到|还没记/, tools: ['learning.encounters'] },
 ];
 
 export function selectTurnTools(input: TurnToolsInput): string[] {

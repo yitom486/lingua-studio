@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import type { Result, BusinessError } from '@study-studio/shared';
+import { isOk, type Result, type BusinessError } from '@study-studio/shared';
 import type {
   LearnerRepository,
   QuizAttemptRecord,
@@ -31,6 +31,7 @@ import type {
   PracticeItemAttempt,
   PracticeBlockSpec,
   PracticeRunStatus,
+  LearnerLevel,
 } from '@study-studio/protocol';
 
 // P0-1 拆分：语种 / 词典 / 通用工具已下沉 domains；本地 import 供剩余方法使用，
@@ -50,6 +51,42 @@ import {
   getDictionarySearchHistory as getDictionarySearchHistoryDomain,
   updateDictionarySourceConfig as updateDictionarySourceConfigDomain,
 } from '../modules/dictionary/persistence/dictionary.js';
+import {
+  recordTermExposure as recordTermExposureDomain,
+  listEncounteredTerms as listEncounteredTermsDomain,
+  backfillEncounteredTermsFromHistory as backfillEncounteredTermsFromHistoryDomain,
+  recordReadingExposures as recordReadingExposuresDomain,
+  type EncounteredTerm,
+  type RecordTermExposureInput,
+  type RecordReadingExposuresInput,
+} from '../modules/dictionary/persistence/encountered-terms.js';
+import {
+  proposeCardDrafts as proposeCardDraftsDomain,
+  listCardDrafts as listCardDraftsDomain,
+  updateCardDraft as updateCardDraftDomain,
+  acceptCardDraft as acceptCardDraftDomain,
+  dismissCardDraft as dismissCardDraftDomain,
+  type CardDraft,
+  type CardDraftStatus,
+  type ProposeCardDraftInput,
+  type UpdateCardDraftPatch,
+} from '../modules/flashcards/persistence/card-drafts.js';
+import {
+  maybeEvaluateLevel as maybeEvaluateLevelDomain,
+  getLevelInfo as getLevelInfoDomain,
+  type LevelChange,
+} from '../modules/learning-progress/persistence/level.js';
+import {
+  startPlacementExam as startPlacementExamDomain,
+  finishPlacementExam as finishPlacementExamDomain,
+  type PlacementExam,
+  type PlacementFinishResult,
+} from '../modules/practice/persistence/placement.js';
+import {
+  saveReadingPosition as saveReadingPositionDomain,
+  getReadingPosition as getReadingPositionDomain,
+  type ReadingPosition,
+} from '../modules/library/persistence/reading-positions.js';
 import {
   listCardFormats as listCardFormatsDomain,
   saveCardFormat as saveCardFormatDomain,
@@ -271,6 +308,122 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   }
 
   /**
+   * 记录一次相遇词（查词/收藏/阅读信号聚合；失败走 Result，由调用方定级）。
+   * 实现已下沉 dictionary 域，此处仅委托。
+   */
+  public async recordTermExposure(
+    input: RecordTermExposureInput
+  ): Promise<Result<EncounteredTerm, BusinessError>> {
+    return recordTermExposureDomain(this.deps, input);
+  }
+
+  /** 相遇词列表（按最近相遇倒序）。实现已下沉 dictionary 域，此处仅委托。 */
+  public async listEncounteredTerms(
+    userId: string,
+    language: string,
+    limit = 50
+  ): Promise<Result<EncounteredTerm[], BusinessError>> {
+    return listEncounteredTermsDomain(this.deps, userId, language, limit);
+  }
+
+  /** 查词历史冷启动回填相遇词。实现已下沉 dictionary 域，此处仅委托。 */
+  public async backfillEncounteredTermsFromHistory(
+    userId: string,
+    language: string
+  ): Promise<Result<{ terms: number; occurrences: number }, BusinessError>> {
+    return backfillEncounteredTermsFromHistoryDomain(this.deps, userId, language);
+  }
+
+  /** 打开课次即记（reading 源，同课同天一次）。实现已下沉 dictionary 域，此处仅委托。 */
+  public async recordReadingExposures(
+    input: RecordReadingExposuresInput
+  ): Promise<Result<{ recorded: number; skipped: boolean }, BusinessError>> {
+    return recordReadingExposuresDomain(this.deps, input);
+  }
+
+  /** 批量提议生词草稿（幂等去重）。实现已下沉 flashcards 域，此处仅委托。 */
+  public async proposeCardDrafts(
+    inputs: ProposeCardDraftInput[]
+  ): Promise<Result<CardDraft[], BusinessError>> {
+    return proposeCardDraftsDomain(this.deps, inputs);
+  }
+
+  /** 草稿列表。实现已下沉 flashcards 域，此处仅委托。 */
+  public async listCardDrafts(
+    userId: string,
+    language: string,
+    status: CardDraftStatus = 'pending',
+    limit = 50
+  ): Promise<Result<CardDraft[], BusinessError>> {
+    return listCardDraftsDomain(this.deps, userId, language, status, limit);
+  }
+
+  /** 用户逐字段改草稿。实现已下沉 flashcards 域，此处仅委托。 */
+  public async updateCardDraft(
+    userId: string,
+    draftId: string,
+    patch: UpdateCardDraftPatch
+  ): Promise<Result<CardDraft, BusinessError>> {
+    return updateCardDraftDomain(this.deps, userId, draftId, patch);
+  }
+
+  /** 接受草稿入库成卡。实现已下沉 flashcards 域，此处仅委托。 */
+  public async acceptCardDraft(
+    userId: string,
+    draftId: string
+  ): Promise<Result<{ draft: CardDraft; cardId: string }, BusinessError>> {
+    return acceptCardDraftDomain(this.deps, userId, draftId);
+  }
+
+  /** 驳回草稿。实现已下沉 flashcards 域，此处仅委托。 */
+  public async dismissCardDraft(
+    userId: string,
+    draftId: string
+  ): Promise<Result<CardDraft, BusinessError>> {
+    return dismissCardDraftDomain(this.deps, userId, draftId);
+  }
+
+  /** 档位信息（当前档 + 升级提示语）。实现已下沉 learning-progress 域，此处仅委托。 */
+  public async getLevelInfo(
+    userId: string,
+    language: string
+  ): Promise<Result<{ level: LearnerLevel; hint: string }, BusinessError>> {
+    return getLevelInfoDomain(this.deps, userId, language);
+  }
+
+  /** 定级考开考（跳级通道）。实现已下沉 practice 域，此处仅委托。 */
+  public async startPlacementExam(
+    userId: string,
+    track: TrackLanguage,
+    targetLevel: LearnerLevel
+  ): Promise<Result<{ exam: PlacementExam; runId: string }, BusinessError>> {
+    return startPlacementExamDomain(this.deps, userId, track, targetLevel);
+  }
+
+  /** 定级考交卷（过线写档）。实现已下沉 practice 域，此处仅委托。 */
+  public async finishPlacementExam(
+    userId: string,
+    examId: string
+  ): Promise<Result<PlacementFinishResult, BusinessError>> {
+    return finishPlacementExamDomain(this.deps, userId, examId);
+  }
+
+  /** 保存阅读位置（每用户每文档一条 upsert）。实现已下沉 library 域，此处仅委托。 */
+  public async saveReadingPosition(
+    userId: string,
+    documentId: string,
+    locator: unknown
+  ): Promise<Result<ReadingPosition, BusinessError>> {
+    return saveReadingPositionDomain(this.deps, userId, documentId, locator);
+  }
+
+  /** 读取阅读位置（无记录返回 null）。实现已下沉 library 域，此处仅委托。 */
+  public async getReadingPosition(
+    userId: string,
+    documentId: string
+  ): Promise<Result<ReadingPosition | null, BusinessError>> {
+    return getReadingPositionDomain(this.deps, userId, documentId);
+  }  /**
    * 词典包配置更新（开关 / 排序权重）。
    * 实现已下沉 dictionary 域，此处仅委托。
    */
@@ -513,6 +666,8 @@ export class DrizzleLearnerRepository implements LearnerRepository {
       listeningMinutes?: number;
       mistakesResolved?: number;
       reading?: number;
+      kanaDrills?: number;
+      hangulDrills?: number;
       date?: string;
       language?: TrackLanguage | string;
     }
@@ -615,7 +770,12 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   public async recordQuizAttempt(
     attempt: QuizAttemptRecord
   ): Promise<Result<void, BusinessError>> {
-    return recordQuizAttemptDomain(this.deps, attempt);
+    const res = await recordQuizAttemptDomain(this.deps, attempt);
+    if (isOk(res)) {
+      // 等级自动边：做题落盘后求值一次；失败静默，不挡主路径。
+      await maybeEvaluateLevelDomain(this.deps, attempt.userId, inferLanguageFromSkillId(attempt.testedSkillId));
+    }
+    return res;
   }
 
   /**
@@ -797,7 +957,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     isCorrect: boolean,
     scriptType: HangulScriptType = 'CONSONANT'
   ): Promise<Result<{ proficiency: number }, BusinessError>> {
-    return recordHangulPracticeDomain(this.deps, userId, hangulId, isCorrect, scriptType);
+    const res = await recordHangulPracticeDomain(this.deps, userId, hangulId, isCorrect, scriptType);
+    if (isOk(res)) {
+      await maybeEvaluateLevelDomain(this.deps, userId, 'ko');
+    }
+    return res;
   }
 
   /**
@@ -839,7 +1003,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     isCorrect: boolean,
     scriptType: 'HIRAGANA' | 'KATAKANA' | 'ROMAJI' = 'HIRAGANA'
   ): Promise<Result<{ proficiency: number }, BusinessError>> {
-    return recordKanaPracticeDomain(this.deps, userId, kanaId, isCorrect, scriptType);
+    const res = await recordKanaPracticeDomain(this.deps, userId, kanaId, isCorrect, scriptType);
+    if (isOk(res)) {
+      await maybeEvaluateLevelDomain(this.deps, userId, 'ja');
+    }
+    return res;
   }
 
   /**

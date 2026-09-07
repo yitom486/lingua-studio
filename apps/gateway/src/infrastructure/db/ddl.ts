@@ -498,6 +498,160 @@ export function initSchema(sqlite: Database): void {
   }
 
   ensureDictionaryFts(sqlite);
+  runMigrations(sqlite);
+}
+
+/**
+ * 版本化迁移（2026-09 新增；此前的裸 DDL/ALTER 视为基线 v1）。
+ * - legacy DDL 幂等先行：上方 CREATE/ALTER 全是 IF NOT EXISTS / try-catch，
+ *   存量库跑完即等价 v1，直接记基线；
+ * - 此后所有结构变更必须追加 MIGRATIONS 条目，禁止再加裸 ALTER。
+ */
+interface SchemaMigration {
+  version: number;
+  name: string;
+  sql: string;
+}
+
+const SCHEMA_MIGRATIONS: SchemaMigration[] = [
+  {
+    version: 2,
+    name: 'encountered-terms',
+    sql: `
+      CREATE TABLE IF NOT EXISTS encountered_terms (
+        user_id TEXT NOT NULL,
+        language TEXT NOT NULL,
+        term_key TEXT NOT NULL,
+        headword TEXT NOT NULL,
+        reading TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        exposure_count INTEGER NOT NULL DEFAULT 1,
+        first_seen_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        flashcard_id TEXT,
+        PRIMARY KEY (user_id, language, term_key)
+      );
+      CREATE TABLE IF NOT EXISTS term_occurrences (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        language TEXT NOT NULL,
+        term_key TEXT NOT NULL,
+        source TEXT NOT NULL,
+        document_id TEXT,
+        quote TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_term_occurrences_user_term
+        ON term_occurrences(user_id, language, term_key, created_at);
+      CREATE INDEX IF NOT EXISTS idx_encountered_terms_user_lang
+        ON encountered_terms(user_id, language, last_seen_at);
+    `,
+  },
+  {
+    version: 3,
+    name: 'card-drafts-reading-positions',
+    sql: `
+      CREATE TABLE IF NOT EXISTS card_drafts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        language TEXT NOT NULL,
+        term_key TEXT NOT NULL,
+        headword TEXT NOT NULL,
+        reading TEXT,
+        meanings_json TEXT NOT NULL,
+        part_of_speech TEXT,
+        source TEXT NOT NULL,
+        source_ref TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        edited_fields_json TEXT NOT NULL DEFAULT '[]',
+        flashcard_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_card_drafts_user_lang_status
+        ON card_drafts(user_id, language, status, updated_at);
+      CREATE TABLE IF NOT EXISTS reading_positions (
+        user_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        locator TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, document_id)
+      );
+    `,
+  },
+  {
+    // v4：打卡日志加字母 drill 当日计数（带路按天判定的数据源；全新列，版本门保证只执行一次，原子提交）。
+    version: 4,
+    name: 'activity-alphabet-counts',
+    sql: `
+      ALTER TABLE study_activity_logs ADD COLUMN kana_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE study_activity_logs ADD COLUMN hangul_count INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    // v6：定级考记录表（跳级通道；自动升降级不依赖它，通过行仅用于当日掉级豁免）。
+    version: 6,
+    name: 'placement-exams',
+    sql: `
+      CREATE TABLE IF NOT EXISTS placement_exams (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        language TEXT NOT NULL,
+        target_level TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        accuracy REAL,
+        created_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_placement_user_lang
+        ON placement_exams(user_id, language, created_at);
+    `,
+  },
+];
+
+export function runMigrations(sqlite: Database): { applied: number[] } {
+  sqlite.run(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+  `);
+  const rows = sqlite.query('SELECT version, name FROM schema_migrations').all() as Array<{
+    version: number;
+    name: string;
+  }>;
+  const applied = new Set(rows.map((r) => r.version));
+
+  if (applied.size === 0) {
+    // 上方 legacy DDL 已执行完毕，存量/新库此刻都等价 v1，直接记基线。
+    sqlite
+      .query('INSERT INTO schema_migrations (version, name, applied_at) VALUES (1, ?, ?)')
+      .run('legacy-baseline', new Date().toISOString());
+    applied.add(1);
+  }
+  const done: number[] = [];
+  for (const m of SCHEMA_MIGRATIONS) {
+    if (applied.has(m.version)) continue;
+    sqlite.run('BEGIN');
+    try {
+      sqlite.exec(m.sql);
+      sqlite
+        .query('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(m.version, m.name, new Date().toISOString());
+      sqlite.run('COMMIT');
+      done.push(m.version);
+    } catch (e) {
+      try {
+        sqlite.run('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    }
+  }
+  return { applied: done };
 }
 
 /**
