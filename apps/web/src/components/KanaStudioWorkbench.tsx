@@ -70,6 +70,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const [scriptMode, setScriptMode] = useState<ScriptDisplayMode>('HIRAGANA');
   const [showRomaji, setShowRomaji] = useState(true);
   const [activeKana, setActiveKana] = useState<KanaItem | null>(null);
+  const [isKanaGuideOpen, setIsKanaGuideOpen] = useState(false);
 
   // 自测考核模式状态
   const [isDrillActive, setIsDrillActive] = useState(false);
@@ -154,10 +155,16 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     speechStudio.speak(kana.audioText, { lang: 'JA', purpose: 'preview' });
   };
 
-  // 点击假名后播放发音并打开讲义
+  // 点击假名主体只播放发音，并保留当前格子的高亮
   const handleSelectKana = (kana: KanaItem) => {
     handlePlayAudio(kana);
     setActiveKana(kana);
+  };
+
+  // 只有明确点击“详情”时才打开讲义 Dialog
+  const handleOpenKanaGuide = (kana: KanaItem) => {
+    handleSelectKana(kana);
+    setIsKanaGuideOpen(true);
   };
 
   // 生成自测题（跟随矩阵选项卡范围：清音/浊半浊/拗音；0 = 范围内全部）
@@ -532,7 +539,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
             </Tabs>
 
             <span className="text-xs text-stone-400 font-mono hidden sm:inline">
-              点击格子查看详情 · 详情中可播放发音与例词
+              点击假名播放发音 · 点击“详情”打开讲义
             </span>
           </div>
         )}
@@ -1006,7 +1013,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                             size="sm"
                             onClick={(event) => {
                               event.stopPropagation();
-                              handleSelectKana(kana);
+                              handleOpenKanaGuide(kana);
                             }}
                             className="mt-1 h-6 rounded-lg px-2 text-[10px] text-amber-700 hover:bg-amber-500/15 dark:text-amber-300"
                             aria-label={`查看 ${kana.hiragana} 的发音与记忆详情`}
@@ -1058,12 +1065,10 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
             )}
 
             <Dialog
-              open={Boolean(activeKana)}
-              onOpenChange={(open) => {
-                if (!open) setActiveKana(null);
-              }}
+              open={isKanaGuideOpen && Boolean(activeKana)}
+              onOpenChange={setIsKanaGuideOpen}
             >
-              {activeKana && (
+              {isKanaGuideOpen && activeKana && (
                 <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
                   <DialogHeader className="pr-8">
                     <div className="flex flex-wrap items-center gap-2">
