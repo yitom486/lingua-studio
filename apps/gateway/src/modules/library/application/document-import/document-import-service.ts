@@ -20,6 +20,8 @@ import {
 } from './document-source.js';
 import { decodeTextBytes } from './text-reader.js';
 import { extractEpubText } from './epub-reader.js';
+import { extractMobiText } from './mobi-reader.js';
+import { extractWebArticle } from './url-reader.js';
 import {
   createImportTask,
   updateImportTask,
@@ -39,7 +41,9 @@ import type { RepoDeps } from '../../../../infrastructure/persistence/repo-conte
 const TEXT_PUBLISHER: Record<DocumentSourceKind, string> = {
   pdf: 'PDF导入（自有资料）',
   epub: 'EPUB导入（自有资料）',
+  mobi: 'MOBI导入（自有资料）',
   text: '文本导入（自有资料）',
+  url: '网页导入（自有学习）',
 };
 
 /** 本机文档直读（大文件不走 HTTP 拷贝；上限按来源：pdf 200MB / epub 100MB / text 5MB）。 */
@@ -57,11 +61,16 @@ export async function readDocumentFileBytes(
     const extOk =
       (kind === 'pdf' && ext === '.pdf') ||
       (kind === 'epub' && ext === '.epub') ||
+      (kind === 'mobi' && (ext === '.mobi' || ext === '.azw')) ||
       (kind === 'text' && (ext === '.txt' || ext === '.md' || ext === '.markdown'));
     if (!extOk) {
       return err(new BusinessError('E_INVALID_INPUT', `文件扩展名与来源不符（${kind}）`, 'VALIDATION', false));
     }
-    const cap = kind === 'pdf' ? 200 * 1024 * 1024 : kind === 'epub' ? 100 * 1024 * 1024 : 5 * 1024 * 1024;
+    const cap =
+      kind === 'pdf' ? 200 * 1024 * 1024
+      : kind === 'epub' ? 100 * 1024 * 1024
+      : kind === 'mobi' ? 100 * 1024 * 1024
+      : 5 * 1024 * 1024;
     const stat = await fsp.stat(filePath);
     if (!stat.isFile() || stat.size === 0 || stat.size > cap) {
       return err(new BusinessError('E_INVALID_INPUT', '本地文件无效或过大', 'VALIDATION', false));
@@ -75,24 +84,58 @@ export async function readDocumentFileBytes(
 
 const textImporter: DocumentImporter = {
   kind: 'text',
-  extract: async (bytes, filename) => decodeTextBytes(bytes, filename),
+  extract: async (input) => {
+    if (!input.bytes) {
+      throw new BusinessError('E_INVALID_INPUT', '文本导入需要字节或直传文本', 'VALIDATION', false);
+    }
+    return decodeTextBytes(input.bytes, input.filename);
+  },
 };
 
 const epubImporter: DocumentImporter = {
   kind: 'epub',
-  extract: async (bytes, filename) => extractEpubText(bytes, filename),
+  extract: async (input) => {
+    if (!input.bytes) {
+      throw new BusinessError('E_INVALID_INPUT', 'EPUB 导入需要文件字节', 'VALIDATION', false);
+    }
+    return extractEpubText(input.bytes, input.filename);
+  },
+};
+
+const mobiImporter: DocumentImporter = {
+  kind: 'mobi',
+  extract: async (input) => {
+    if (!input.bytes) {
+      throw new BusinessError('E_INVALID_INPUT', 'MOBI 导入需要文件字节', 'VALIDATION', false);
+    }
+    return extractMobiText(input.bytes, input.filename);
+  },
+};
+
+const urlImporter: DocumentImporter = {
+  kind: 'url',
+  extract: async (input) => {
+    if (!input.url) {
+      throw new BusinessError('E_INVALID_INPUT', '网页导入需要 url', 'VALIDATION', false);
+    }
+    return extractWebArticle(input.url);
+  },
 };
 
 const IMPORTERS: Record<Exclude<DocumentSourceKind, 'pdf'>, DocumentImporter> = {
   epub: epubImporter,
+  mobi: mobiImporter,
   text: textImporter,
+  url: urlImporter,
 };
 
 export interface DocumentImportInput {
   userId: string;
   kind?: DocumentSourceKind | undefined;
   filename: string;
-  bytes: Uint8Array;
+  bytes?: Uint8Array | undefined;
+  /** kind=url 时必填（经 SSRF 防护后抓取） */
+  url?: string | undefined;
 }
 
 export interface DocumentImportOutput {
@@ -122,10 +165,13 @@ export async function importDocument(
   const kind: DocumentSourceKind =
     input.kind ?? guessSourceKind(input.filename) ?? 'text';
   if (!DOCUMENT_SOURCE_KINDS.includes(kind)) {
-    return err(new BusinessError('E_INVALID_INPUT', '不支持的导入来源（pdf/epub/txt/md）', 'VALIDATION', false));
+    return err(new BusinessError('E_INVALID_INPUT', '不支持的导入来源（pdf/epub/mobi/txt/md/url）', 'VALIDATION', false));
   }
-  if (input.bytes.length === 0) {
+  if (kind !== 'url' && (!input.bytes || input.bytes.length === 0)) {
     return err(new BusinessError('E_INVALID_INPUT', '文件为空，无法导入', 'VALIDATION', false));
+  }
+  if (kind === 'url' && !input.url) {
+    return err(new BusinessError('E_INVALID_INPUT', '网页导入需要 url', 'VALIDATION', false));
   }
   const taskCreated = await createImportTask(deps, {
     userId: input.userId,
@@ -139,6 +185,7 @@ export async function importDocument(
     let markdown: string;
     let toc: string[] = [];
     if (kind === 'pdf') {
+      if (!input.bytes) throw new BusinessError('E_INVALID_INPUT', 'PDF 导入需要文件字节', 'VALIDATION', false);
       const converted = await convertPdfToAst(
         {
           ...(readers.loadInspector ? { loadInspector: readers.loadInspector } : {}),
@@ -151,7 +198,11 @@ export async function importDocument(
       markdown = converted.value.markdown;
     } else {
       const importer = IMPORTERS[kind];
-      const extracted = await importer.extract(input.bytes, input.filename);
+      const extracted = await importer.extract({
+        ...(input.bytes ? { bytes: input.bytes } : {}),
+        ...(input.url ? { url: input.url } : {}),
+        filename: input.filename,
+      });
       title = extracted.title;
       markdown = extracted.markdown;
       if (extracted.units) toc = extracted.units.filter((t): t is string => typeof t === 'string');

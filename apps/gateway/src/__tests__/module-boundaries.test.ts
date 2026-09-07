@@ -47,6 +47,8 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   'modules/flashcards/tools/flashcards-collect-tool.ts -> modules/dictionary/persistence/dictionary.js',
   // EPUB 解包复用 library 的 extractZip（同 apkg：炸弹/加密守卫，只读内存）。
   'modules/library/application/document-import/epub-reader.ts -> modules/library/application/pdf-import/archive.js',
+  // 网页正文复用新闻管线的 Readability 抽取纯函数（抓取层自备 SSRF 防护）。
+  'modules/library/application/document-import/url-reader.ts -> modules/curriculum/infrastructure/news-article-fetch.js',
 ]);
 
 function collectTs(dir: string, out: string[] = []): string[] {

@@ -17,6 +17,47 @@ import {
   DOCUMENT_SOURCE_KINDS,
 } from '../modules/library/application/document-import/document-source.js';
 import { LibraryImportTool } from '../modules/library/tools/library-import-tool.js';
+import { extractMobiText } from '../modules/library/application/document-import/mobi-reader.js';
+import {
+  assertPublicWebUrl,
+  fetchPublicWebText,
+} from '../modules/library/application/document-import/web-url.js';
+import { extractWebArticle } from '../modules/library/application/document-import/url-reader.js';
+
+// ---------- 最小 PalmDB/MOBI 构造器（未压缩，单测自包含） ----------
+function buildMobiBytes(opts: { compression?: number; magic?: boolean; text?: string } = {}): Uint8Array {
+  const enc = new TextEncoder();
+  const textBytes = enc.encode(opts.text ?? 'Hello MOBI world. 第二段文本。');
+  const u16 = (n: number) => [(n >> 8) & 0xff, n & 0xff];
+  const u32 = (n: number) => [(n >> 24) & 0xff, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+  const out: number[] = [];
+  const pushStr = (s: string, len: number) => {
+    const b = enc.encode(s);
+    for (let i = 0; i < len; i += 1) out.push(b[i] ?? 0);
+  };
+  pushStr('TestBook', 32);
+  out.push(...u16(0), ...u16(0));
+  out.push(...u32(0), ...u32(0), ...u32(0), ...u32(0), ...u32(0), ...u32(0));
+  pushStr(opts.magic === false ? 'XXXX' : 'BOOK', 4);
+  pushStr('MOBI', 4);
+  out.push(...u32(0), ...u32(0));
+  const numRecords = 2;
+  out.push(...u16(numRecords));
+  const rec0Off = 78 + numRecords * 8;
+  const rec1Off = rec0Off + 16 + 232;
+  out.push(...u32(rec0Off), 0, 0, 0, 0);
+  out.push(...u32(rec1Off), 0, 0, 0, 0);
+  // record 0: PalmDOC(16) + MOBI 头
+  out.push(...u16(opts.compression ?? 1), ...u16(0));
+  out.push(...u32(textBytes.length), ...u16(1), ...u16(4096), ...u32(0));
+  out.push(...enc.encode('MOBI'));
+  out.push(...u32(232), ...u32(2));
+  while (out.length < rec0Off + 16 + 28) out.push(0);
+  out.push(...u32(65001));
+  while (out.length < rec1Off) out.push(0);
+  for (const b of textBytes) out.push(b);
+  return new Uint8Array(out);
+}
 
 // ---------- 最小 stored-zip 构造器（单测自包含） ----------
 function buildStoredZip(files: Array<{ name: string; data: Uint8Array }>): Uint8Array {
@@ -93,7 +134,7 @@ describe('document source kinds', () => {
     expect(guessSourceKind('a.EPUB')).toBe('epub');
     expect(guessSourceKind('a.md')).toBe('text');
     expect(guessSourceKind('a.zip')).toBeUndefined();
-    expect(DOCUMENT_SOURCE_KINDS).toEqual(['pdf', 'epub', 'text']);
+    expect(DOCUMENT_SOURCE_KINDS).toEqual(['pdf', 'epub', 'mobi', 'text', 'url']);
   });
 });
 
@@ -148,8 +189,7 @@ describe('epub reader', () => {
   });
 });
 
-describe('morphology registry', () => {
-  it('三语路由 + 门控', () => {
+describe('morphology registry', () => {  it('三语路由 + 门控', () => {
     expect(getMorphAnalyzer('ja')?.verb).toBe('活用自');
     expect(getMorphAnalyzer('en')?.verb).toBe('还原为');
     expect(getMorphAnalyzer('ko')?.verb).toBe('活用自');
@@ -219,5 +259,126 @@ describe('document import service', () => {
     } finally {
       await fsp.rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('mobi reader', () => {  it('未压缩正文提取；标题取文件名', () => {
+    const res = extractMobiText(buildMobiBytes(), 'book.mobi');
+    expect(res.title).toBe('book');
+    expect(res.markdown).toContain('Hello MOBI world.');
+  });
+
+  it('坏魔数/压缩格式/AZW3 明示拒绝', () => {
+    expect(() => extractMobiText(buildMobiBytes({ magic: false }), 'x.mobi')).toThrow();
+    expect(() => extractMobiText(buildMobiBytes({ compression: 2 }), 'x.mobi')).toThrow(
+      /calibre/
+    );
+    expect(() => extractMobiText(buildMobiBytes({ compression: 17480 }), 'x.mobi')).toThrow();
+    expect(guessSourceKind('a.azw')).toBe('mobi');
+    expect(guessSourceKind('a.azw3')).toBeUndefined();
+  });
+
+  it('MOBI 端到端入库', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const res = await repo.importDocumentFile({
+      userId: 'u1',
+      kind: 'mobi',
+      filename: 'b.mobi',
+      bytes: buildMobiBytes(),
+    });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.task.status).toBe('done');
+    expect(res.value.lessons).toBeGreaterThan(0);
+  });
+});
+
+describe('web url guard + reader', () => {
+  it('本机/私网/非法 scheme 拒绝（无 DNS 开销）', async () => {
+    for (const url of [
+      'http://127.0.0.1:8765/x',
+      'http://localhost/x',
+      'http://10.1.2.3/x',
+      'http://192.168.1.1/x',
+      'http://169.254.1.1/x',
+      'ftp://example.com/x',
+      'not a url',
+    ]) {
+      await expect(assertPublicWebUrl(url)).rejects.toThrow();
+    }
+  });
+
+  it('重定向落点私网被拦截；超大与非 HTML 拒绝', async () => {
+    const redirectToLocal = (async () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: 'http://127.0.0.1:9/evil' },
+      })) as unknown as typeof fetch;
+    await expect(
+      fetchPublicWebText('http://93.184.216.0/start', redirectToLocal)
+    ).rejects.toThrow();
+    const big = (async () =>
+      new Response('x', {
+        status: 200,
+        headers: { 'content-type': 'text/html', 'content-length': String(6 * 1024 * 1024) },
+      })) as unknown as typeof fetch;
+    await expect(fetchPublicWebText('http://93.184.216.0/big', big)).rejects.toThrow();
+    const pdf = (async () =>
+      new Response('x', { status: 200, headers: { 'content-type': 'application/pdf' } })) as unknown as typeof fetch;
+    await expect(fetchPublicWebText('http://93.184.216.0/f.pdf', pdf)).rejects.toThrow();
+  });
+
+  it('正文抽取 + 标题；抽不出判空', async () => {
+    const article = (async () =>
+      new Response(
+        '<html><head><title>Test News</title></head><body><article><p>First paragraph with enough content to pass the minimum length requirement for full text extraction logic here.</p><p>Second paragraph adds more study material for the learner reading set generation pipeline test.</p></article></body></html>',
+        { status: 200, headers: { 'content-type': 'text/html' } }
+      )) as unknown as typeof fetch;
+    const res = await extractWebArticle('http://93.184.216.0/news/1', article);
+    expect(res.title).toBe('Test News');
+    expect(res.markdown).toContain('First paragraph');
+    const empty = (async () =>
+      new Response('<html><body><p>hi</p></body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })) as unknown as typeof fetch;
+    await expect(extractWebArticle('http://93.184.216.0/empty', empty)).rejects.toThrow();
+  });
+
+  it('URL 端到端入库（桩抓取）', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    // 经 repo 委托走真实抓取函数：此处仅验任务失败路径（无网不外发）
+    const res = await repo.importDocumentFile({
+      userId: 'u1',
+      kind: 'url',
+      filename: 'web',
+      url: 'http://127.0.0.1:9/blocked',
+    });
+    expect(isOk(res)).toBe(false);
+    const task = await repo.getImportTask('import-0000000000000000');
+    expect(task).toBeUndefined();
+  });
+});
+
+describe('import tasks', () => {
+  it('建任务→更新→读取（读侧永不抛）', async () => {
+    const repo = new DrizzleLearnerRepository(':memory:');
+    const created = await repo.createImportTask({ userId: 'u1', sourceKind: 'epub', filename: 'b.epub' });
+    expect(isOk(created)).toBe(true);
+    if (!isOk(created)) return;
+    expect(created.value.status).toBe('processing');
+    const done = await repo.updateImportTask(created.value.id, {
+      status: 'done',
+      documentId: 'doc1',
+      lessons: 3,
+    });
+    expect(isOk(done)).toBe(true);
+    if (!isOk(done)) return;
+    expect(done.value.documentId).toBe('doc1');
+    const fetched = await repo.getImportTask(created.value.id);
+    expect(fetched?.status).toBe('done');
+    expect(await repo.getImportTask('nope')).toBeUndefined();
+    const missing = await repo.updateImportTask('nope', { status: 'failed', error: 'x' });
+    expect(isOk(missing)).toBe(false);
   });
 });

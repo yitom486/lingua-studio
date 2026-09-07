@@ -10,11 +10,7 @@ import {
 } from '@study-studio/shared';
 import { documentImports } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
-
-/**
- * 文档来源种类（持久层定义；application 复用，避免持久层反向依赖上层）。
- */
-export type DocumentSourceKind = 'pdf' | 'epub' | 'text';
+import { DOCUMENT_SOURCE_KINDS, type DocumentSourceKind } from './document-kinds.js';
 
 /**
  * 文档导入任务持久化（状态机 processing → done/failed；读侧永不抛）。
@@ -43,9 +39,9 @@ function toImportTask(row: ImportTaskRow): ImportTask {
   const task: ImportTask = {
     id: row.id,
     userId: row.userId,
-    sourceKind: (row.sourceKind === 'pdf' || row.sourceKind === 'epub' || row.sourceKind === 'text'
-      ? row.sourceKind
-      : 'text') as DocumentSourceKind,
+    sourceKind: (DOCUMENT_SOURCE_KINDS as string[]).includes(row.sourceKind)
+      ? (row.sourceKind as DocumentSourceKind)
+      : 'text',
     filename: row.filename,
     status,
     createdAt: row.createdAt,

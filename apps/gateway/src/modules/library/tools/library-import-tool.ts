@@ -5,16 +5,18 @@ import {
   ToolPermissions,
   ToolLocations,
 } from '@study-studio/tool-core';
-import { ok, isOk, type Result, type BusinessError } from '@study-studio/shared';
+import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
 import { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import { readDocumentFileBytes } from '../application/document-import/document-import-service.js';
 import type { ImportTask } from '../persistence/import-tasks.js';
 
 export const LibraryImportInputSchema = z.object({
   userId: z.string().min(1).max(64),
-  kind: z.enum(['pdf', 'epub', 'text']).optional(),
-  /** 本机文档绝对路径（只读，不走 HTTP 拷贝）。 */
-  filePath: z.string().min(1).max(1024),
+  kind: z.enum(['pdf', 'epub', 'mobi', 'text', 'url']).optional(),
+  /** 本机文档绝对路径（只读，不走 HTTP 拷贝；与 url 二选一）。 */
+  filePath: z.string().min(1).max(1024).optional(),
+  /** 网址（kind=url 时必填，经 SSRF 防护后抓取）。 */
+  url: z.string().min(1).max(2048).optional(),
 });
 
 export type LibraryImportInput = z.infer<typeof LibraryImportInputSchema>;
@@ -24,6 +26,15 @@ export interface LibraryImportOutput {
   documentId: string;
   title: string;
   lessons: number;
+}
+
+/** url 主机名收窄（非法 url 回退通用名，不抛）。 */
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname.slice(0, 64) || '网页';
+  } catch {
+    return '网页';
+  }
 }
 
 /**
@@ -45,15 +56,25 @@ export class LibraryImportTool implements ToolDefinition<LibraryImportInput, Lib
     _context: ToolExecutionContext
   ): Promise<Result<LibraryImportOutput, BusinessError>> {
     void _context;
+    if (!input.filePath && !input.url) {
+      return err(new BusinessError('E_INVALID_INPUT', '请提供 filePath 或 url（二选一）', 'VALIDATION', false));
+    }
     const kind = input.kind ?? 'text';
-    const bytes = await readDocumentFileBytes(input.filePath, kind);
-    if (!isOk(bytes)) return bytes;
-    const filename = input.filePath.split(/[\\/]/).pop() ?? '未命名';
+    let bytes: Uint8Array | undefined;
+    if (input.filePath) {
+      const read = await readDocumentFileBytes(input.filePath, kind);
+      if (!isOk(read)) return read;
+      bytes = read.value;
+    }
+    const filename =
+      input.filePath?.split(/[\\/]/).pop() ??
+      (input.url ? `网页-${safeHostname(input.url)}` : '未命名');
     const result = await this.learnerRepo.importDocumentFile({
       userId: input.userId,
       kind,
       filename,
-      bytes: bytes.value,
+      ...(bytes ? { bytes } : {}),
+      ...(input.url ? { url: input.url } : {}),
     });
     if (!isOk(result)) return result;
     return ok({

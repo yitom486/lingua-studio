@@ -6,11 +6,11 @@
  * OCR/运行时是源之外的能力层（pdf-runtime），不在本抽象内——与词语链路无关。
  */
 
-export type { DocumentSourceKind } from '../../persistence/import-tasks.js';
-import type { DocumentSourceKind } from '../../persistence/import-tasks.js';
+export type { DocumentSourceKind } from '../../persistence/document-kinds.js';
+export { DOCUMENT_SOURCE_KINDS } from '../../persistence/document-kinds.js';
+import type { DocumentSourceKind } from '../../persistence/document-kinds.js';
 
-export interface ExtractedText {
-  title: string;
+export interface ExtractedText {  title: string;
   markdown: string;
   /** 目录单元标签（EPUB 目录驱动；无目录缺省） */
   units?: string[] | undefined;
@@ -18,17 +18,23 @@ export interface ExtractedText {
 
 export interface DocumentImporter {
   readonly kind: DocumentSourceKind;
-  /** 字节 → 可结构化的 markdown（重活：解包/解码/清洗；抛 BusinessError 中文错）。 */
-  extract: (bytes: Uint8Array, filename: string) => Promise<ExtractedText>;
+  /** 来源 → 可结构化的 markdown（重活：解包/解码/抓取/清洗；抛 BusinessError 中文错）。 */
+  extract: (input: ExtractorInput) => Promise<ExtractedText>;
 }
 
-export const DOCUMENT_SOURCE_KINDS: DocumentSourceKind[] = ['pdf', 'epub', 'text'];
+export interface ExtractorInput {
+  bytes?: Uint8Array | undefined;
+  /** kind=url 时必填（经 SSRF 防护后抓取） */
+  url?: string | undefined;
+  filename: string;
+}
 
-/** 文件名推断来源（扩展名；猜不出返回 undefined，不猜）。 */
+/** 文件名推断来源（扩展名；URL 与猜不出的返回 undefined，不猜）。 */
 export function guessSourceKind(filename: string): DocumentSourceKind | undefined {
   const lower = filename.toLowerCase();
   if (lower.endsWith('.pdf')) return 'pdf';
   if (lower.endsWith('.epub')) return 'epub';
+  if (lower.endsWith('.mobi') || lower.endsWith('.azw')) return 'mobi';
   if (lower.endsWith('.txt') || lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text';
   return undefined;
 }
