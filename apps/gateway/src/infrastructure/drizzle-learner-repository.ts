@@ -10,6 +10,7 @@ import type {
   MistakeEntry,
   DailyStudyPlan,
   DailyPlanStepTemplate,
+  AdaptiveKanaQueueOptions,
 } from '@study-studio/learner-core';
 import type {
   Flashcard,
@@ -185,6 +186,7 @@ import {
 } from '../modules/library/application/document-import/document-import-service.js';
 import {
   getCurriculumKana as getCurriculumKanaDomain,
+  getAdaptiveKanaQueue as getAdaptiveKanaQueueDomain,
   getCurriculumHangul as getCurriculumHangulDomain,
   listContentTemplates as listContentTemplatesDomain,
   listReadingSets as listReadingSetsDomain,
@@ -946,6 +948,14 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     type?: string
   ): Promise<Result<KanaItem[], BusinessError>> {
     return getCurriculumKanaDomain(this.deps, type);
+  }
+
+  /** 按用户逐项复习状态获取本轮假名题目。 */
+  public async getAdaptiveKanaQueue(
+    userId: string,
+    options?: AdaptiveKanaQueueOptions
+  ): Promise<Result<KanaItem[], BusinessError>> {
+    return getAdaptiveKanaQueueDomain(this.deps, userId, options);
   }
 
   // ==================== 谚文字母课程底座 (Curriculum Hangul) ====================

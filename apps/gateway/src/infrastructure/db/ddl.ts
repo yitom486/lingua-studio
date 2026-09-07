@@ -589,6 +589,14 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
     `,
   },
   {
+    // v5：五十音讲义资产；旧版数据库可能已误将该变更登记为 v4。
+    version: 5,
+    name: 'kana-learning-guides',
+    sql: `
+      ALTER TABLE curriculum_kana ADD COLUMN learning_guide_json TEXT;
+    `,
+  },
+  {
     // v6：定级考记录表（跳级通道；自动升降级不依赖它，通过行仅用于当日掉级豁免）。
     version: 6,
     name: 'placement-exams',
@@ -616,6 +624,24 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       ALTER TABLE flashcards ADD COLUMN studied_at TEXT;
     `,
   },
+  {
+    // v8：假名逐项 FSRS 状态，用于按用户历史动态组建短练习队列。
+    version: 8,
+    name: 'kana-practice-states',
+    sql: `
+      CREATE TABLE IF NOT EXISTS kana_practice_states (
+        user_id TEXT NOT NULL,
+        kana_id TEXT NOT NULL,
+        script_type TEXT NOT NULL,
+        fsrs_json TEXT NOT NULL,
+        consecutive_errors INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, kana_id, script_type)
+      );
+      CREATE INDEX IF NOT EXISTS idx_kana_practice_states_user_script
+        ON kana_practice_states(user_id, script_type, updated_at);
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {
@@ -626,10 +652,48 @@ export function runMigrations(sqlite: Database): { applied: number[] } {
       applied_at TEXT NOT NULL
     );
   `);
-  const rows = sqlite.query('SELECT version, name FROM schema_migrations').all() as Array<{
+  let rows = sqlite.query('SELECT version, name FROM schema_migrations').all() as Array<{
     version: number;
     name: string;
   }>;
+
+  // b012cea 之前曾把五十音讲义误登记为 v4。修复登记而不删除课程或用户数据，
+  // 释放 v4 让字母 drill 计数迁移正常执行；若列尚不存在，则交给正式 v5 迁移添加。
+  const legacyKanaGuideV4 = rows.some(
+    (row) => row.version === 4 && row.name === 'kana-learning-guides'
+  );
+  if (legacyKanaGuideV4) {
+    const kanaColumns = sqlite
+      .query<{ name: string }, []>('PRAGMA table_info(curriculum_kana)')
+      .all();
+    const hasLearningGuideColumn = kanaColumns.some((column) => column.name === 'learning_guide_json');
+
+    sqlite.run('BEGIN');
+    try {
+      sqlite.query('DELETE FROM schema_migrations WHERE version = 4').run();
+      if (hasLearningGuideColumn) {
+        sqlite
+          .query(
+            'INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (5, ?, ?)'
+          )
+          .run('kana-learning-guides', new Date().toISOString());
+      }
+      sqlite.run('COMMIT');
+    } catch (e) {
+      try {
+        sqlite.run('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    }
+
+    rows = sqlite.query('SELECT version, name FROM schema_migrations').all() as Array<{
+      version: number;
+      name: string;
+    }>;
+  }
+
   const applied = new Set(rows.map((r) => r.version));
 
   if (applied.size === 0) {

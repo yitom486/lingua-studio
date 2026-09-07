@@ -7,8 +7,17 @@ import {
   translateToBusinessError,
   nowIso,
 } from '@study-studio/shared';
+import {
+  updateKanaPracticeMemory,
+  type KanaPracticeMemory,
+  type KanaPracticeScriptType,
+} from '@study-studio/learner-core';
 import type { HangulScriptType, SubmitReadingPractice } from '@study-studio/protocol';
-import { skillMetrics } from '../../../infrastructure/db/index.js';
+import { kanaPracticeStates, skillMetrics } from '../../../infrastructure/db/index.js';
+import {
+  parseKanaPracticeMemory,
+  saveKanaPracticeMemory,
+} from '../../../infrastructure/persistence/kana-practice-state.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 
 /**
@@ -29,6 +38,7 @@ export async function recordKanaPractice(
   try {
     const skillId = scriptType === 'KATAKANA' ? 'jp.kana.katakana' : 'jp.kana.hiragana';
     const skillName = scriptType === 'KATAKANA' ? '片假名认读与听写' : '平假名认读与听写';
+    const normalizedScriptType: KanaPracticeScriptType = scriptType;
 
     const existingRows = await deps.db
       .select()
@@ -70,6 +80,33 @@ export async function recordKanaPractice(
       status,
       lastPracticedAt: nowIso(),
     });
+
+    const previousStateRows = await deps.db
+      .select()
+      .from(kanaPracticeStates)
+      .where(
+        and(
+          eq(kanaPracticeStates.userId, userId),
+          eq(kanaPracticeStates.kanaId, kanaId),
+          eq(kanaPracticeStates.scriptType, normalizedScriptType)
+        )
+      )
+      .limit(1);
+    const previousMemory = previousStateRows[0]
+      ? parseKanaPracticeMemory(
+          previousStateRows[0].fsrsJson,
+          previousStateRows[0].consecutiveErrors
+        )
+      : undefined;
+    const nextMemory: KanaPracticeMemory = updateKanaPracticeMemory(previousMemory, isCorrect);
+    await saveKanaPracticeMemory(
+      deps.db,
+      userId,
+      kanaId,
+      normalizedScriptType,
+      nextMemory,
+      nowIso()
+    );
 
     // 累计当日学习足迹（假名 drill 单独计数，不再与自适应做题混在一起；语种显式 ja，不跟 profile 默认走）
     await deps.repo.recordDailyActivity(userId, { quizzes: 1, kanaDrills: 1, language: 'ja' });

@@ -32,6 +32,7 @@ import {
 } from './ui/dialog.js';
 import {
   useCurriculumKanaQuery,
+  useAdaptiveKanaQueueQuery,
   useKanaPracticeMutation,
   useGenerateKanaWordsMutation,
   useCollectDictionaryEntryMutation,
@@ -80,7 +81,8 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   // 题量与本轮战报（切模式/题量/重开自动清零）
-  const [drillCount, setDrillCount] = useState<number>(0);
+  const [drillCount, setDrillCount] = useState<number>(10);
+  const [drillRound, setDrillRound] = useState(0);
   const [drillAnswered, setDrillAnswered] = useState(0);
   const [drillCorrect, setDrillCorrect] = useState(0);
 
@@ -167,14 +169,20 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setIsKanaGuideOpen(true);
   };
 
-  // 生成自测题（跟随矩阵选项卡范围：清音/浊半浊/拗音；0 = 范围内全部）
-  const drillItems = useMemo(() => {
-    const source = filteredKanaList.length > 0 ? filteredKanaList : allKana;
-    if (source.length === 0) return [];
-    // 随机打乱
-    const shuffled = [...source].sort(() => 0.5 - Math.random());
-    return drillCount > 0 ? shuffled.slice(0, drillCount) : shuffled;
-  }, [filteredKanaList, allKana, drillCount]);
+  // 自适应题池跟随矩阵范围；每轮由 Gateway 按逐项 FSRS 状态冻结，0 = 范围内全部。
+  const adaptiveKanaTypes = useMemo<readonly string[]>(() => {
+    if (matrixTab === 'SEION') return ['SEION', 'SPECIAL'];
+    if (matrixTab === 'DAKUON_HANDAKUON') return ['DAKUON', 'HANDAKUON'];
+    return ['YOON'];
+  }, [matrixTab]);
+  const adaptiveKanaQueueQuery = useAdaptiveKanaQueueQuery({
+    types: adaptiveKanaTypes,
+    scriptType: scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA',
+    limit: drillCount,
+    round: drillRound,
+    enabled: isDrillActive && !isWordMode,
+  });
+  const drillItems = adaptiveKanaQueueQuery.data ?? [];
 
   const currentDrillKana: KanaItem | undefined = drillItems[drillIndex];
 
@@ -278,6 +286,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
       fireSuccessConfetti();
       toast.success('恭喜完成本轮假名自测！');
       setDrillIndex(0);
+      setDrillRound((round) => round + 1);
       resetRoundStats();
     }
   };
@@ -497,7 +506,9 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
             <ShimmerButton
               onClick={() => {
                 sound.playClick();
-                setIsDrillActive(!isDrillActive);
+                const enteringDrill = !isDrillActive;
+                setIsDrillActive(enteringDrill);
+                if (enteringDrill) setDrillRound((round) => round + 1);
                 setSelectedOption(null);
                 setIsAnswered(false);
                 setWordIndex(0);
@@ -567,7 +578,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                       <>第 {wordIndex + 1} / {wordList.length} 词</>
                     )
                   ) : drillItems.length === 0 ? (
-                    <>暂无题目</>
+                    <>{adaptiveKanaQueueQuery.isLoading ? '正在按练习记录组题…' : '暂无题目'}</>
                   ) : (
                     <>第 {drillIndex + 1} / {drillItems.length} 题</>
                   )}
@@ -608,6 +619,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                   onChange={(e) => {
                     sound.playClick();
                     setDrillMode(e.target.value as DrillMode);
+                    setDrillRound((round) => round + 1);
                     setSelectedOption(null);
                     setIsAnswered(false);
                     setWordIndex(0);
@@ -630,6 +642,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     onChange={(e) => {
                       sound.playClick();
                       setDrillCount(Number(e.target.value));
+                      setDrillRound((round) => round + 1);
                       setDrillIndex(0);
                       setSelectedOption(null);
                       setIsAnswered(false);
@@ -861,6 +874,11 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     }
 
                     const isSelected = selectedOption === opt;
+                    const optionKana = allKana.find((kana) => {
+                      if (activeMode === 'KANA_TO_ROMAJI') return kana.romaji === opt;
+                      if (activeMode === 'HIRA_TO_KATA') return kana.katakana === opt;
+                      return (scriptMode === 'KATAKANA' ? kana.katakana : kana.hiragana) === opt;
+                    });
 
                     let btnStyle =
                       'bg-white dark:bg-stone-800/80 border-stone-200 dark:border-stone-700 hover:border-amber-500/50';
@@ -881,7 +899,14 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                         disabled={isAnswered}
                         className={`p-4 rounded-2xl border text-xl font-serif font-bold transition-all flex items-center justify-center gap-2 ${btnStyle}`}
                       >
-                        <span>{opt}</span>
+                        <span className="flex flex-col items-center leading-tight">
+                          <span>{opt}</span>
+                          {isAnswered && activeMode !== 'KANA_TO_ROMAJI' && optionKana && (
+                            <span className="text-xs font-mono font-normal text-stone-500 dark:text-stone-400">
+                              {optionKana.romaji}
+                            </span>
+                          )}
+                        </span>
                         {isAnswered && isCorrectOpt && (
                           <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                         )}
@@ -892,10 +917,15 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                     );
                   })}
                 </div>
+                {isAnswered && activeMode !== 'KANA_TO_ROMAJI' && (
+                  <p className="text-xs text-stone-500 dark:text-stone-400">
+                    正确读音：<span className="font-mono font-semibold text-amber-700 dark:text-amber-300">{currentDrillKana.romaji}</span>
+                  </p>
+                )}
 
                 {/* 作答后操作区 */}
                 {isAnswered && (
-                  <div className="flex items-center justify-center gap-3 pt-4">
+                  <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
                     <Button
                       onClick={() =>
                         currentDrillKana &&
@@ -912,7 +942,18 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                       问 AI 导师
                     </Button>
                     <Button
+                      type="button"
+                      onClick={() => currentDrillKana && handleOpenKanaGuide(currentDrillKana)}
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs text-amber-700 dark:text-amber-300"
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      查看详情
+                    </Button>
+                    <Button
                       onClick={handleNextDrill}
+                      disabled={practiceMutation.isPending}
                       size="sm"
                       className="bg-amber-600 hover:bg-amber-700 text-white text-xs px-6"
                     >
@@ -924,8 +965,8 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
             ) : (
               <div className="text-center py-6 space-y-4">
                 <p className="text-xs text-stone-500">
-                  {isKanaLoading
-                    ? '正在加载假名表…'
+                  {isKanaLoading || adaptiveKanaQueueQuery.isLoading
+                    ? '正在按练习记录组题…'
                     : '假名表为空：请确认网关已启动（默认 localhost:8080），然后重试。'}
                 </p>
                 <div className="flex items-center justify-center gap-3">
@@ -1064,191 +1105,193 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
               </div>
             )}
 
-            <Dialog
-              open={isKanaGuideOpen && Boolean(activeKana)}
-              onOpenChange={setIsKanaGuideOpen}
-            >
-              {isKanaGuideOpen && activeKana && (
-                <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
-                  <DialogHeader className="pr-8">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="amber" className="text-xs">
-                        假名讲义
-                      </Badge>
-                      <span className="text-xs text-stone-500 dark:text-stone-400">
-                        {activeKana.row} · {activeKana.col}
-                      </span>
-                    </div>
-                    <DialogTitle className="text-xl sm:text-2xl">
-                      {activeKana.hiragana} · {activeKana.katakana} 怎么读、怎么记？
-                    </DialogTitle>
-                    <DialogDescription className="leading-relaxed">
-                      先记住：假名通常不像汉字那样有独立“含义”，它首先表示一个发音单位；真正的词义要看它组成的单词。
-                    </DialogDescription>
-                  </DialogHeader>
 
-                  <div className="flex flex-col gap-4">
-                    <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 dark:bg-amber-500/15 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex min-w-0 items-center gap-4">
-                        <div className="flex h-20 min-w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/20 text-stone-900 dark:text-stone-100">
-                          <div className="flex items-baseline gap-1 text-3xl font-serif font-bold">
-                            {scriptMode === 'BOTH' ? (
-                              <>
-                                <span>{activeKana.hiragana}</span>
-                                <span className="text-sm text-stone-500 dark:text-stone-400">
-                                  / {activeKana.katakana}
-                                </span>
-                              </>
-                            ) : scriptMode === 'KATAKANA' ? (
-                              activeKana.katakana
-                            ) : (
-                              activeKana.hiragana
-                            )}
-                          </div>
-                          <span className="mt-0.5 text-xs font-mono text-amber-700 dark:text-amber-300">
-                            {activeKana.romaji}
-                          </span>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-stone-700 dark:text-stone-200">
-                            一个发音单位 · {activeKana.romaji}
-                          </p>
-                          <p className="mt-1 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
-                            先把声音、字形和口形绑定起来，再用下面的例词确认它在词中的读法。
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handlePlayAudio(activeKana)}
-                          className="flex-1 gap-1 text-xs sm:flex-none"
-                        >
-                          <Volume2 className="h-3.5 w-3.5" />
-                          朗读发音
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => handleAskTutor(activeKana)}
-                          className="flex-1 gap-1 bg-amber-600 text-xs text-white hover:bg-amber-700 sm:flex-none"
-                        >
-                          <Bot className="h-3.5 w-3.5" />
-                          AI 假名点拨
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
-                        <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
-                          <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                          它表示什么音
-                        </div>
-                        <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
-                          {activeKana.learningGuide?.soundDescription ??
-                            `它表示 ${activeKana.romaji} 这一拍，先把声音和字形绑定起来。`}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
-                        <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
-                          <Lightbulb className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                          记忆窍门
-                        </div>
-                        <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
-                          {activeKana.learningGuide?.memoryTip ??
-                            `先把 ${activeKana.romaji} 的声音和字形绑定，再用例词重复认读。`}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
-                        <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
-                          <Mic2 className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                          嘴形与发音
-                        </div>
-                        <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
-                          {activeKana.learningGuide?.pronunciationTip ??
-                            '保持短而清楚的一拍，不要拖成长音，也不要额外添加中文声调。'}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
-                        <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
-                          <GitCompareArrows className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                          易混淆提醒
-                        </div>
-                        <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
-                          {activeKana.learningGuide?.confusionNotes ??
-                            '先看收笔方向和是否有圆圈，再结合罗马字与例词确认。'}
-                        </p>
-                        {activeKanaConfusions.length > 0 && (
-                          <p className="mt-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-                            本表形近对照：{activeKanaConfusions.join('、')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {activeKana.mnemonic && (
-                      <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                        字源/来源：{activeKana.mnemonic}
-                      </p>
-                    )}
-
-                    {(activeKana.learningGuide?.exampleWords ?? []).length > 0 && (
-                      <div className="rounded-xl border border-amber-900/10 bg-white/55 p-3 dark:border-amber-500/10 dark:bg-stone-900/25">
-                        <div className="mb-2 text-xs font-bold text-stone-800 dark:text-stone-100">
-                          放进词里记
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {(activeKana.learningGuide?.exampleWords ?? []).map((exampleWord, index) => (
-                            <Button
-                              key={`${exampleWord.word}-${index}`}
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                sound.playClick();
-                                void speechStudio.speak(exampleWord.reading, {
-                                  lang: 'JA',
-                                  purpose: 'preview',
-                                });
-                              }}
-                              className="h-auto min-h-8 justify-start rounded-lg bg-white/80 px-2.5 py-1.5 text-left whitespace-normal dark:bg-stone-800/70"
-                              title="播放例词发音"
-                              aria-label={`播放例词 ${exampleWord.word} 的发音`}
-                            >
-                              <span className="text-sm font-serif font-semibold text-stone-900 dark:text-stone-100">
-                                {exampleWord.word}
-                              </span>
-                              <span className="text-[11px] font-mono text-stone-500 dark:text-stone-400">
-                                {exampleWord.reading}
-                              </span>
-                              <span className="text-[11px] text-stone-600 dark:text-stone-300">
-                                · {exampleWord.meaning}
-                              </span>
-                              <Volume2 className="h-3 w-3 text-amber-600 dark:text-amber-400" />
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <p className="text-[11px] text-stone-500 dark:text-stone-400">
-                      基础讲解来自应用内置课程资产；想结合你的错误记录换一种说法，再点击“AI 假名点拨”。
-                    </p>
-                  </div>
-                </DialogContent>
-              )}
-            </Dialog>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <Dialog
+        open={isKanaGuideOpen && Boolean(activeKana)}
+        onOpenChange={setIsKanaGuideOpen}
+      >
+        {isKanaGuideOpen && activeKana && (
+          <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
+            <DialogHeader className="pr-8">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="amber" className="text-xs">
+                  假名讲义
+                </Badge>
+                <span className="text-xs text-stone-500 dark:text-stone-400">
+                  {activeKana.row} · {activeKana.col}
+                </span>
+              </div>
+              <DialogTitle className="text-xl sm:text-2xl">
+                {activeKana.hiragana} · {activeKana.katakana} 怎么读、怎么记？
+              </DialogTitle>
+              <DialogDescription className="leading-relaxed">
+                先记住：假名通常不像汉字那样有独立“含义”，它首先表示一个发音单位；真正的词义要看它组成的单词。
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 dark:bg-amber-500/15 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="flex h-20 min-w-20 shrink-0 flex-col items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/20 text-stone-900 dark:text-stone-100">
+                    <div className="flex items-baseline gap-1 text-3xl font-serif font-bold">
+                      {scriptMode === 'BOTH' ? (
+                        <>
+                          <span>{activeKana.hiragana}</span>
+                          <span className="text-sm text-stone-500 dark:text-stone-400">
+                            / {activeKana.katakana}
+                          </span>
+                        </>
+                      ) : scriptMode === 'KATAKANA' ? (
+                        activeKana.katakana
+                      ) : (
+                        activeKana.hiragana
+                      )}
+                    </div>
+                    <span className="mt-0.5 text-xs font-mono text-amber-700 dark:text-amber-300">
+                      {activeKana.romaji}
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-stone-700 dark:text-stone-200">
+                      一个发音单位 · {activeKana.romaji}
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+                      先把声音、字形和口形绑定起来，再用下面的例词确认它在词中的读法。
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handlePlayAudio(activeKana)}
+                    className="flex-1 gap-1 text-xs sm:flex-none"
+                  >
+                    <Volume2 className="h-3.5 w-3.5" />
+                    朗读发音
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleAskTutor(activeKana)}
+                    className="flex-1 gap-1 bg-amber-600 text-xs text-white hover:bg-amber-700 sm:flex-none"
+                  >
+                    <Bot className="h-3.5 w-3.5" />
+                    AI 假名点拨
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
+                  <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
+                    <Info className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    发音抓手
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+                    {activeKana.learningGuide?.soundDescription ??
+                      `它表示 ${activeKana.romaji} 这一拍，先把声音和字形绑定起来。`}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
+                  <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
+                    <Lightbulb className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    记忆窍门
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+                    {activeKana.learningGuide?.memoryTip ??
+                      `先把 ${activeKana.romaji} 的声音和字形绑定，再用例词重复认读。`}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
+                  <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
+                    <Mic2 className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    发音动作
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+                    {activeKana.learningGuide?.pronunciationTip ??
+                      '保持短而清楚的一拍，不要拖成长音，也不要额外添加中文声调。'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-amber-900/10 bg-white/70 p-3 dark:border-amber-500/10 dark:bg-stone-900/35">
+                  <div className="flex items-center gap-2 text-xs font-bold text-stone-800 dark:text-stone-100">
+                    <GitCompareArrows className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    易混淆对照
+                  </div>
+                  <p className="mt-1.5 text-xs leading-relaxed text-stone-600 dark:text-stone-300">
+                    {activeKana.learningGuide?.confusionNotes ??
+                      '先看收笔方向和是否有圆圈，再结合罗马字与例词确认。'}
+                  </p>
+                  {activeKanaConfusions.length > 0 && (
+                    <p className="mt-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                      本表形近对照：{activeKanaConfusions.join('、')}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {activeKana.mnemonic && (
+                <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                  字源/来源：{activeKana.mnemonic}
+                </p>
+              )}
+
+              {(activeKana.learningGuide?.exampleWords ?? []).length > 0 && (
+                <div className="rounded-xl border border-amber-900/10 bg-white/55 p-3 dark:border-amber-500/10 dark:bg-stone-900/25">
+                  <div className="mb-2 text-xs font-bold text-stone-800 dark:text-stone-100">
+                    放进词里记
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(activeKana.learningGuide?.exampleWords ?? []).map((exampleWord, index) => (
+                      <Button
+                        key={`${exampleWord.word}-${index}`}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          sound.playClick();
+                          void speechStudio.speak(exampleWord.reading, {
+                            lang: 'JA',
+                            purpose: 'preview',
+                          });
+                        }}
+                        className="h-auto min-h-8 justify-start rounded-lg bg-white/80 px-2.5 py-1.5 text-left whitespace-normal dark:bg-stone-800/70"
+                        title="播放例词发音"
+                        aria-label={`播放例词 ${exampleWord.word} 的发音`}
+                      >
+                        <span className="text-sm font-serif font-semibold text-stone-900 dark:text-stone-100">
+                          {exampleWord.word}
+                        </span>
+                        <span className="text-[11px] font-mono text-stone-500 dark:text-stone-400">
+                          {exampleWord.reading}
+                        </span>
+                        <span className="text-[11px] text-stone-600 dark:text-stone-300">
+                          · {exampleWord.meaning}
+                        </span>
+                        <Volume2 className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[11px] text-stone-500 dark:text-stone-400">
+                基础讲解来自应用内置课程资产；想结合你的错误记录换一种说法，再点击“AI 假名点拨”。
+              </p>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }

@@ -31,6 +31,53 @@ export function useCurriculumKanaQuery(type?: string) {
   });
 }
 
+type AdaptiveKanaQueueScriptType = 'HIRAGANA' | 'KATAKANA' | 'ROMAJI';
+
+interface AdaptiveKanaQueueQueryOptions {
+  types?: readonly string[];
+  scriptType?: AdaptiveKanaQueueScriptType;
+  limit?: number;
+  round?: number;
+  enabled?: boolean;
+}
+
+/** 读取由 Gateway 按用户逐项 FSRS 状态排好的本轮假名题目。 */
+export function useAdaptiveKanaQueueQuery(
+  options: AdaptiveKanaQueueQueryOptions = {},
+  userId = DEFAULT_USER_ID
+) {
+  const types = options.types ?? [];
+  const scriptType = options.scriptType ?? 'HIRAGANA';
+  const limit = options.limit ?? 10;
+  const round = options.round ?? 0;
+
+  return useQuery<KanaItem[]>({
+    queryKey: [...QUERY_KEYS.KANA_ADAPTIVE, userId, types.join(','), scriptType, limit, round],
+    enabled: options.enabled ?? true,
+    queryFn: async () => {
+      try {
+        const res = await apiClient.api.curriculum.kana.queue[':userId'].$get({
+          param: { userId },
+          query: {
+            types: types.join(','),
+            scriptType,
+            limit: String(limit),
+          },
+        });
+        if (res.ok) {
+          const list = await res.json();
+          return Array.isArray(list) ? (list as KanaItem[]) : [];
+        }
+      } catch (e) {
+        logger.debug('[useAdaptiveKanaQueueQuery] Failed to load adaptive kana queue', e);
+      }
+      return [];
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnWindowFocus: false,
+  });
+}
+
 /** 提交假名练习结果并回写画像 (Hono RPC) */
 export function useKanaPracticeMutation(userId = DEFAULT_USER_ID) {
   const queryClient = useQueryClient();

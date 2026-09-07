@@ -7,6 +7,10 @@ import {
   translateToBusinessError,
   nowIso,
 } from '@study-studio/shared';
+import {
+  selectAdaptiveKanaIds,
+  type AdaptiveKanaQueueOptions,
+} from '@study-studio/learner-core';
 import type { KanaItem, ReadingPassageSet, KanaLearningGuide } from '@study-studio/protocol';
 import { KanaLearningGuideSchema, KanaTypeSchema, type KanaType } from '@study-studio/protocol';
 import type { HangulItem } from '@study-studio/protocol';
@@ -18,6 +22,7 @@ import {
   documents,
 } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { readKanaPracticeMemories } from '../../../infrastructure/persistence/kana-practice-state.js';
 import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
 
 /**
@@ -52,6 +57,23 @@ function parseKanaLearningGuide(value: unknown): KanaLearningGuide | undefined {
   }
 }
 
+function mapKanaRow(row: typeof curriculumKana.$inferSelect): KanaItem {
+  const learningGuide = parseKanaLearningGuide(row.learningGuideJson);
+  return {
+    id: row.id,
+    type: coerceKanaType(row.type),
+    hiragana: row.hiragana,
+    katakana: row.katakana,
+    romaji: row.romaji,
+    row: row.row,
+    col: row.col,
+    ...(row.mnemonic ? { mnemonic: row.mnemonic } : {}),
+    ...(learningGuide ? { learningGuide } : {}),
+    audioText: row.audioText,
+    sortOrder: row.sortOrder,
+  };
+}
+
 export async function getCurriculumKana(
   deps: RepoDeps,
   type?: string
@@ -71,22 +93,7 @@ export async function getCurriculumKana(
         .orderBy(asc(curriculumKana.sortOrder));
     }
 
-    const items: KanaItem[] = rows.map((r) => {
-      const learningGuide = parseKanaLearningGuide(r.learningGuideJson);
-      return {
-        id: r.id,
-        type: coerceKanaType(r.type),
-        hiragana: r.hiragana,
-        katakana: r.katakana,
-        romaji: r.romaji,
-        row: r.row,
-        col: r.col,
-        ...(r.mnemonic ? { mnemonic: r.mnemonic } : {}),
-        ...(learningGuide ? { learningGuide } : {}),
-        audioText: r.audioText,
-        sortOrder: r.sortOrder,
-      };
-    });
+    const items: KanaItem[] = rows.map(mapKanaRow);
 
     return ok(items);
   } catch (error) {
@@ -95,6 +102,53 @@ export async function getCurriculumKana(
         category: 'DATABASE',
         action: 'getCurriculumKana',
         entityId: type ?? 'ALL',
+      })
+    );
+  }
+}
+
+/** 按用户逐项 FSRS 状态组建短题队列，课程内容本身仍是公共只读资产。 */
+export async function getAdaptiveKanaQueue(
+  deps: RepoDeps,
+  userId: string,
+  options?: AdaptiveKanaQueueOptions
+): Promise<Result<KanaItem[], BusinessError>> {
+  try {
+    const types = options?.types;
+    const rows =
+      types && types.length > 0
+        ? await deps.db
+            .select()
+            .from(curriculumKana)
+            .where(inArray(curriculumKana.type, [...types]))
+            .orderBy(asc(curriculumKana.sortOrder))
+        : await deps.db.select().from(curriculumKana).orderBy(asc(curriculumKana.sortOrder));
+    const scriptType = options?.scriptType ?? 'HIRAGANA';
+    const memories = await readKanaPracticeMemories(deps.db, userId, scriptType);
+    const ids = selectAdaptiveKanaIds(
+      rows.map((row) => {
+        const memory = memories.get(row.id);
+        return {
+          id: row.id,
+          sortOrder: row.sortOrder,
+          ...(memory ? { memory } : {}),
+        };
+      }),
+      options?.limit
+    );
+    const rowsById = new Map(rows.map((row) => [row.id, row]));
+    return ok(
+      ids.flatMap((id) => {
+        const row = rowsById.get(id);
+        return row ? [mapKanaRow(row)] : [];
+      })
+    );
+  } catch (error) {
+    return err(
+      translateToBusinessError(error, {
+        category: 'DATABASE',
+        action: 'getAdaptiveKanaQueue',
+        entityId: userId,
       })
     );
   }

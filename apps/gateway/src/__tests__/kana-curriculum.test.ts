@@ -23,13 +23,70 @@ describe('Curriculum Kana Repository & Seeds (Companion Integration)', () => {
       expect(a?.katakana).toBe('ア');
       expect(a?.romaji).toBe('a');
       expect(a?.type).toBe('SEION');
-      expect(a?.learningGuide?.soundDescription).toContain('假名拍');
+      expect(a?.learningGuide?.soundDescription).toContain('张口');
       expect(a?.learningGuide?.memoryTip).toContain('啊');
+      expect(a?.learningGuide?.pronunciationTip).toContain('下颌');
+      expect(a?.learningGuide?.confusionNotes).toContain('お');
       expect(a?.learningGuide?.exampleWords?.[0]?.meaning).toBe('早上');
-      expect(res.value.every((item) => Boolean(item.learningGuide?.pronunciationTip))).toBe(true);
+
+      const guides = res.value.flatMap((item) =>
+        item.learningGuide ? [item.learningGuide] : []
+      );
+      expect(guides).toHaveLength(res.value.length);
+      expect(
+        guides.every((guide) =>
+          Boolean(
+            guide.soundDescription &&
+              guide.memoryTip &&
+              guide.pronunciationTip &&
+              guide.confusionNotes
+          )
+        )
+      ).toBe(true);
+      expect(new Set(guides.map((guide) => guide.soundDescription)).size).toBeGreaterThan(80);
+      expect(new Set(guides.map((guide) => guide.pronunciationTip)).size).toBeGreaterThan(80);
+      expect(new Set(guides.map((guide) => guide.confusionNotes)).size).toBeGreaterThan(80);
+      expect(
+        guides.some((guide) => guide.soundDescription.includes('假名本身通常没有独立词义'))
+      ).toBe(false);
+      expect(
+        guides.some((guide) =>
+          Boolean(guide.confusionNotes?.includes('先看收笔方向和是否有圆圈'))
+        )
+      ).toBe(false);
 
       const su = res.value.find((k) => k.id === 'kana_su');
       expect(su?.katakana).toBe('ス');
+
+      const tsu = res.value.find((k) => k.id === 'kana_tsu');
+      expect(tsu?.learningGuide?.soundDescription).toContain('ts');
+      expect(tsu?.learningGuide?.confusionNotes).toContain('す');
+
+      const fu = res.value.find((k) => k.id === 'kana_fu');
+      expect(fu?.learningGuide?.pronunciationTip).toContain('唇缝');
+
+      const ra = res.value.find((k) => k.id === 'kana_ra');
+      expect(ra?.learningGuide?.pronunciationTip).toContain('轻弹');
+
+      const n = res.value.find((k) => k.id === 'kana_n');
+      expect(n?.learningGuide?.soundDescription).toContain('鼻音拍');
+
+      const wo = res.value.find((k) => k.id === 'kana_wo');
+      expect(wo?.learningGuide?.confusionNotes).toContain('宾语助词');
+
+      const dji = res.value.find((k) => k.id === 'kana_dji');
+      expect(dji?.learningGuide?.soundDescription).toContain('じ');
+      expect(dji?.learningGuide?.soundDescription).toContain('同音');
+
+      const dzu = res.value.find((k) => k.id === 'kana_dzu');
+      expect(dzu?.learningGuide?.soundDescription).toContain('ず');
+
+      const kya = res.value.find((k) => k.id === 'kana_kya');
+      expect(kya?.learningGuide?.soundDescription).toContain('一拍');
+      expect(kya?.learningGuide?.confusionNotes).toContain('小「ゃ」');
+
+      const pa = res.value.find((k) => k.id === 'kana_pa');
+      expect(pa?.learningGuide?.confusionNotes).toContain('圆圈');
     }
   });
 
@@ -92,6 +149,35 @@ describe('Curriculum Kana Repository & Seeds (Companion Integration)', () => {
       expect(progress.value.quizzesCount).toBeGreaterThanOrEqual(2);
     }
   });
+
+  it('should build a ten-item adaptive queue and promote a previously wrong kana', async () => {
+    const switchTrack = await repo.updateLearnerProfile(testUserId, { targetLanguage: 'ja' });
+    expect(isOk(switchTrack)).toBe(true);
+
+    const initial = await repo.getAdaptiveKanaQueue(testUserId, {
+      types: ['SEION', 'SPECIAL'],
+      scriptType: 'HIRAGANA',
+      limit: 10,
+    });
+    expect(isOk(initial)).toBe(true);
+    if (isOk(initial)) {
+      expect(initial.value).toHaveLength(10);
+    }
+
+    const wrong = await repo.recordKanaPractice(testUserId, 'kana_te', false, 'HIRAGANA');
+    expect(isOk(wrong)).toBe(true);
+
+    const afterWrong = await repo.getAdaptiveKanaQueue(testUserId, {
+      types: ['SEION', 'SPECIAL'],
+      scriptType: 'HIRAGANA',
+      limit: 10,
+    });
+    expect(isOk(afterWrong)).toBe(true);
+    if (isOk(afterWrong)) {
+      expect(afterWrong.value).toHaveLength(10);
+      expect(afterWrong.value[0]?.id).toBe('kana_te');
+    }
+  });
 });
 
 describe('Curriculum Kana Hono RPC Routes', () => {
@@ -106,6 +192,14 @@ describe('Curriculum Kana Hono RPC Routes', () => {
     expect(resSeion.status).toBe(200);
     const seion = (await resSeion.json()) as KanaItem[];
     expect(seion.every((k) => k.type === 'SEION')).toBe(true);
+
+    const resQueue = await app.request(
+      '/api/curriculum/kana/queue/http_kana_user_01?types=SEION%2CSPECIAL&scriptType=HIRAGANA&limit=10'
+    );
+    expect(resQueue.status).toBe(200);
+    const queue = (await resQueue.json()) as KanaItem[];
+    expect(queue).toHaveLength(10);
+    expect(queue.every((k) => k.type === 'SEION' || k.type === 'SPECIAL')).toBe(true);
   });
 
   it('should record practice result via HTTP POST', async () => {

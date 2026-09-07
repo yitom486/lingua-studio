@@ -17,11 +17,46 @@ import {
   DEFAULT_CONTENT_LANGUAGE,
 } from '../../../services/learning-language-policy.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
+import type { KanaPracticeScriptType } from '@study-studio/learner-core';
+
+function parseKanaQueueLimit(value: string | undefined): number {
+  if (!value) return 10;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 10;
+  if (parsed === 0) return 0;
+  return Math.min(104, Math.max(1, Math.floor(parsed)));
+}
+
+function parseKanaScriptType(value: string | undefined): KanaPracticeScriptType {
+  if (value === 'KATAKANA' || value === 'ROMAJI') return value;
+  return 'HIRAGANA';
+}
 
 /** 课程域路由：假名、阅读、发音（G2 迁移，行为不变）。 */
 export function createCurriculumRoutes(deps: GatewayDeps) {
   return new Hono()
   // 8. 五十音与假名课程底座 (Curriculum Kana)
+  .get(
+    '/api/curriculum/kana/queue/:userId',
+    validator('query', (value) =>
+      value as { types?: string; scriptType?: string; limit?: string }
+    ),
+    async (c) => {
+    const requestedTypes = (c.req.query('types') ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+      .slice(0, 5);
+    const options = {
+      scriptType: parseKanaScriptType(c.req.query('scriptType')),
+      limit: parseKanaQueueLimit(c.req.query('limit')),
+      ...(requestedTypes.length > 0 ? { types: requestedTypes } : {}),
+    };
+    const res = await deps.repo.getAdaptiveKanaQueue(c.req.param('userId'), options);
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+    }
+  )
   .get('/api/curriculum/kana', async (c) => {
     const type = c.req.query('type');
     const res = await deps.repo.getCurriculumKana(type);
