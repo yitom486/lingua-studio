@@ -29,6 +29,9 @@ import {
   useTextbooksQuery,
   useImportTextbookMutation,
   useEnrichLessonMutation,
+  useReadingPositionQuery,
+  useSaveReadingPositionMutation,
+  useRecordReadingExposuresMutation,
 } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
@@ -84,6 +87,56 @@ export function TextbookCurriculum({
     filteredBooks[0] ??
     booksList[0];
   const currentLesson = currentBook?.lessons.find((l) => l.id === selectedLessonId) ?? currentBook?.lessons[0];
+
+  // 断点续读：书就位后，若有保存的课次且合法，切过去（每本书只恢复一次，不跟用户手动选择抢）。
+  const { data: savedPosition } = useReadingPositionQuery(currentBook?.documentId);
+  const savePosition = useSaveReadingPositionMutation();
+  const restoredBookRef = React.useRef<string>('');
+  React.useEffect(() => {
+    const book = currentBook;
+    const lessonId = savedPosition?.lessonId;
+    if (!book?.documentId || !lessonId) return;
+    if (restoredBookRef.current === book.id) return;
+    restoredBookRef.current = book.id;
+    const valid = book.lessons.some((l) => l.id === lessonId);
+    if (valid && lessonId !== selectedLessonId) {
+      setSelectedLessonId(lessonId);
+    }
+  }, [currentBook, savedPosition, selectedLessonId]);
+
+  // 课次切换即记位置（离散事件，无需防抖；静默失败不打扰阅读）。
+  React.useEffect(() => {
+    const documentId = currentBook?.documentId;
+    if (!documentId || !selectedLessonId) return;
+    savePosition.mutate({ documentId, locator: { lessonId: selectedLessonId } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBook?.documentId, selectedLessonId]);
+
+  // 打开课次即记相遇（reading 源）：生词表来自 AST 非 NLP；同课只记一次，同天由网关去重。
+  const recordExposures = useRecordReadingExposuresMutation();
+  const exposedLessonRef = React.useRef<string>('');
+  React.useEffect(() => {
+    const book = currentBook;
+    const lesson = currentLesson;
+    if (!book?.documentId || !lesson || exposedLessonRef.current === lesson.id) return;
+    const language =
+      book.language === 'JA' ? 'ja' : book.language === 'EN' ? 'en' : book.language === 'KO' ? 'ko' : null;
+    if (!language || lesson.vocabularies.length === 0) {
+      exposedLessonRef.current = lesson.id;
+      return;
+    }
+    exposedLessonRef.current = lesson.id;
+    recordExposures.mutate({
+      documentId: book.documentId,
+      lessonId: lesson.id,
+      language,
+      terms: lesson.vocabularies.slice(0, 30).map((v) => ({
+        headword: v.kanji,
+        ...(v.kana ? { reading: v.kana } : {}),
+      })),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBook?.documentId, currentLesson?.id]);
 
   if (!currentBook || !currentLesson) {
     return (
@@ -341,7 +394,10 @@ export function TextbookCurriculum({
                             sound.playCorrect();
                             toast.success(
                               `AI 抽取完成：生词 ${r.vocabularies} · 文法 ${r.grammarPoints}` +
-                                (r.dropped > 0 ? `（丢弃可疑 ${r.dropped} 条）` : '')
+                                (r.dropped > 0 ? `（丢弃可疑 ${r.dropped} 条）` : '') +
+                                (r.draftsProposed > 0
+                                  ? ` · ${r.draftsProposed} 条已进生词草稿箱待确认`
+                                  : '')
                             );
                           },
                           onError: (e) => {

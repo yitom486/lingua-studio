@@ -329,11 +329,17 @@ export async function enrichLessonVocab(
 }
 
 /** 整本：只抽尚无生词的课（已有词的不覆盖）。 */
+export interface EnrichDraftable {
+  lessonId: string;
+  lessonTitle: string;
+  vocab: TextbookVocabulary;
+}
+
 export async function enrichBookLessons(
   adapter: AgentAdapter | undefined,
   book: TextbookAST,
   lessonIds?: string[]
-): Promise<Result<{ book: TextbookAST; enrichedLessons: number; vocabularies: number; grammarPoints: number; dropped: number }, BusinessError>> {
+): Promise<Result<{ book: TextbookAST; enrichedLessons: number; vocabularies: number; grammarPoints: number; dropped: number; draftables: EnrichDraftable[] }, BusinessError>> {
   const targets = book.lessons.filter(
     (l) => (!lessonIds || lessonIds.includes(l.id)) && l.vocabularies.length === 0
   );
@@ -343,6 +349,7 @@ export async function enrichBookLessons(
   let vocabCount = 0;
   let grammarCount = 0;
   let dropped = 0;
+  const draftables: EnrichDraftable[] = [];
   const lessons = [...book.lessons];
   for (const target of targets) {
     const res = await enrichLessonVocab(adapter, {
@@ -360,6 +367,9 @@ export async function enrichBookLessons(
         grammarPoints: res.value.grammarPoints,
       };
     }
+    for (const vocab of res.value.vocabularies) {
+      draftables.push({ lessonId: target.id, lessonTitle: target.title, vocab });
+    }
     vocabCount += res.value.vocabularies.length;
     grammarCount += res.value.grammarPoints.length;
     dropped += res.value.dropped;
@@ -370,5 +380,6 @@ export async function enrichBookLessons(
     vocabularies: vocabCount,
     grammarPoints: grammarCount,
     dropped,
+    draftables,
   });
 }

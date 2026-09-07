@@ -198,6 +198,19 @@ describe('enrichBookLessons', () => {
     expect(res.value.book.lessons[1]?.vocabularies).toHaveLength(1);
   });
 
+  it('顺带产出 draftables（课 id + 词条，供草稿箱提议）', async () => {
+    const res = await enrichBookLessons(
+      makeMockAdapter({ kind: 'success', text: AI_VOCAB_JSON }),
+      book,
+      ['l1']
+    );
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.draftables.length).toBe(res.value.vocabularies);
+    expect(res.value.draftables[0]?.lessonId).toBe('l1');
+    expect(typeof res.value.draftables[0]?.vocab.kanji).toBe('string');
+  });
+
   it('全已有词 → E_INVALID_INPUT', async () => {
     const res = await enrichBookLessons(makeMockAdapter({ kind: 'success', text: AI_VOCAB_JSON }), book, ['l2']);
     expect(isOk(res)).toBe(false);

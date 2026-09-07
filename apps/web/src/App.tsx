@@ -11,6 +11,7 @@ import { AppSidebar } from './components/AppSidebar.js';
 import { TodayPlanWorkbench } from './components/TodayPlanWorkbench.js';
 import { AdaptiveQuizWorkbench } from './components/AdaptiveQuizWorkbench.js';
 import { FsrsCardWorkbench } from './components/FsrsCardWorkbench.js';
+import { CardDraftWorkbench } from './components/CardDraftWorkbench.js';
 import { LearnerRadarDashboard } from './components/LearnerRadarDashboard.js';
 // 首屏高频 Tab（TODAY/QUIZ/CARDS/RADAR）保持直连；其余重型工作台懒加载拆包，压 index 主包体积
 const PracticePlanPanel = lazy(() =>
@@ -122,6 +123,7 @@ export function App() {
   useEffect(() => {
     useStudySessionStore.getState().clearPresentedQuiz();
     useStudySessionStore.getState().setQuestionIndex(0);
+    useStudySessionStore.getState().resetReviewCardState();
   }, [shell.track]);
 
   const fetchProfile = useUserProfileStore((s) => s.fetchProfile);
@@ -347,7 +349,12 @@ export function App() {
               />
             )}
 
-            {activeTab === 'CARDS' && <FsrsCardWorkbench key={shell.track} />}
+            {activeTab === 'CARDS' && (
+              <>
+                <CardDraftWorkbench key={`drafts-${shell.track}`} />
+                <FsrsCardWorkbench key={shell.track} />
+              </>
+            )}
 
             {activeTab === 'READING' && (
               <ReadingComprehensionWorkbench
