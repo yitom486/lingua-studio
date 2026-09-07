@@ -49,6 +49,18 @@ describe('starter word pack (out-of-box vocabulary)', () => {
     expect(isOk(collected)).toBe(true);
   });
 
+  it('中文反查：用中文含义找英文词（释义 FTS，无需英文包之外的东西）', async () => {
+    const res = await repo.searchLocalDictionary('en', '水');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.some((e) => e.id === 'starter_en_water')).toBe(true);
+    // 查不到的中文如实为空，不编造
+    const miss = await repo.searchLocalDictionary('en', '含糊');
+    expect(isOk(miss)).toBe(true);
+    if (!isOk(miss)) return;
+    expect(miss.value).toEqual([]);
+  });
+
   it('powers kana word drills without any installed package', async () => {
     const res = await tool.execute(
       { action: 'generate_kana_words', count: 5, language: 'ja' },

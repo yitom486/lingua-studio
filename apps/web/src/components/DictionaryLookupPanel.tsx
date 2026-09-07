@@ -391,6 +391,7 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
           ) : (
             <p className="text-xs text-stone-500">
               本地词典暂未收录「{query}」。{language === 'en' ? '请先确认英语离线词典包已经安装。' : ''}
+              也可以直接用中文含义反查（比如查"水"找 water）。
             </p>
           )}
         </div>
