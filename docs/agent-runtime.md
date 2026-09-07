@@ -1,4 +1,4 @@
-# Study Studio - Agent 运行时架构规格说明书 (Agent Runtime Specification)
+# Lingua Studio - Agent 运行时架构规格说明书 (Agent Runtime Specification)
 
 > **文档版本**：v1.0  
 > **所属包定义**：`packages/agent-core` (接口抽象) & `packages/agent-codex` (Codex 原生适配器)  
@@ -105,7 +105,7 @@ export type AgentEvent =
 
 ```
 ┌──────────────────────────────────────┐          ┌──────────────────────────────────────┐
-│        Codex App Server 原生机制      │          │       Study Studio 统一抽象          │
+│        Codex App Server 原生机制      │          │       Lingua Studio 统一抽象          │
 ├──────────────────────────────────────┤          ├──────────────────────────────────────┤
 │ Thread                               │ ◄──────► │ AgentSession                         │
 │ Turn                                 │ ◄──────► │ 单次 send() 轮次周期                  │

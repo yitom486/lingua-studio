@@ -1,4 +1,6 @@
-# Study Studio - 智能体协作与工程开发守则 (AGENTS.md)
+# Lingua Studio - 智能体协作与工程开发守则 (AGENTS.md)
+
+> 对外产品名为 **Lingua Studio**；**Study Studio** 仅作为现有仓库、包命名空间和内部工程代号保留。
 
 > 本文档是所有参与本工程（包括人类工程师与 AI Agent）必须严格遵守的**顶层宪章与不变量准则**。
 > 任何代码变更如果违反以下规则，一律视为架构违规。
@@ -157,4 +159,3 @@
 - **客户端偏好与本地状态 (Client State) 归 Zustand + `persist`**：
   - TTS 语音参数（男女声、语速、音色、自定义外挂端点）、主题明暗（Light/Dark）、盲听遮罩开关、假名注音开关、UI 导航状态，以及**阅读双栏宽度比（splitPaneRatio）**等布局偏好，统一使用 **Zustand 并启用 `persist` 中间件**；
   - 彻底杜绝在各个组件中到处分散编写 `localStorage.getItem/setItem` 胶水代码，保证多组件、跨标签页与未来 Tauri 桌面端的响应式自动持久化。
-

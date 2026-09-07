@@ -83,7 +83,7 @@ describe('Protocol Package Schemas', () => {
       title: '测试日语教材',
       shortTitle: '测日',
       level: 'N5',
-      publisher: 'Study Studio Press',
+      publisher: 'Lingua Studio Press',
       totalLessons: 1,
       lessons: [
         {
@@ -191,5 +191,4 @@ describe('Protocol Package Schemas', () => {
     ).toBe(false);
   });
 });
-
 

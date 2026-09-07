@@ -198,7 +198,7 @@ export class CodexAppServerConnection {
     const initRes = await this.rpc.request('initialize', {
       clientInfo: {
         name: 'study_studio_gateway',
-        title: 'Study Studio Gateway',
+        title: 'Lingua Studio Gateway',
         version: '0.1.0',
       },
       capabilities: {

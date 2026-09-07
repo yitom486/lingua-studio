@@ -146,6 +146,27 @@ describe('apkg analyze', () => {
     expect(isOk(noCol)).toBe(false);
     if (!isOk(noCol)) expect(noCol.error.code).toBe('E_INVALID_INPUT');
   });
+
+  it('Windows 产包反斜杠路径归一化', async () => {
+    const { normalizeZipEntryPaths } = await import(
+      '../modules/library/application/pdf-import/archive.js'
+    );
+    const normed = normalizeZipEntryPaths([
+      { path: 'sub\\collection.anki2', data: new Uint8Array([1]) },
+      { path: 'ok/media', data: new Uint8Array([2]) },
+    ]);
+    expect(normed.map((e) => e.path)).toEqual(['sub/collection.anki2', 'ok/media']);
+    // 同一归一化同时服务 EPUB（Windows 压缩的 META-INF\container.xml）：
+    // 反斜杠包能定位到 collection（内容非法则报库错而非“找不到包”）
+    const res = await analyzeApkg(
+      buildStoredZip([
+        { name: 'x\\collection.anki2', data: new Uint8Array([1, 2, 3]) },
+      ]),
+      'win.apkg'
+    );
+    expect(isOk(res)).toBe(false);
+    if (!isOk(res)) expect(res.error.code).not.toBe('E_INVALID_INPUT');
+  });
 });
 
 describe('apkg import notes', () => {

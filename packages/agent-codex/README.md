@@ -6,7 +6,7 @@
 
 1. 安装 [Codex CLI](https://chatgpt.com/codex)（本机需有 `codex` 命令）
 2. 已登录：`codex login`（凭证落在 `~/.codex`，Windows 多为 `%USERPROFILE%\.codex`）
-3. Study Studio **不另建登录**；Gateway 子进程继承 `USERPROFILE` / `HOME`，并设置 `CODEX_HOME` 指向同一目录
+3. Lingua Studio **不另建登录**；Gateway 子进程继承 `USERPROFILE` / `HOME`，并设置 `CODEX_HOME` 指向同一目录
 
 ## 环境变量（可选）
 

@@ -13,6 +13,11 @@ export interface ArchiveEntry {
   data: Uint8Array;
 }
 
+/** zip 条目路径归一化（Windows 产包偶见反斜杠；zip 规范分隔符为 /）。 */
+export function normalizeZipEntryPaths(entries: ArchiveEntry[]): ArchiveEntry[] {
+  return entries.map((e) => (e.path.includes('\\') ? { ...e, path: e.path.replace(/\\/g, '/') } : e));
+}
+
 const MAX_ARCHIVE_BYTES = 300 * 1024 * 1024;
 const MAX_ENTRY_BYTES = 150 * 1024 * 1024;
 

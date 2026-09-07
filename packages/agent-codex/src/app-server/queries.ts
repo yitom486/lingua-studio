@@ -577,7 +577,7 @@ export async function listMcpServerStatus(
 
 /**
  * EXPERIMENTAL — thread/realtime/listVoices + 能力探测。
- * 成功仅代表本机 App Server 识别该 RPC；不代表 Study Studio 已接音频 UI。
+ * 成功仅代表本机 App Server 识别该 RPC；不代表 Lingua Studio 已接音频 UI。
  */
 export async function probeRealtimeCapability(
   conn: CodexAppServerConnection
@@ -599,7 +599,7 @@ export async function probeRealtimeCapability(
     available: true,
     experimental: true,
     message:
-      '本机 App Server 已响应 realtime voices（实验性）。Study Studio 尚未接 UI/音频管线，请勿当作可用产品能力。',
+      '本机 App Server 已响应 realtime voices（实验性）。Lingua Studio 尚未接 UI/音频管线，请勿当作可用产品能力。',
     voices: voicesRes.value,
   });
 }

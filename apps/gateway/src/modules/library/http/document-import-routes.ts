@@ -64,6 +64,7 @@ export function createDocumentImportRoutes(deps: GatewayDeps) {
             documentId: res.value.document.id,
             title: res.value.document.title,
             lessons: res.value.lessons,
+            toc: res.value.toc,
           });
         } catch (e) {
           return formatBusinessErrorResponse(c, e, 'libraryImport');

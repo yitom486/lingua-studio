@@ -12,6 +12,8 @@ import type { DocumentSourceKind } from '../../persistence/import-tasks.js';
 export interface ExtractedText {
   title: string;
   markdown: string;
+  /** 目录单元标签（EPUB 目录驱动；无目录缺省） */
+  units?: string[] | undefined;
 }
 
 export interface DocumentImporter {

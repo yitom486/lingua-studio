@@ -136,7 +136,7 @@ export interface CodexMcpServerStatusDto {
 
 /**
  * EXPERIMENTAL — Codex thread realtime（语音/实时会话）。
- * 协议已暴露；Study Studio 当前未接 UI / 音频管线，调用可能失败或行为不完整。
+ * 协议已暴露；Lingua Studio 当前未接 UI / 音频管线，调用可能失败或行为不完整。
  */
 export type CodexRealtimeOutputModality = 'text' | 'audio';
 export type CodexRealtimeTextRole = 'user' | 'developer' | 'assistant';

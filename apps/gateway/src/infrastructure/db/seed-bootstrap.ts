@@ -504,12 +504,12 @@ export function seedInitialData(sqlite: Database): void {
         `).run(
           'study-studio-curriculum-v1',
           'ja',
-          'Study Studio',
+          'Lingua Studio',
           'v1',
           'https://study-studio.local/curriculum/pitch',
           'Project-authored curriculum data',
           'https://study-studio.local/licenses',
-          'Study Studio curriculum demonstration data.',
+          'Lingua Studio curriculum demonstration data.',
           PITCH_LEXICON.length,
           now
         );
@@ -531,7 +531,7 @@ export function seedInitialData(sqlite: Database): void {
             }),
             null,
             'study-studio-curriculum-v1',
-            'Study Studio curriculum seed',
+            'Lingua Studio curriculum seed',
             'Project-authored curriculum demonstration data; not sourced from OJAD.',
             now
           );
@@ -555,24 +555,24 @@ export function seedInitialData(sqlite: Database): void {
       insertStarterSource.run(
         `${STARTER_SOURCE_ID}-ja`,
         'ja',
-        'Study Studio',
+        'Lingua Studio',
         'v1',
         'https://study-studio.local/curriculum/starter-words',
         STARTER_LICENSE,
         'https://study-studio.local/licenses',
-        'Study Studio starter vocabulary with original Chinese glosses.',
+        'Lingua Studio starter vocabulary with original Chinese glosses.',
         starterJaCount,
         now
       );
       insertStarterSource.run(
         `${STARTER_SOURCE_ID}-ko`,
         'ko',
-        'Study Studio',
+        'Lingua Studio',
         'v1',
         'https://study-studio.local/curriculum/starter-words',
         STARTER_LICENSE,
         'https://study-studio.local/licenses',
-        'Study Studio starter vocabulary with original Chinese glosses.',
+        'Lingua Studio starter vocabulary with original Chinese glosses.',
         starterKoCount,
         now
       );

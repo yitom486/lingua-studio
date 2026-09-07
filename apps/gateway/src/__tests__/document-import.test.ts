@@ -9,6 +9,8 @@ import { decodeTextBytes } from '../modules/library/application/document-import/
 import {
   xhtmlToMarkdown,
   extractEpubText,
+  parseNcxToc,
+  parseNavToc,
 } from '../modules/library/application/document-import/epub-reader.js';
 import {
   guessSourceKind,
@@ -69,13 +71,17 @@ function buildStoredZip(files: Array<{ name: string; data: Uint8Array }>): Uint8
 function buildEpubBytes(): Uint8Array {
   const enc = new TextEncoder();
   const container = `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`;
-  const opf = `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>测试电子书</dc:title></metadata><manifest><item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest><spine><itemref idref="c1"/><itemref idref="c2"/></spine></package>`;
+  const opf = `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>测试电子书</dc:title></metadata><manifest><item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/><item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml"/><item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest><spine toc="ncx"><itemref idref="cover" linear="no"/><itemref idref="c1"/><itemref idref="c2"/></spine></package>`;
+  const ncx = `<?xml version="1.0"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap><navPoint id="n1"><navLabel><text>第一章</text></navLabel><content src="ch1.xhtml"/></navPoint><navPoint id="n2"><navLabel><text>第二章</text></navLabel><content src="ch2.xhtml"/><navPoint id="n3"><navLabel><text>第二节</text></navLabel><content src="ch2.xhtml#s3"/></navPoint></navPoint></navMap></ncx>`;
+  const cover = `<html><body><p>封面图 COVER-MARKER</p></body></html>`;
   const ch1 = `<html><head><title>1</title></head><body><h1>第一章</h1><p>彼はご飯を食べる。</p><script>alert(1)</script></body></html>`;
-  const ch2 = `<html><body><h2>第二章</h2><p>Hello world &amp; friends</p></body></html>`;
+  const ch2 = `<html><body><p>Hello world &amp; friends</p></body></html>`;
   return buildStoredZip([
     { name: 'mimetype', data: enc.encode('application/epub+zip') },
     { name: 'META-INF/container.xml', data: enc.encode(container) },
     { name: 'OEBPS/content.opf', data: enc.encode(opf) },
+    { name: 'OEBPS/toc.ncx', data: enc.encode(ncx) },
+    { name: 'OEBPS/cover.xhtml', data: enc.encode(cover) },
     { name: 'OEBPS/ch1.xhtml', data: enc.encode(ch1) },
     { name: 'OEBPS/ch2.xhtml', data: enc.encode(ch2) },
   ]);
@@ -114,6 +120,24 @@ describe('epub reader', () => {
     expect(res.markdown.indexOf('第一章') < res.markdown.indexOf('第二章')).toBe(true);
     expect(res.markdown).toContain('彼はご飯を食べる。');
     expect(res.markdown.includes('alert')).toBe(false);
+    // 封面（linear=no）不进正文
+    expect(res.markdown.includes('COVER-MARKER')).toBe(false);
+    // 目录单元：无碎片优先，spine 顺序
+    expect(res.units).toEqual(['第一章', '第二章']);
+    // 无标题章由目录标签起课
+    expect(res.markdown).toContain('# 第二章');
+  });
+
+  it('NCX 嵌套层级解析；EPUB3 nav 回退', () => {
+    const ncx = `<ncx><navMap><navPoint id="a"><navLabel><text>卷一</text></navLabel><content src="a.xhtml"/><navPoint id="b"><navLabel><text>第一回</text></navLabel><content src="a.xhtml#r1"/></navPoint></navMap></ncx>`;
+    const items = parseNcxToc(ncx, '');
+    expect(items).toEqual([
+      { label: '卷一', href: 'a.xhtml', level: 0 },
+      { label: '第一回', href: 'a.xhtml#r1', level: 1 },
+    ]);
+    const nav = `<html><body><nav epub:type="toc"><ol><li><a href="x.xhtml">X</a></li></ol></nav></body></html>`;
+    expect(parseNavToc(nav, 'OEBPS/nav.xhtml')).toEqual([{ label: 'X', href: 'OEBPS/x.xhtml', level: 0 }]);
+    expect(parseNavToc('<html></html>', 'nav.xhtml')).toEqual([]);
   });
 
   it('坏包/缺 container 友好抛错', () => {
@@ -153,7 +177,7 @@ describe('document import service', () => {
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.task.status).toBe('done');
-    expect(res.value.lessons).toBeGreaterThan(0);
+    expect(res.value.lessons).toBeGreaterThanOrEqual(2);
     expect(res.value.document.title).toContain('测试电子书');
     const task = await repo.getImportTask(res.value.task.id);
     expect(task?.status).toBe('done');

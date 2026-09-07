@@ -17,7 +17,7 @@ import {
   type FieldMarker,
 } from '@study-studio/learner-core';
 // 跨模块复用（G5 已登记）：zip 安全解包（炸弹/加密守卫），不写盘、无路径穿越面。
-import { extractZip } from '../../library/application/pdf-import/archive.js';
+import { extractZip, normalizeZipEntryPaths } from '../../library/application/pdf-import/archive.js';
 import { flashcards } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import { storeMedia } from '../persistence/media-store.js';
@@ -269,9 +269,10 @@ export async function parseApkgBytes(bytes: Uint8Array): Promise<ParsedApkg> {
     throw new BusinessError('E_INVALID_INPUT', '压缩包内文件过多，拒绝解析', 'VALIDATION', false);
   }
   // 官方导出固定叫 collection.anki2；兼容改名包时回退任一 *.anki2（取第一个）。
+  const norm = normalizeZipEntryPaths(entries);
   const collection =
-    entries.find((e) => e.path === 'collection.anki2' || e.path.endsWith('/collection.anki2')) ??
-    entries.find((e) => e.path.toLowerCase().endsWith('.anki2'));
+    norm.find((e) => e.path === 'collection.anki2' || e.path.endsWith('/collection.anki2')) ??
+    norm.find((e) => e.path.toLowerCase().endsWith('.anki2'));
   if (!collection) {
     throw new BusinessError('E_INVALID_INPUT', '压缩包内没有 collection.anki2，不是有效的 Anki 包', 'VALIDATION', false);
   }
@@ -279,7 +280,7 @@ export async function parseApkgBytes(bytes: Uint8Array): Promise<ParsedApkg> {
     throw new BusinessError('E_INVALID_INPUT', '牌组数据库过大（>200MB），拒绝解析', 'VALIDATION', false);
   }
   const parsed = await parseApkgCollection(collection.data);
-  const mediaEntry = entries.find((e) => e.path === 'media');
+  const mediaEntry = norm.find((e) => e.path === 'media');
   const mediaNameByIndex = new Map<string, string>();
   if (mediaEntry) {
     try {
@@ -297,7 +298,7 @@ export async function parseApkgBytes(bytes: Uint8Array): Promise<ParsedApkg> {
   }
   // 包内媒体文件以序号命名（"0"/"1"…），经映射表还原原始文件名后登记字节。
   if (mediaNameByIndex.size > 0) {
-    for (const e of entries) {
+    for (const e of norm) {
       const original = mediaNameByIndex.get(e.path);
       if (original) parsed.mediaBlobs.set(original, e.data);
     }

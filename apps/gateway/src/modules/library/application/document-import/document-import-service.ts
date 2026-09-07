@@ -100,6 +100,8 @@ export interface DocumentImportOutput {
   document: DocumentItem;
   book: TextbookAST;
   lessons: number;
+  /** 目录单元标签（EPUB 目录驱动；无目录为空） */
+  toc: string[];
 }
 
 export interface DocumentImportDeps {
@@ -135,6 +137,7 @@ export async function importDocument(
   try {
     let title: string;
     let markdown: string;
+    let toc: string[] = [];
     if (kind === 'pdf') {
       const converted = await convertPdfToAst(
         {
@@ -151,6 +154,7 @@ export async function importDocument(
       const extracted = await importer.extract(input.bytes, input.filename);
       title = extracted.title;
       markdown = extracted.markdown;
+      if (extracted.units) toc = extracted.units.filter((t): t is string => typeof t === 'string');
     }
     const ast = markdownToAst(markdown, { title });
     if (!isOk(ast)) throw ast.error;
@@ -176,7 +180,7 @@ export async function importDocument(
       lessons,
     });
     if (!isOk(done)) return done;
-    return ok({ task: done.value, document: saved.value, book, lessons });
+    return ok({ task: done.value, document: saved.value, book, lessons, toc });
   } catch (e) {
     const message = failReason(e);
     await updateImportTask(deps, task.id, { status: 'failed', error: message });

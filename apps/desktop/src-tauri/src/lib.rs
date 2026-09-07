@@ -178,5 +178,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Study Studio desktop application");
+        .expect("error while running Lingua Studio desktop application");
 }
