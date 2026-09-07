@@ -133,6 +133,19 @@ import {
   convertAnnotationToCard as convertAnnotationToCardDomain,
 } from '../modules/library/persistence/documents-annotations.js';
 import {
+  createImportTask as createImportTaskDomain,
+  updateImportTask as updateImportTaskDomain,
+  getImportTask as getImportTaskDomain,
+  type ImportTask,
+  type ImportTaskStatus,
+} from '../modules/library/persistence/import-tasks.js';
+import {
+  importDocument as importDocumentDomain,
+  type DocumentImportInput,
+  type DocumentImportOutput,
+  type DocumentImportDeps,
+} from '../modules/library/application/document-import/document-import-service.js';
+import {
   getCurriculumKana as getCurriculumKanaDomain,
   getCurriculumHangul as getCurriculumHangulDomain,
   listContentTemplates as listContentTemplatesDomain,
@@ -671,6 +684,40 @@ export class DrizzleLearnerRepository implements LearnerRepository {
    */
   public async deleteDocument(id: string, userId: string): Promise<Result<void, BusinessError>> {
     return deleteDocumentDomain(this.deps, id, userId);
+  }
+
+  /**
+   * 文档导入任务：建任务 / 更新状态 / 读取（读侧永不抛，由领域返回 undefined）。
+   * 实现已下沉 library/persistence/import-tasks.ts，此处仅委托。
+   */
+  public async createImportTask(input: {
+    userId: string;
+    sourceKind: ImportTask['sourceKind'];
+    filename: string;
+  }): Promise<Result<ImportTask, BusinessError>> {
+    return createImportTaskDomain(this.deps, input);
+  }
+
+  public async updateImportTask(
+    id: string,
+    patch: { status: ImportTaskStatus; documentId?: string; lessons?: number; error?: string }
+  ): Promise<Result<ImportTask, BusinessError>> {
+    return updateImportTaskDomain(this.deps, id, patch);
+  }
+
+  public async getImportTask(id: string): Promise<ImportTask | undefined> {
+    return getImportTaskDomain(this.deps, id);
+  }
+
+  /**
+   * 文档统一导入（PDF/EPUB/文本同一命令；任务落库，失败可重发）。
+   * 实现已下沉 library/application/document-import，此处仅委托。
+   */
+  public async importDocumentFile(
+    input: DocumentImportInput,
+    readers?: DocumentImportDeps
+  ): Promise<Result<DocumentImportOutput, BusinessError>> {
+    return importDocumentDomain(this.deps, readers ?? {}, input);
   }
 
   // ==================== 划线高亮与批注 (Annotations) ====================

@@ -545,8 +545,7 @@ export const ankiSettings = sqliteTable('anki_settings', {
 /**
  * 用户媒体库（词典/Anki 图片音频落盘；小文件亦落盘，SQLite 只存路径/哈希/类型）。
  * 内容寻址（file_hash 去重）；path 相对媒体根目录，永不存绝对路径。
- */
-export const dictionaryMedia = sqliteTable('dictionary_media', {
+ */export const dictionaryMedia = sqliteTable('dictionary_media', {
   id: text('id').primaryKey(),
   sourceId: text('source_id').notNull(),
   path: text('path').notNull(),
@@ -554,4 +553,22 @@ export const dictionaryMedia = sqliteTable('dictionary_media', {
   fileHash: text('file_hash').notNull(),
   fileSize: integer('file_size').notNull(),
   createdAt: text('created_at').notNull(),
+});
+
+/**
+ * 文档导入任务（LinguaCafe 式 raw/processed 分离的轻量实现）。
+ * 原文不进库（大文件走本机路径引用）；任务行记录状态机 processing→done/failed，
+ * 失败可重试、解析器升级后可重跑（调用方重发同一输入即可）。
+ */
+export const documentImports = sqliteTable('document_imports', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  sourceKind: text('source_kind').notNull(),
+  filename: text('filename').notNull(),
+  status: text('status').notNull().default('processing'),
+  documentId: text('document_id'),
+  lessons: integer('lessons'),
+  error: text('error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });

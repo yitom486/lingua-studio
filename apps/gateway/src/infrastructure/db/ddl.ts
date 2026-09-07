@@ -421,6 +421,20 @@ export function initSchema(sqlite: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_dictionary_media_hash ON dictionary_media(file_hash);
     CREATE INDEX IF NOT EXISTS idx_dictionary_media_source ON dictionary_media(source_id);
+
+    CREATE TABLE IF NOT EXISTS document_imports (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      filename TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'processing',
+      document_id TEXT,
+      lessons INTEGER,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_imports_user ON document_imports(user_id, created_at);
   `);
 
   // 增量列：已有库补字段

@@ -45,6 +45,8 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   'modules/flashcards/application/apkg-import.ts -> modules/library/application/pdf-import/archive.js',
   // flashcards.collect 复用词典 collect 的输出类型（type-only；与查词面板同一命令）。
   'modules/flashcards/tools/flashcards-collect-tool.ts -> modules/dictionary/persistence/dictionary.js',
+  // EPUB 解包复用 library 的 extractZip（同 apkg：炸弹/加密守卫，只读内存）。
+  'modules/library/application/document-import/epub-reader.ts -> modules/library/application/pdf-import/archive.js',
 ]);
 
 function collectTs(dir: string, out: string[] = []): string[] {

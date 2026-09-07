@@ -78,10 +78,8 @@ type LocalDictionaryRow = typeof localDictionaryEntries.$inferSelect;
   return entry;
 }
 
-import { deinflectJa } from './deinflect.js';
-import { stemEn } from './en-stem.js';
-import { deinflectKo } from './ko-deinflect.js';
-import { coarsePosOfLabel, coarsePosName, type CoarsePos } from './part-of-speech.js';
+import { getMorphAnalyzer, type MorphCandidate } from './morphology.js';
+import { coarsePosOfLabel, coarsePosName } from './part-of-speech.js';
 
 /**
  * 查询本地、可再分发的词典资产。第三方词典只可作为外链兜底，绝不在此抓取。
@@ -145,14 +143,11 @@ async function collectMorphHits(
   normalized: string,
   limit: number
 ): Promise<{ entries: LocalDictionaryEntry[]; signals: Map<string, { posRank: number; depth: number }> } | null> {
-  type MorphCandidate = { base: string; note: string; depth: number; pos: CoarsePos; verb: string };
-  let candidates: MorphCandidate[] = [];
-  if (language === 'ja' && /[぀-ヿｦ-ﾟ一-鿿]/.test(normalized)) {
-    candidates = deinflectJa(normalized).map((c) => ({ ...c, verb: '活用自' }));
-  } else if (language === 'en' && /^[a-zA-Z][a-zA-Z'’-]*$/.test(normalized)) {
-    candidates = stemEn(normalized).map((c) => ({ ...c, verb: '还原为' }));
-  } else if (language === 'ko' && /[가-힣]/.test(normalized)) {
-    candidates = deinflectKo(normalized).map((c) => ({ ...c, verb: '活用自' }));
+  type MorphHit = MorphCandidate & { verb: string };
+  let candidates: MorphHit[] = [];
+  const analyzer = getMorphAnalyzer(language);
+  if (analyzer && analyzer.supports(normalized)) {
+    candidates = analyzer.analyze(normalized).map((c) => ({ ...c, verb: analyzer.verb }));
   }
   if (candidates.length === 0) return null;
   const best = new Map<string, { entry: LocalDictionaryEntry; note: string; posRank: number; depth: number }>();

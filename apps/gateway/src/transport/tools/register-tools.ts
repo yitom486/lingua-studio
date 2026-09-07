@@ -11,6 +11,7 @@ import { MistakesListTool } from '../../modules/learning-progress/tools/mistakes
 import { MistakesResolveTool } from '../../modules/learning-progress/tools/mistakes-resolve-tool.js';
 import { LearningCurriculumTool } from '../../modules/curriculum/tools/learning-curriculum-tool.js';
 import { LearningLibraryTool } from '../../modules/library/tools/learning-library-tool.js';
+import { LibraryImportTool } from '../../modules/library/tools/library-import-tool.js';
 import { DictionaryLookupTool } from '../../modules/dictionary/tools/dictionary-lookup-tool.js';
 import { FlashcardsRenderTool } from '../../modules/flashcards/tools/flashcards-render-tool.js';
 import { FlashcardsDueTool } from '../../modules/flashcards/tools/flashcards-due-tool.js';
@@ -48,6 +49,7 @@ export function registerGatewayTools(
   registry.register(new LearningPracticeTool(learnerRepo));
   registry.register(new LearningCurriculumTool(drizzle));
   registry.register(new LearningLibraryTool(drizzle));
+  registry.register(new LibraryImportTool(drizzle));
   registry.register(new DictionaryLookupTool(drizzle));
   registry.register(new FlashcardsRenderTool(drizzle));
   registry.register(new FlashcardsDueTool(drizzle));
