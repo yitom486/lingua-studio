@@ -9,6 +9,9 @@ import { generateNewsPassage } from '../modules/curriculum/application/generate-
 import { DEFAULT_CONTENT_LANGUAGE } from '../services/learning-language-policy.js';
 
 describe('news RSS integration', () => {
+  // 真网 live 用例：默认隔离，CI/常规 bun test 不跑；
+  // 本地手动验证：STUDY_STUDIO_LIVE_NEWS=1 bun test src/__tests__/news-rss.test.ts
+  const liveIt = process.env.STUDY_STUDIO_LIVE_NEWS === '1' ? it : it.skip;
   it('defaults product language policy to English', () => {
     expect(DEFAULT_CONTENT_LANGUAGE).toBe('EN');
   });
@@ -108,7 +111,7 @@ describe('news RSS integration', () => {
     expect(cleaned).toContain('link');
   });
 
-  it(
+  liveIt(
     'fetches a live English media feed when network allows',
     async () => {
       const news = await generateNewsPassage({
@@ -134,7 +137,7 @@ describe('news RSS integration', () => {
     { timeout: 20_000 }
   );
 
-  it(
+  liveIt(
     'fetches a live NHK feed when network allows',
     async () => {
       const news = await generateNewsPassage({
@@ -159,7 +162,7 @@ describe('news RSS integration', () => {
     { timeout: 25_000 }
   );
 
-  it(
+  liveIt(
     'fetches a live Korean Yonhap feed when network allows',
     async () => {
       const news = await generateNewsPassage({
