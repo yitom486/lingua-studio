@@ -77,6 +77,8 @@ type LocalDictionaryRow = typeof localDictionaryEntries.$inferSelect;
 }
 
 import { deinflectJa } from './deinflect.js';
+import { stemEn } from './en-stem.js';
+import { coarsePosOfLabel, coarsePosName, type CoarsePos } from './part-of-speech.js';
 
 /**
  * 查询本地、可再分发的词典资产。第三方词典只可作为外链兜底，绝不在此抓取。
@@ -110,35 +112,10 @@ export async function searchLocalDictionary(
     const direct = rows.map(toLocalDictionaryEntry);
     if (direct.length > 0) return ok(await rankDictionaryEntries(deps, direct));
 
-    // 日语直击为空时尝试活用形还原（食べた→食べる）：候选逐个精确查，命中即注记来源
-    if (language === 'ja' && /[぀-ヿｦ-ﾟ一-鿿]/.test(normalized)) {
-      for (const candidate of deinflectJa(normalized)) {
-        const hitRows = await deps.db
-          .select()
-          .from(localDictionaryEntries)
-          .where(
-            and(
-              eq(localDictionaryEntries.language, language),
-              or(
-                eq(localDictionaryEntries.headword, candidate.base),
-                eq(localDictionaryEntries.reading, candidate.base)
-              )
-            )
-          )
-          .limit(Math.min(Math.max(limit, 1), 50));
-        if (hitRows.length > 0) {
-          return ok(
-            await rankDictionaryEntries(
-              deps,
-              hitRows.map((row) => ({
-                ...toLocalDictionaryEntry(row),
-                inflectionNote: `「${normalized}」活用自「${candidate.base}」（${candidate.note}）`,
-              }))
-            )
-          );
-        }
-      }
-    }
+    // 词形还原回退（日语活用 / 英语屈折）：收集全部候选的命中，按“词性一致→跳数→词频”排，
+    // 首个命中即返回的旧逻辑会漏掉更优候选。注记保留完整分析路径（表层→原形·链条·词性）。
+    const morphHits = await collectMorphHits(deps, language, normalized, limit);
+    if (morphHits) return ok(await rankDictionaryEntries(deps, morphHits.entries, morphHits.signals));
 
     // 释义全文搜索（FTS5）：按中文/关键词找释义；FTS 不可用时静默空结果
     const meanings = await searchDictionaryMeanings(deps, language, normalized, limit);
@@ -156,14 +133,74 @@ export async function searchLocalDictionary(
 }
 
 /**
- * 查词后处理：开关过滤 + 优先级/词频排序（内存内完成，源表极小）。
+ * 词形还原候选收集（日语活用 / 英语屈折共用评分管线）。
+ * 返回命中条目（附注记）与评分信号；无命中返回 null，调用方继续 FTS。
+ */
+async function collectMorphHits(
+  deps: RepoDeps,
+  language: TrackLanguage,
+  normalized: string,
+  limit: number
+): Promise<{ entries: LocalDictionaryEntry[]; signals: Map<string, { posRank: number; depth: number }> } | null> {
+  type MorphCandidate = { base: string; note: string; depth: number; pos: CoarsePos; verb: string };
+  let candidates: MorphCandidate[] = [];
+  if (language === 'ja' && /[぀-ヿｦ-ﾟ一-鿿]/.test(normalized)) {
+    candidates = deinflectJa(normalized).map((c) => ({ ...c, verb: '活用自' }));
+  } else if (language === 'en' && /^[a-zA-Z][a-zA-Z'’-]*$/.test(normalized)) {
+    candidates = stemEn(normalized).map((c) => ({ ...c, verb: '还原为' }));
+  }
+  if (candidates.length === 0) return null;
+  const best = new Map<string, { entry: LocalDictionaryEntry; note: string; posRank: number; depth: number }>();
+  for (const candidate of candidates.slice(0, 8)) {
+    const hitRows = await deps.db
+      .select()
+      .from(localDictionaryEntries)
+      .where(
+        and(
+          eq(localDictionaryEntries.language, language),
+          or(
+            eq(localDictionaryEntries.headword, candidate.base),
+            eq(localDictionaryEntries.reading, candidate.base)
+          )
+        )
+      )
+      .limit(Math.min(Math.max(limit, 1), 50));
+    for (const row of hitRows) {
+      const entry = toLocalDictionaryEntry(row);
+      const hasPos = !!entry.partOfSpeech?.trim();
+      const posRank = !hasPos ? 1 : coarsePosOfLabel(entry.partOfSpeech) === candidate.pos ? 0 : 2;
+      const prev = best.get(entry.id);
+      if (prev && (prev.posRank < posRank || (prev.posRank === posRank && prev.depth <= candidate.depth))) {
+        continue;
+      }
+      let note = `「${normalized}」${candidate.verb}「${candidate.base}」（${candidate.note}·${coarsePosName(candidate.pos)}）`;
+      if (posRank === 2 && entry.partOfSpeech) {
+        note += `（词条词性：${entry.partOfSpeech}，仅供参考）`;
+      }
+      best.set(entry.id, { entry: { ...entry, inflectionNote: note }, note, posRank, depth: candidate.depth });
+    }
+  }
+  if (best.size === 0) return null;
+  const signals = new Map<string, { posRank: number; depth: number }>();
+  const entries: LocalDictionaryEntry[] = [];
+  for (const [id, hit] of best) {
+    signals.set(id, { posRank: hit.posRank, depth: hit.depth });
+    entries.push(hit.entry);
+  }
+  return { entries, signals };
+}
+
+/**
+ * 查词后处理：开关过滤 + 优先级/词性/词频排序（内存内完成，源表极小）。
  * - 未在 dictionary_sources 登记者：一律保留（种子/旧数据不受影响）；
  * - enabled=0 的来源：条目过滤；
- * - 排序：来源 priority 降序 → 词频升序（NULL 最后）→ 原顺序稳定。
+ * - 排序：来源 priority 降序 → 词性一致（还原候选与词条词性一致优先，无信号时持平）
+ *   → 还原跳数升序 → 词频升序（NULL 最后）→ 原顺序稳定。
  */
 export async function rankDictionaryEntries(
   deps: RepoDeps,
-  entries: LocalDictionaryEntry[]
+  entries: LocalDictionaryEntry[],
+  signals?: Map<string, { posRank: number; depth: number }>
 ): Promise<LocalDictionaryEntry[]> {
   if (entries.length === 0) return entries;
   let sourceRows: Array<{ id: string; enabled: number; priority: number }>;
@@ -222,6 +259,14 @@ export async function rankDictionaryEntries(
   });
   decorated.sort((a, b) => {
     if (b.priority !== a.priority) return b.priority - a.priority;
+    const aSignal = signals?.get(a.entry.id);
+    const bSignal = signals?.get(b.entry.id);
+    const aPos = aSignal?.posRank ?? 1;
+    const bPos = bSignal?.posRank ?? 1;
+    if (aPos !== bPos) return aPos - bPos;
+    const aDepth = aSignal?.depth ?? 0;
+    const bDepth = bSignal?.depth ?? 0;
+    if (aDepth !== bDepth) return aDepth - bDepth;
     if (a.frequency !== null && b.frequency !== null && a.frequency !== b.frequency) {
       return a.frequency - b.frequency;
     }

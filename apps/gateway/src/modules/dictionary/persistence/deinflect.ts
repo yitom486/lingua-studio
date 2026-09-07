@@ -4,7 +4,11 @@
  * 原理：后缀替换规则 + BFS 链式（最多 3 跳），终点由词典存在性过滤。
  * 规则按“语言事实”编写（五段各行/一段/カ変/サ変/形容词的标准活用），
  * 以最长后缀优先、BFS 去重、上限截断；调用方用返回的 base 查词典，命中才展示。
+ * 每条规则附粗词性（动词/形容词/其他，见 part-of-speech.ts），供查词评分加分；
+ * 规则来源为公开学校语法常识，未打开任何外部项目的规则文件。
  */
+
+import type { CoarsePos } from './part-of-speech.js';
 
 export interface DeinflectRule {
   /** 活用形后缀（假名/汉字混合均可，如 なかった） */
@@ -13,12 +17,18 @@ export interface DeinflectRule {
   replace: string;
   /** 中文活用标注（如 た形、て形+ます形由链条拼接） */
   tag: string;
+  /** 该后缀剥离方向的粗词性（缺省动词；形容词/だ系显式标注） */
+  pos: CoarsePos;
 }
 
 export interface DeinflectCandidate {
   base: string;
   /** 链条标注，如 'て形+ます形' */
   note: string;
+  /** BFS 跳数（越小越可信，供评分） */
+  depth: number;
+  /** 表层词形的粗词性（链条首跳规则的 pos，供词条匹配加分） */
+  pos: CoarsePos;
 }
 
 const MAX_DEPTH = 3;
@@ -26,8 +36,8 @@ const MAX_CANDIDATES = 16;
 
 function buildRules(): DeinflectRule[] {
   const rules: DeinflectRule[] = [];
-  const add = (suffix: string, replace: string, tag: string) => {
-    rules.push({ suffix, replace, tag });
+  const add = (suffix: string, replace: string, tag: string, pos: CoarsePos = 'verb') => {
+    rules.push({ suffix, replace, tag, pos });
   };
 
   // ---- た形 / て形 → 辞書形（直白表，可读优先） ----
@@ -269,11 +279,11 @@ function buildRules(): DeinflectRule[] {
   }
 
   // ---- 形容词 ----
-  add('かった', 'い', '形容詞過去');
-  add('くない', 'い', '形容詞否定');
-  add('くなかった', 'い', '形容詞否定過去');
-  add('ければ', 'い', '形容詞仮定');
-  add('くて', 'い', '形容詞連用');
+  add('かった', 'い', '形容詞過去', 'adjective');
+  add('くない', 'い', '形容詞否定', 'adjective');
+  add('くなかった', 'い', '形容詞否定過去', 'adjective');
+  add('ければ', 'い', '形容詞仮定', 'adjective');
+  add('くて', 'い', '形容詞連用', 'adjective');
 
   // ---- する不规则（精确优先） ----
   for (const suf of ['した', 'しない', 'します', 'して', 'しよう', 'される', 'させる', 'しろ', 'せよ', 'しなさい', 'してください']) {
@@ -301,9 +311,9 @@ function buildRules(): DeinflectRule[] {
   // ---- なさい一般（しなさい已在上精确覆盖） ----
   add('なさい', 'る', '命令形');
   // ---- だ系 ----
-  add('だった', 'だ', 'た形');
-  add('でした', 'だ', '丁寧過去');
-  add('ではありません', 'だ', '否定');
+  add('だった', 'だ', 'た形', 'other');
+  add('でした', 'だ', '丁寧過去', 'other');
+  add('ではありません', 'だ', '否定', 'other');
 
   // 最长后缀优先，保证 ませんでした 先于 ます 等
   rules.sort((a, b) => b.suffix.length - a.suffix.length);
@@ -321,8 +331,8 @@ export function deinflectJa(surface: string): DeinflectCandidate[] {
   if (!text) return [];
   const seen = new Set<string>([text]);
   const out: DeinflectCandidate[] = [];
-  type Node = { form: string; notes: string[]; depth: number };
-  const queue: Node[] = [{ form: text, notes: [], depth: 0 }];
+  type Node = { form: string; notes: string[]; poss: CoarsePos[]; depth: number };
+  const queue: Node[] = [{ form: text, notes: [], poss: [], depth: 0 }];
   while (queue.length > 0 && out.length < MAX_CANDIDATES) {
     const cur = queue.shift() as Node;
     if (cur.depth >= MAX_DEPTH) continue;
@@ -333,9 +343,10 @@ export function deinflectJa(surface: string): DeinflectCandidate[] {
       if (seen.has(base)) continue;
       seen.add(base);
       const notes = [...cur.notes, rule.tag];
-      out.push({ base, note: notes.join('+') });
+      const poss = [...cur.poss, rule.pos];
+      out.push({ base, note: notes.join('+'), depth: cur.depth + 1, pos: poss[0] ?? 'verb' });
       if (out.length >= MAX_CANDIDATES) break;
-      queue.push({ form: base, notes, depth: cur.depth + 1 });
+      queue.push({ form: base, notes, poss, depth: cur.depth + 1 });
     }
   }
   return out;
