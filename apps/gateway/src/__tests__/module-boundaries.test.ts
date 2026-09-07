@@ -45,6 +45,12 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   'modules/flashcards/application/apkg-import.ts -> modules/library/application/pdf-import/archive.js',
   // flashcards.collect 复用词典 collect 的输出类型（type-only；与查词面板同一命令）。
   'modules/flashcards/tools/flashcards-collect-tool.ts -> modules/dictionary/persistence/dictionary.js',
+  // 草稿域复用相遇词 term_key 归一 + 回填（同键跨包稳定；accept 与 collect 同级信号）。
+  'modules/flashcards/persistence/card-drafts.ts -> modules/dictionary/persistence/encountered-terms.js',
+  // 批注转卡复用相遇词 collect 信号（短 quote 才记；语种取所属文档）。
+  'modules/library/persistence/documents-annotations.ts -> modules/dictionary/persistence/encountered-terms.js',
+  // 定级考复用档位写入（跳级通道；run/装配仍走 practice 自家）。
+  'modules/practice/persistence/placement.ts -> modules/learning-progress/persistence/level.js',
   // EPUB 解包复用 library 的 extractZip（同 apkg：炸弹/加密守卫，只读内存）。
   'modules/library/application/document-import/epub-reader.ts -> modules/library/application/pdf-import/archive.js',
   // 网页正文复用新闻管线的 Readability 抽取纯函数（抓取层自备 SSRF 防护）。

@@ -8,9 +8,11 @@ import { createAgentRoutes } from './agent-routes.js';
 import { createLearningCompatRoutes } from './learning-routes.js';
 import { createDictionaryRoutes } from '../../modules/dictionary/http/dictionary-routes.js';
 import { createCardFormatRoutes } from '../../modules/flashcards/http/card-format-routes.js';
+import { createCardDraftRoutes } from '../../modules/flashcards/http/card-draft-routes.js';
 import { createMediaRoutes } from '../../modules/flashcards/http/media-routes.js';
 import { createLearningProgressRoutes } from '../../modules/learning-progress/http/learning-progress-routes.js';
 import { createPracticeRoutes } from '../../modules/practice/http/practice-routes.js';
+import { createPlacementRoutes } from '../../modules/practice/http/placement-routes.js';
 import { createReviewRoutes } from '../../modules/review/http/review-routes.js';
 import { createLibraryRoutes } from '../../modules/library/http/library-routes.js';
 import { createDocumentImportRoutes } from '../../modules/library/http/document-import-routes.js';
@@ -49,9 +51,11 @@ export function createApp(deps: GatewayDeps) {
     .route('/', createAgentRoutes(deps))
     .route('/', createDictionaryRoutes(deps))
     .route('/', createCardFormatRoutes(deps))
+    .route('/', createCardDraftRoutes(deps))
     .route('/', createMediaRoutes(deps))
     .route('/', createLearningProgressRoutes(deps))
     .route('/', createPracticeRoutes(deps))
+    .route('/', createPlacementRoutes(deps))
     .route('/', createReviewRoutes(deps))
     .route('/', createLibraryRoutes(deps))
     .route('/', createDocumentImportRoutes(deps))

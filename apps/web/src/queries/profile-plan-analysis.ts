@@ -234,3 +234,40 @@ export function useBeginnerTrailQuery(userId = DEFAULT_USER_ID, langOverride?: s
     staleTime: 1000 * 30,
   });
 }
+
+export type LevelInfo = {
+  level: 'NOVICE' | 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
+  hint: string;
+};
+
+/** 档位信息（当前档 + 升级提示语；做题/字母落盘后网关自动升降级）。 */
+export function useLevelInfoQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+  return useQuery<LevelInfo | null>({
+    queryKey: [...QUERY_KEYS.PROFILE, userId, targetLanguage, 'level'],
+    queryFn: async () => {
+      try {
+        const res = await fetch(
+          `${GATEWAY_BASE_URL}/api/level/${encodeURIComponent(userId)}?lang=${targetLanguage}`
+        );
+        if (!res.ok) return null;
+        const data: unknown = await res.json().catch(() => null);
+        const rec = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+        if (
+          (rec.level === 'NOVICE' ||
+            rec.level === 'BEGINNER' ||
+            rec.level === 'INTERMEDIATE' ||
+            rec.level === 'ADVANCED') &&
+          typeof rec.hint === 'string'
+        ) {
+          return { level: rec.level, hint: rec.hint };
+        }
+      } catch (e) {
+        logger.debug('[useLevelInfoQuery] Failed to load level info', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 30,
+  });
+}

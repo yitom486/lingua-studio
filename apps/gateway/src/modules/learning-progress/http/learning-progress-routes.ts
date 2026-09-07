@@ -122,7 +122,7 @@ export function createLearningProgressRoutes(deps: GatewayDeps) {
       return formatBusinessErrorResponse(c, e, 'runLearningAnalysis');
     }
   })
-  // 3. 新手带路进度（零基础分阶段清单，进度取自既有学习资产）
+  // 3. 新手带路进度（零基础分阶段清单，进度取自当日学习资产）
   .get('/api/trail/:userId', async (c) => {
     const userId = c.req.param('userId');
     const raw = (c.req.query('track') || '').toLowerCase();
@@ -130,6 +130,13 @@ export function createLearningProgressRoutes(deps: GatewayDeps) {
     const res = await deps.repo.getBeginnerTrail(userId, track);
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error);
+  })
+  // 3b. 档位信息（当前档 + 升级提示语；等级状态机读口）
+  .get('/api/level/:userId', async (c) => {
+    const userId = c.req.param('userId');
+    const res = await deps.repo.getLevelInfo(userId, c.req.query('lang') || 'ja');
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error, 'levelInfo');
   })
   // 4. 错题本存取与消除
   .get('/api/mistakes/:userId', async (c) => {

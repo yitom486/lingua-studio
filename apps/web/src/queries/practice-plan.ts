@@ -438,3 +438,85 @@ export function usePracticeRunSummaryQuery(runId: string | null, userId = DEFAUL
     },
   });
 }
+
+// ===================== 定级考（跳级通道） =====================
+
+export type PlacementLevel = 'NOVICE' | 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
+
+export interface PlacementExamInfo {
+  id: string;
+  targetLevel: PlacementLevel;
+  runId: string;
+  status: 'pending' | 'passed' | 'failed';
+  accuracy?: number;
+}
+
+export interface PlacementFinishInfo {
+  passed: boolean;
+  accuracy: number;
+  graded: number;
+  level: PlacementLevel;
+}
+
+function placementError(payload: unknown, fallback: string): Error {
+  const msg =
+    typeof payload === 'object' && payload !== null && 'error' in payload
+      ? String(
+          ((payload as { error: unknown }).error as { userMessage?: unknown })?.userMessage ??
+            fallback
+        )
+      : typeof payload === 'object' && payload !== null && 'userMessage' in payload
+        ? String((payload as { userMessage: unknown }).userMessage)
+        : fallback;
+  return new Error(msg);
+}
+
+/** 开考：目标档须高于当前档；ja/ko 字母量不够会被拒绝并指路字母工作室。 */
+export function useStartPlacementMutation(userId = DEFAULT_USER_ID) {
+  return useMutation({
+    mutationFn: async (vars: {
+      language: 'ja' | 'en' | 'ko';
+      targetLevel: PlacementLevel;
+    }): Promise<{ exam: PlacementExamInfo; runId: string }> => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/placement/${encodeURIComponent(userId)}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(vars),
+      });
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) throw placementError(payload, '开考失败');
+      const body = (payload ?? {}) as { exam?: PlacementExamInfo; runId?: unknown };
+      if (!body.exam || typeof body.runId !== 'string') throw new Error('开考返回异常');
+      return { exam: body.exam, runId: body.runId };
+    },
+  });
+}
+
+/** 交卷：按准确率+字母线判定，过线写档（可重考）。 */
+export function useFinishPlacementMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: { examId: string }): Promise<PlacementFinishInfo> => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/placement/${encodeURIComponent(userId)}/${encodeURIComponent(vars.examId)}/finish`,
+        { method: 'POST' }
+      );
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) throw placementError(payload, '交卷失败');
+      const body = (payload ?? {}) as Partial<PlacementFinishInfo>;
+      if (typeof body.passed !== 'boolean' || typeof body.accuracy !== 'number') {
+        throw new Error('交卷返回异常');
+      }
+      return {
+        passed: body.passed,
+        accuracy: body.accuracy,
+        graded: typeof body.graded === 'number' ? body.graded : 0,
+        level: body.level ?? 'NOVICE',
+      };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PROFILE });
+    },
+  });
+}
+
