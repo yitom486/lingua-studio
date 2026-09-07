@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { BookPlus, Check, ExternalLink, Search, Send } from 'lucide-react';
+import { BookOpen, BookPlus, Check, ExternalLink, Search, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCollectDictionaryEntryMutation,
@@ -11,10 +11,12 @@ import {
   type AnkiPushTts,
 } from '../queries/useLearnerQueries.js';
 import { useTtsStore } from '../stores/useTtsStore.js';
+import { sound } from '../utils/audio.js';
 import { buildPitchGraphSvg } from '@study-studio/learner-core';
 import { QUERY_KEYS } from '../queries/query-keys.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import { WordStudyCard } from './WordStudyCard.js';
 
 type DictionaryLookupPanelProps = {
   language: 'en' | 'ja' | 'ko';
@@ -57,7 +59,7 @@ function PitchBadge({ pronunciation, reading }: { pronunciation: unknown; readin
   );
 }
 
-type LookupEntry = {
+export type LookupEntry = {
   id: string;
   headword: string;
   reading?: string;
@@ -95,6 +97,16 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
   const collect = useCollectDictionaryEntryMutation();
   const queryClient = useQueryClient();
   const history = useDictionaryHistoryQuery(language);
+  // 讲透卡展开态：新查询自动展开首条（学透再练）；手动切换后不再抢。
+  const [studyId, setStudyId] = useState<string | null>(null);
+  const [collectedIds, setCollectedIds] = useState<string[]>([]);
+  const autoStudyFor = useRef('');
+  useEffect(() => {
+    if (autoStudyFor.current === query) return;
+    autoStudyFor.current = query;
+    setStudyId(lookup.data?.entries[0]?.id ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, lookup.data]);
   const ankiStatus = useAnkiStatusQuery(true);
   const pushToAnki = usePushToAnkiMutation();
   // TTS 凭证只存浏览器本地：推送时随请求携带、网关不落盘；未配置则音频留空。
@@ -104,19 +116,21 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
   const customPluginVoiceId = useTtsStore((s) => s.customPluginVoiceId);
   const ttsRate = useTtsStore((s) => s.rate);
   const ankiPushable = (ankiStatus.data?.enabled && ankiStatus.data.connected) === true;
-  // 查到结果后刷新最近查词（画像信号已由网关记录）
+  // 查到结果后刷新最近查词与相遇词热力（画像信号已由网关记录）
   useEffect(() => {
     if (lookup.data) {
       void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'history', language] });
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'encountered', language] });
     }
   }, [lookup.data, lookup.dataUpdatedAt, queryClient, language]);
 
   const collectEntry = (entryId: string) => {
     collect.mutate(entryId, {
       onSuccess: (result) => {
+        setCollectedIds((prev) => (prev.includes(entryId) ? prev : [...prev, entryId]));
         toast.success(
           result.created
-            ? '已加入生词本，今天即可在 FSRS 闪卡中复习。'
+            ? '已加入生词本，今天即可在 FSRS 闪卡中复习（回“我的学情”，相遇词会变绿）。'
             : '该词已经在你的生词本中。'
         );
       },
@@ -225,8 +239,8 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                     {group.source} · {group.entries.length} 条
                   </p>
                   {group.entries.map((entry) => (
+                <div key={entry.id}>
                 <div
-                  key={entry.id}
                   className="flex flex-col gap-2 rounded-xl bg-amber-50/70 p-3 dark:bg-amber-500/10 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
@@ -272,6 +286,20 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                   <Button
                     type="button"
                     size="sm"
+                    variant={studyId === entry.id ? 'secondary' : 'ghost'}
+                    className="gap-1.5 text-[11px]"
+                    onClick={() => {
+                      sound.playClick();
+                      setStudyId(studyId === entry.id ? null : entry.id);
+                    }}
+                    title="展开讲透卡：先学透发音释义，再决定收不收"
+                  >
+                    <BookOpen className="h-3.5 w-3.5" />
+                    {studyId === entry.id ? '收起' : '学透它'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
                     variant="outline"
                     className="gap-1.5"
                     disabled={collect.isPending}
@@ -299,6 +327,16 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                     </Button>
                   )}
                   </div>
+                </div>
+                {studyId === entry.id && (
+                  <WordStudyCard
+                    entry={entry}
+                    language={language}
+                    collected={collectedIds.includes(entry.id)}
+                    collectPending={collect.isPending}
+                    onCollect={collectEntry}
+                  />
+                )}
                 </div>
                   ))}
                 </div>

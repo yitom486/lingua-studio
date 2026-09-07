@@ -1,14 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { Award, Layers, AlertTriangle } from 'lucide-react';
+import { Award, Layers, AlertTriangle, Flame } from 'lucide-react';
 import { BentoGrid, BentoCard, NumberTicker } from './magicui/index.js';
 import { StudyStreakHeatmap } from './StudyStreakHeatmap.js';
+import { LevelCard } from './LevelCard.js';
 import { sound } from '../utils/audio.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import type { SkillMetric } from '@study-studio/learner-core';
+import { useEncounteredTermsQuery, useBackfillEncounteredTermsMutation } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Progress } from './ui/progress.js';
@@ -18,6 +20,93 @@ interface LearnerRadarDashboardProps {
   metrics: SkillMetric[];
   activeCardsCount: number;
   unresolvedMistakesCount: number;
+}
+
+/** 相遇词热力：查词/收藏中真实见过的词，按相遇次数排序；点词跳生词本。 */
+function EncounteredTermsHeat() {
+  const shell = useLearningShell();
+  const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
+  const { data: terms = [], isLoading } = useEncounteredTermsQuery(shell.track, 50);
+  const backfill = useBackfillEncounteredTermsMutation(shell.track);
+  const top = [...terms].sort((a, b) => b.exposureCount - a.exposureCount).slice(0, 12);
+
+  return (
+    <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-5 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-stone-700 dark:text-stone-300 flex items-center gap-2">
+          <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          相遇词热力（{terms.length}）
+        </h3>
+        <span className="text-[11px] text-stone-400">查过/收过的词，见得越多越热 · 点词去生词本</span>
+      </div>
+      {isLoading ? (
+        <p className="text-xs text-stone-400">加载中…</p>
+      ) : top.length === 0 ? (
+        <div className="py-4 px-4 text-center rounded-xl bg-stone-100/50 dark:bg-stone-900/30 border border-dashed border-stone-200 dark:border-stone-800 space-y-2">
+          <p className="text-xs text-stone-500 dark:text-stone-400">
+            还没有相遇词——去生词闪卡查第一个词，这里就会热起来
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => {
+                sound.playClick();
+                setActiveTab('CARDS');
+              }}
+              className="text-xs font-semibold"
+            >
+              去查第一个词 →
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={backfill.isPending}
+              onClick={() => {
+                sound.playClick();
+                backfill.mutate(undefined, {
+                  onSuccess: (r) => {
+                    sound.playCorrect();
+                    toast.success(`已点亮 ${r.terms} 个相遇词`);
+                  },
+                  onError: (e) => {
+                    sound.playMistake();
+                    toast.error(e instanceof Error ? e.message : '回填失败');
+                  },
+                });
+              }}
+              className="text-xs"
+              title="以前查过的词，一键倒进热力"
+            >
+              {backfill.isPending ? '点亮中…' : '从查词历史点亮'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {top.map((t) => (
+            <button
+              key={t.termKey}
+              type="button"
+              title={`${t.headword}${t.reading ? `（${t.reading}）` : ''} · 相遇 ${t.exposureCount} 次 · ${t.status === 'collected' ? '已收藏' : '见过'}`}
+              onClick={() => {
+                sound.playClick();
+                setActiveTab('CARDS');
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-semibold cursor-pointer transition-colors border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/15 text-stone-700 dark:text-stone-200"
+            >
+              <span>{t.headword}</span>
+              <span className="font-mono text-[10px] text-amber-600 dark:text-amber-400">
+                ×{t.exposureCount}
+              </span>
+              {t.status === 'collected' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="已收藏" />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function LearnerRadarDashboard({
@@ -54,6 +143,9 @@ export function LearnerRadarDashboard({
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6 max-w-4xl"
     >
+      {/* 档位状态机：当前档 + 升级提示 + 定级考 */}
+      <LevelCard />
+
       {/* Magic UI BentoGrid 核心概览指标 */}
       <BentoGrid className="auto-rows-[9.5rem] md:grid-cols-3">
         <BentoCard
@@ -104,6 +196,9 @@ export function LearnerRadarDashboard({
 
       {/* 连续学习与 28 天热力图组件 */}
       <StudyStreakHeatmap />
+
+      {/* 相遇词热力 */}
+      <EncounteredTermsHeat />
 
       {/* 掌握度细项雷达 */}
       <div className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-5 border border-amber-900/10 dark:border-amber-500/15 shadow-sm space-y-4">

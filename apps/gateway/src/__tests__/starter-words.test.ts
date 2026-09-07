@@ -13,9 +13,10 @@ describe('starter word pack (out-of-box vocabulary)', () => {
     tool = new LearningContentTool(repo);
   });
 
-  it('seeds 24 ja + 24 ko starter words with traceable source', () => {
+  it('seeds 24 ja + 24 ko + 24 en starter words with traceable source', () => {
     expect(STARTER_WORD_SEEDS.filter((w) => w.language === 'ja').length).toBe(24);
     expect(STARTER_WORD_SEEDS.filter((w) => w.language === 'ko').length).toBe(24);
+    expect(STARTER_WORD_SEEDS.filter((w) => w.language === 'en').length).toBe(24);
     const jaCount = repo
       .getRawDb()
       .query<{ count: number }, []>(
@@ -30,6 +31,22 @@ describe('starter word pack (out-of-box vocabulary)', () => {
       .get()?.count;
     expect(jaCount).toBe(24);
     expect(koCount).toBe(24);
+    const enCount = repo
+      .getRawDb()
+      .query<{ count: number }, []>(
+        "SELECT COUNT(*) as count FROM local_dictionary_entries WHERE id LIKE 'starter_en_%'"
+      )
+      .get()?.count;
+    expect(enCount).toBe(24);
+  });
+
+  it('en starter words are lookable out of the box（入门可查可收）', async () => {
+    const res = await repo.searchLocalDictionary('en', 'water');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.some((e) => e.id === 'starter_en_water')).toBe(true);
+    const collected = await repo.collectDictionaryEntry('u_starter_en', 'starter_en_water');
+    expect(isOk(collected)).toBe(true);
   });
 
   it('powers kana word drills without any installed package', async () => {

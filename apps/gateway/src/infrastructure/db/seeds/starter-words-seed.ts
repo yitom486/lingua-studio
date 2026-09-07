@@ -1,11 +1,12 @@
 /**
- * 开箱即用初级词包（日韩各 24 词）。
+ * 开箱即用初级词包（日韩各 24 词，英语 24 词）。
  * 自撰中文释义的项目自有数据，不复制 JMdict/Kengdic 任何条目；用户后装词典包与之并存。
- * 日语词一律纯假名表层（可直接进 kana 单词听写）；韩语词为常用表层形（进 hangul 单词）。
+ * 日语词一律纯假名表层（可直接进 kana 单词听写）；韩语词为常用表层形（进 hangul 单词）；
+ * 英语词为具体名词/基础动词（入门可感），reading 列记简易音标。
  */
 export interface StarterWordSeed {
   id: string;
-  language: 'ja' | 'ko';
+  language: 'ja' | 'ko' | 'en';
   headword: string;
   /** 日语假名读音（韩语无单独读音列，置空）。 */
   reading?: string | undefined;
@@ -68,4 +69,29 @@ export const STARTER_WORD_SEEDS: StarterWordSeed[] = [
   { id: 'starter_ko_drink', language: 'ko', headword: '음료수', meanings: ['饮料'], partOfSpeech: '名词' },
   { id: 'starter_ko_subway', language: 'ko', headword: '지하철', meanings: ['地铁'], partOfSpeech: '名词' },
   { id: 'starter_ko_korean', language: 'ko', headword: '한국어', meanings: ['韩语'], partOfSpeech: '名词' },
+  // ================= 英语（24，入门具体词） =================
+  { id: 'starter_en_water', language: 'en', headword: 'water', reading: '/ˈwɔːtər/', meanings: ['水'], partOfSpeech: '名词' },
+  { id: 'starter_en_book', language: 'en', headword: 'book', reading: '/bʊk/', meanings: ['书'], partOfSpeech: '名词' },
+  { id: 'starter_en_school', language: 'en', headword: 'school', reading: '/skuːl/', meanings: ['学校'], partOfSpeech: '名词' },
+  { id: 'starter_en_teacher', language: 'en', headword: 'teacher', reading: '/ˈtiːtʃər/', meanings: ['老师'], partOfSpeech: '名词' },
+  { id: 'starter_en_friend', language: 'en', headword: 'friend', reading: '/frend/', meanings: ['朋友'], partOfSpeech: '名词' },
+  { id: 'starter_en_family', language: 'en', headword: 'family', reading: '/ˈfæməli/', meanings: ['家人'], partOfSpeech: '名词' },
+  { id: 'starter_en_cat', language: 'en', headword: 'cat', reading: '/kæt/', meanings: ['猫'], partOfSpeech: '名词' },
+  { id: 'starter_en_dog', language: 'en', headword: 'dog', reading: '/dɔːɡ/', meanings: ['狗'], partOfSpeech: '名词' },
+  { id: 'starter_en_food', language: 'en', headword: 'food', reading: '/fuːd/', meanings: ['食物'], partOfSpeech: '名词' },
+  { id: 'starter_en_apple', language: 'en', headword: 'apple', reading: '/ˈæpl/', meanings: ['苹果'], partOfSpeech: '名词' },
+  { id: 'starter_en_eat', language: 'en', headword: 'eat', reading: '/iːt/', meanings: ['吃'], partOfSpeech: '动词' },
+  { id: 'starter_en_drink', language: 'en', headword: 'drink', reading: '/drɪŋk/', meanings: ['喝'], partOfSpeech: '动词' },
+  { id: 'starter_en_love', language: 'en', headword: 'love', reading: '/lʌv/', meanings: ['爱'], partOfSpeech: '动词' },
+  { id: 'starter_en_morning', language: 'en', headword: 'morning', reading: '/ˈmɔːrnɪŋ/', meanings: ['早晨'], partOfSpeech: '名词' },
+  { id: 'starter_en_night', language: 'en', headword: 'night', reading: '/naɪt/', meanings: ['夜晚'], partOfSpeech: '名词' },
+  { id: 'starter_en_today', language: 'en', headword: 'today', reading: '/təˈdeɪ/', meanings: ['今天'], partOfSpeech: '副词' },
+  { id: 'starter_en_hello', language: 'en', headword: 'hello', reading: '/həˈloʊ/', meanings: ['你好'], partOfSpeech: '感叹词' },
+  { id: 'starter_en_thank', language: 'en', headword: 'thank', reading: '/θæŋk/', meanings: ['感谢'], partOfSpeech: '动词' },
+  { id: 'starter_en_happy', language: 'en', headword: 'happy', reading: '/ˈhæpi/', meanings: ['高兴的'], partOfSpeech: '形容词' },
+  { id: 'starter_en_big', language: 'en', headword: 'big', reading: '/bɪɡ/', meanings: ['大的'], partOfSpeech: '形容词' },
+  { id: 'starter_en_small', language: 'en', headword: 'small', reading: '/smɔːl/', meanings: ['小的'], partOfSpeech: '形容词' },
+  { id: 'starter_en_red', language: 'en', headword: 'red', reading: '/red/', meanings: ['红色的'], partOfSpeech: '形容词' },
+  { id: 'starter_en_home', language: 'en', headword: 'home', reading: '/hoʊm/', meanings: ['家'], partOfSpeech: '名词' },
+  { id: 'starter_en_one', language: 'en', headword: 'one', reading: '/wʌn/', meanings: ['一'], partOfSpeech: '数词' },
 ];

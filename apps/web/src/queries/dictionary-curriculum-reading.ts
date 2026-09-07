@@ -389,6 +389,7 @@ export function useCollectDictionaryEntryMutation(userId = DEFAULT_USER_ID) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'encountered'] });
     },
   });
 }
@@ -440,6 +441,82 @@ export function useDictionaryHistoryQuery(language: 'ja' | 'en' | 'ko', limit = 
       return Array.isArray(data) ? (data as DictionaryHistoryItem[]) : [];
     },
     staleTime: 1000 * 30,
+  });
+}
+
+export type EncounteredTermItem = {
+  userId: string;
+  language: string;
+  termKey: string;
+  headword: string;
+  reading?: string;
+  status: 'new' | 'collected' | 'reviewing' | 'mastered';
+  exposureCount: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  flashcardId?: string;
+};
+
+/** 相遇词热力（查词/收藏/阅读“见过”信号聚合，按最近相遇倒序）。 */
+export function useEncounteredTermsQuery(language: 'ja' | 'en' | 'ko', limit = 50) {
+  const profileUserId = useUserProfileStore((s) => s.profile.userId || DEFAULT_USER_ID);
+  return useQuery<EncounteredTermItem[]>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, 'encountered', language, profileUserId],
+    queryFn: async () => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/encountered-terms/${encodeURIComponent(profileUserId)}?lang=${language}&limit=${limit}`
+      );
+      if (!response.ok) return [];
+      const data: unknown = await response.json().catch(() => null);
+      if (!Array.isArray(data)) return [];
+      return (data as Array<Record<string, unknown>>)
+        .filter((r) => typeof r.headword === 'string' && typeof r.termKey === 'string')
+        .map((r): EncounteredTermItem => ({
+          userId: typeof r.userId === 'string' ? r.userId : '',
+          language: typeof r.language === 'string' ? r.language : language,
+          termKey: r.termKey as string,
+          headword: r.headword as string,
+          status:
+            r.status === 'collected' || r.status === 'reviewing' || r.status === 'mastered'
+              ? r.status
+              : ('new' as const),
+          exposureCount: typeof r.exposureCount === 'number' ? r.exposureCount : 1,
+          firstSeenAt: typeof r.firstSeenAt === 'string' ? r.firstSeenAt : '',
+          lastSeenAt: typeof r.lastSeenAt === 'string' ? r.lastSeenAt : '',
+          ...(typeof r.reading === 'string' ? { reading: r.reading } : {}),
+          ...(typeof r.flashcardId === 'string' ? { flashcardId: r.flashcardId } : {}),
+        }));
+    },
+    staleTime: 1000 * 30,
+  });
+}
+
+/** 查词历史冷启动回填相遇词（幂等；老用户一键点亮热力）。 */
+export function useBackfillEncounteredTermsMutation(language: 'ja' | 'en' | 'ko') {
+  const queryClient = useQueryClient();
+  const profileUserId = useUserProfileStore((s) => s.profile.userId || DEFAULT_USER_ID);
+  return useMutation({
+    mutationFn: async (): Promise<{ terms: number; occurrences: number }> => {
+      const response = await fetch(
+        `${GATEWAY_BASE_URL}/api/encountered-terms/${encodeURIComponent(profileUserId)}/backfill?lang=${language}`,
+        { method: 'POST' }
+      );
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(body?.error?.userMessage ?? '回填失败，请稍后重试。');
+      }
+      const data: unknown = await response.json().catch(() => null);
+      const rec = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+      return {
+        terms: typeof rec.terms === 'number' ? rec.terms : 0,
+        occurrences: typeof rec.occurrences === 'number' ? rec.occurrences : 0,
+      };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DICTIONARY });
+    },
   });
 }
 
