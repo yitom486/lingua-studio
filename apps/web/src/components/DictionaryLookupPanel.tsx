@@ -64,6 +64,7 @@ type LookupEntry = {
   partOfSpeech?: string;
   pronunciation?: Record<string, unknown>;
   frequency?: number;
+  frequencies?: Array<{ source: string; value: number }>;
   inflectionNote?: string;
   meanings: string[];
   sourceLabel: string;
@@ -247,6 +248,14 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                         <Badge variant="secondary" className="font-mono" title="词频（数字越小越常用）">
                           #{entry.frequency}
                         </Badge>
+                      )}
+                      {entry.frequencies && entry.frequencies.length > 0 && (
+                        <span
+                          className="font-mono text-[10px] text-stone-400 dark:text-stone-500"
+                          title="各来源词频（数字越小越常用）"
+                        >
+                          {entry.frequencies.map((f) => `${f.source} ${f.value}`).join(' · ')}
+                        </span>
                       )}
                     </div>
                     {entry.inflectionNote && (

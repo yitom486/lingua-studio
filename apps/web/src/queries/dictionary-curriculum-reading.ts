@@ -213,6 +213,8 @@ export type DictionaryLookupResult = {
     inflectionNote?: string;
     /** 词频（数字越小越常用；无词频数据时无） */
     frequency?: number;
+    /** 按来源的词频行（值升序，最多 4 条；无数据时无） */
+    frequencies?: Array<{ source: string; value: number }>;
   }>;
   externalLookup?: {
     provider: 'OJAD';

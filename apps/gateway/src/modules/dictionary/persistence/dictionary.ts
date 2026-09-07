@@ -35,6 +35,8 @@ export interface LocalDictionaryEntry {
   inflectionNote?: string | undefined;
   /** 词频（数字越小越常用；无词频数据时为空） */
   frequency?: number | undefined;
+  /** 按来源的词频行（值升序，最多 4 条；无数据时为空） */
+  frequencies?: Array<{ source: string; value: number }> | undefined;
 }
 
 /** 词典资产被收集为用户 FSRS 生词卡后的领域结果；不依赖任何具体界面。 */
@@ -203,13 +205,14 @@ export async function rankDictionaryEntries(
   signals?: Map<string, { posRank: number; depth: number }>
 ): Promise<LocalDictionaryEntry[]> {
   if (entries.length === 0) return entries;
-  let sourceRows: Array<{ id: string; enabled: number; priority: number }>;
+  let sourceRows: Array<{ id: string; enabled: number; priority: number; provider: string }>;
   try {
     sourceRows = await deps.db
       .select({
         id: dictionarySources.id,
         enabled: dictionarySources.enabled,
         priority: dictionarySources.priority,
+        provider: dictionarySources.provider,
       })
       .from(dictionarySources);
   } catch {
@@ -227,21 +230,33 @@ export async function rankDictionaryEntries(
     const conf = config.get(sourceId);
     return !conf || conf.enabled !== 0;
   });
-  // 词频：按（词面，读音）取最小值
+  // 词频：按（词面，读音）取最小值；同时收集按来源的频率行（供面板多来源展示）
   let freqByKey = new Map<string, number>();
+  let freqRowsByKey = new Map<string, Array<{ source: string; value: number }>>();
   try {
     const terms = [...new Set(filtered.map(({ entry }) => entry.headword))];
     if (terms.length > 0) {
       const placeholders = terms.map(() => '?').join(',');
       const rows = deps.sqlite
-        .query(`SELECT term, reading, MIN(freq_value) AS f FROM dictionary_term_meta WHERE term IN (${placeholders}) GROUP BY term, reading`)
-        .all(...terms) as Array<{ term: string; reading: string; f: number | null }>;
+        .query(`SELECT term, reading, source_id, freq_value FROM dictionary_term_meta WHERE term IN (${placeholders}) AND freq_value IS NOT NULL`)
+        .all(...terms) as Array<{ term: string; reading: string; source_id: string; freq_value: number }>;
+      const byKey = new Map<string, Array<{ source: string; value: number }>>();
       for (const r of rows) {
-        if (typeof r.f === 'number') freqByKey.set(`${r.term}\n${r.reading}`, r.f);
+        if (typeof r.freq_value !== 'number') continue;
+        const key = `${r.term}\n${r.reading ?? ''}`;
+        const list = byKey.get(key) ?? [];
+        list.push({ source: r.source_id, value: r.freq_value });
+        byKey.set(key, list);
+      }
+      for (const [key, list] of byKey) {
+        list.sort((a, b) => a.value - b.value);
+        if (list[0]) freqByKey.set(key, list[0].value);
+        freqRowsByKey.set(key, list.slice(0, 4));
       }
     }
   } catch {
     freqByKey = new Map();
+    freqRowsByKey = new Map();
   }
   const freqOf = (e: LocalDictionaryEntry): number | null => {
     const reading = e.reading ?? '';
@@ -250,8 +265,17 @@ export async function rankDictionaryEntries(
   const decorated = filtered.map(({ entry, index, sourceId }) => {
     const conf = sourceId ? config.get(sourceId) : undefined;
     const frequency = freqOf(entry);
+    // 按来源频率行：来源名用短 provider（过长回退 source_id，保证可读）
+    const freqKey = `${entry.headword}\n${entry.reading ?? ''}`;
+    const rawRows = freqRowsByKey.get(freqKey) ?? freqRowsByKey.get(`${entry.headword}\n`) ?? [];
+    const frequencies = rawRows.map((r) => {
+      const provider = config.get(r.source)?.provider;
+      const source = provider && provider.length <= 16 ? provider : r.source;
+      return { source, value: r.value };
+    });
+    const withFreq = frequency === null ? entry : { ...entry, frequency };
     return {
-      entry: frequency === null ? entry : { ...entry, frequency },
+      entry: frequencies.length > 0 ? { ...withFreq, frequencies } : withFreq,
       index,
       priority: conf?.priority ?? 0,
       frequency,

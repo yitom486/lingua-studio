@@ -137,8 +137,7 @@ describe('查词排序：词频升序 + 来源优先级', () => {
   });
 });
 
-describe('updateDictionarySourceConfig', () => {
-  let repo: DrizzleLearnerRepository;
+describe('updateDictionarySourceConfig', () => {  let repo: DrizzleLearnerRepository;
   beforeEach(() => {
     repo = new DrizzleLearnerRepository(':memory:');
     seedSource(repo, { id: 's-cfg' });
@@ -160,5 +159,51 @@ describe('updateDictionarySourceConfig', () => {
     expect(isOk(await repo.updateDictionarySourceConfig('s-cfg', {}))).toBe(false);
     expect(isOk(await repo.updateDictionarySourceConfig('s-cfg', { priority: -1 }))).toBe(false);
     expect(isOk(await repo.updateDictionarySourceConfig('s-cfg', { priority: 1000 }))).toBe(false);
+  });
+});
+
+describe('按来源频率行透出', () => {
+  let repo: DrizzleLearnerRepository;
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+    repo.getRawDb().run('DELETE FROM local_dictionary_entries');
+    seedEntry(repo, { id: 'w_multi', headword: '頻度語', reading: 'ひん', meanings: ['freq'] });
+    seedEntry(repo, { id: 'w_plain', headword: '無頻度語', reading: 'むひ', meanings: ['plain'] });
+    // 短 provider 名原样展示；长 provider 回退 source_id
+    repo.getRawDb().prepare(
+      `INSERT INTO dictionary_sources (id, language, provider, version, source_url, license_name, license_url, attribution, entry_count, imported_at)
+       VALUES ('f-short', 'ja', '短来源', 'v1', '', '', '', '', 0, ?)`
+    ).run(new Date().toISOString());
+    repo.getRawDb().prepare(
+      `INSERT INTO dictionary_sources (id, language, provider, version, source_url, license_name, license_url, attribution, entry_count, imported_at)
+       VALUES ('f-very-long-source-id', 'ja', '一个非常非常长的来源名称超过十六字', 'v1', '', '', '', '', 0, ?)`
+    ).run(new Date().toISOString());
+    seedFreq(repo, { term: '頻度語', reading: 'ひん', frequency: 900, source: 'f-short' });
+    seedFreq(repo, { term: '頻度語', reading: 'ひん', frequency: 50, source: 'f-very-long-source-id' });
+    seedFreq(repo, { term: '頻度語', reading: 'ひん', frequency: 300, source: 'f-ghost' });
+  });
+
+  it('值升序、标签短名优先、最小值仍进 frequency', async () => {
+    const res = await repo.searchLocalDictionary('ja', '頻度語');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    const entry = res.value.find((e) => e.headword === '頻度語');
+    expect(entry?.frequency).toBe(50);
+    expect(entry?.frequencies).toEqual([
+      { source: 'f-very-long-source-id', value: 50 },
+      { source: 'f-ghost', value: 300 },
+      { source: '短来源', value: 900 },
+    ]);
+  });
+
+  it('无词频数据时 frequencies 缺省（不占位）', async () => {
+    const res = await repo.searchLocalDictionary('ja', '無頻度語');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.length).toBeGreaterThan(0);
+    for (const e of res.value) {
+      expect(e.frequencies).toBeUndefined();
+      expect(e.frequency).toBeUndefined();
+    }
   });
 });
