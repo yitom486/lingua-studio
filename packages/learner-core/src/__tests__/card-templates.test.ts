@@ -99,9 +99,11 @@ describe('buildCardContext + renderCard end-to-end', () => {
       reading: 'たべる',
       meanings: ['to eat', 'to live'],
       pitchLabel: '⓪',
+      pitchPositions: [0],
       frequency: 123,
       sentence: 'ご飯を食べる。',
     });
+    expect(ctx.pitchGraph).toContain('<svg');
     const builtin = getBuiltinCardFormat('study-basic');
     expect(builtin).toBeDefined();
     const rendered = renderCard(builtin!, ctx);
@@ -110,6 +112,7 @@ describe('buildCardContext + renderCard end-to-end', () => {
     expect(rendered.backHtml).toContain('たべる');
     expect(rendered.backHtml).toContain('to eat');
     expect(rendered.backHtml).toContain('⓪');
+    expect(rendered.backHtml).toContain('<svg');
     expect(rendered.backHtml).toContain('ご飯を食べる。');
   });
 

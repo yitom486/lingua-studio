@@ -53,30 +53,49 @@ export function toCardFormat(row: CardFormatRow): AnkiCardFormat {
   return format;
 }
 
-/** 内置模板懒播种（缺哪行补哪行；用户行不动）。 */
+/** 内置模板懒播种（缺哪行补哪行；用户行不动；未改过的旧版行自动跟进内置）。 */
 export async function ensureBuiltinCardFormats(
   deps: RepoDeps
 ): Promise<Result<void, BusinessError>> {
   try {
-    const rows = await deps.db.select({ id: ankiCardFormats.id }).from(ankiCardFormats);
-    const existing = new Set(rows.map((r) => r.id));
+    const rows = await deps.db.select().from(ankiCardFormats);
+    const byId = new Map(rows.map((r) => [r.id, r]));
     const now = nowIso();
     for (const builtin of BUILTIN_CARD_FORMATS) {
-      if (existing.has(builtin.id)) continue;
-      await deps.db.insert(ankiCardFormats).values({
-        id: builtin.id,
-        name: builtin.name,
-        entryType: builtin.entryType,
-        deckName: builtin.deckName ?? null,
-        modelName: builtin.modelName ?? null,
-        fieldsJson: JSON.stringify(builtin.fields),
-        frontTemplate: builtin.frontTemplate,
-        backTemplate: builtin.backTemplate,
-        css: builtin.css,
-        templateVersion: builtin.templateVersion,
-        userModified: 0,
-        updatedAt: now,
-      });
+      const existing = byId.get(builtin.id);
+      if (!existing) {
+        await deps.db.insert(ankiCardFormats).values({
+          id: builtin.id,
+          name: builtin.name,
+          entryType: builtin.entryType,
+          deckName: builtin.deckName ?? null,
+          modelName: builtin.modelName ?? null,
+          fieldsJson: JSON.stringify(builtin.fields),
+          frontTemplate: builtin.frontTemplate,
+          backTemplate: builtin.backTemplate,
+          css: builtin.css,
+          templateVersion: builtin.templateVersion,
+          userModified: 0,
+          updatedAt: now,
+        });
+      } else if (existing.userModified === 0 && existing.templateVersion < builtin.templateVersion) {
+        // 用户没改过：跟进内置新版（如声调阶梯图字段）；改过的一律不动。
+        await deps.db
+          .update(ankiCardFormats)
+          .set({
+            name: builtin.name,
+            entryType: builtin.entryType,
+            deckName: builtin.deckName ?? null,
+            modelName: builtin.modelName ?? null,
+            fieldsJson: JSON.stringify(builtin.fields),
+            frontTemplate: builtin.frontTemplate,
+            backTemplate: builtin.backTemplate,
+            css: builtin.css,
+            templateVersion: builtin.templateVersion,
+            updatedAt: now,
+          })
+          .where(eq(ankiCardFormats.id, builtin.id));
+      }
     }
     return ok(undefined);
   } catch (e) {

@@ -11,6 +11,7 @@ import {
   type AnkiPushTts,
 } from '../queries/useLearnerQueries.js';
 import { useTtsStore } from '../stores/useTtsStore.js';
+import { buildPitchGraphSvg } from '@study-studio/learner-core';
 import { QUERY_KEYS } from '../queries/query-keys.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
@@ -21,13 +22,39 @@ type DictionaryLookupPanelProps = {
   helper: string;
 };
 
-/** pronunciation.pitch.label 安全抽取（结构不对返回 null，不抛）。 */
-function pitchLabelOf(pronunciation: unknown): string | null {
+/** pronunciation.pitch 安全抽取（label + positions；结构不对返回 null，不抛）。 */
+function pitchInfoOf(pronunciation: unknown): { label: string; positions: number[] } | null {
   if (typeof pronunciation !== 'object' || pronunciation === null) return null;
   const pitch: unknown = (pronunciation as { pitch?: unknown }).pitch;
   if (typeof pitch !== 'object' || pitch === null) return null;
-  const label: unknown = (pitch as { label?: unknown }).label;
-  return typeof label === 'string' && label ? label : null;
+  const rec = pitch as { label?: unknown; positions?: unknown };
+  if (typeof rec.label !== 'string' || !rec.label) return null;
+  const positions = Array.isArray(rec.positions)
+    ? rec.positions.filter((p): p is number => typeof p === 'number' && Number.isFinite(p) && p >= 0)
+    : [];
+  return { label: rec.label, positions };
+}
+
+/** 声调徽标 + 迷你阶梯图（SVG 为本地生成，读音已转义；无核位置时只显示徽标）。 */
+function PitchBadge({ pronunciation, reading }: { pronunciation: unknown; reading?: string }) {
+  const info = pitchInfoOf(pronunciation);
+  if (!info) return null;
+  const graph =
+    reading && info.positions.length > 0 ? buildPitchGraphSvg(reading, info.positions, { label: info.label }) : '';
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Badge variant="amber" className="font-mono">
+        声调 {info.label}
+      </Badge>
+      {graph && (
+        <span
+          className="inline-flex items-center rounded-md border border-amber-500/25 bg-white px-1 dark:bg-stone-900 [&_svg]:h-7 [&_svg]:w-auto"
+          title={`声调阶梯（${reading} ${info.label}）`}
+          dangerouslySetInnerHTML={{ __html: graph }}
+        />
+      )}
+    </span>
+  );
 }
 
 type LookupEntry = {
@@ -212,14 +239,10 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                         </span>
                       )}
                       {entry.partOfSpeech && <Badge variant="outline">{entry.partOfSpeech}</Badge>}
-                      {(() => {
-                        const label = pitchLabelOf(entry.pronunciation);
-                        return label ? (
-                          <Badge variant="amber" className="font-mono">
-                            声调 {label}
-                          </Badge>
-                        ) : null;
-                      })()}
+                      <PitchBadge
+                        pronunciation={entry.pronunciation}
+                        {...(entry.reading ? { reading: entry.reading } : {})}
+                      />
                       {typeof entry.frequency === 'number' && (
                         <Badge variant="secondary" className="font-mono" title="词频（数字越小越常用）">
                           #{entry.frequency}

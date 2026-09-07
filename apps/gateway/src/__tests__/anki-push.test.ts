@@ -304,6 +304,9 @@ describe('pushCardToAnki end-to-end (stub AnkiConnect over loopback HTTP)', () =
     expect(noteFields?.['Reading']).toBe('たべる');
     expect(noteFields?.['Meaning']).toContain('to eat');
     expect(noteFields?.['Audio']).toBe(`[sound:${mediaFiles[0]?.filename}]`);
+    // 声调阶梯图随 Pitch 字段推送
+    expect(noteFields?.['Pitch']).toContain('⓪');
+    expect(noteFields?.['Pitch']).toContain('<svg');
   });
 
   it('Anki 未打开 → E_ANKI_UNREACHABLE（可重试中文错）', async () => {

@@ -7,6 +7,8 @@
  * 两层绝不合并：同一份 Note Fields 既可在应用内预览，也可导出到 Anki。
  */
 
+import { buildPitchGraphSvg } from './pitch-graph.js';
+
 /** v1 字段标记清单（白名单；未知标记原样保留并由校验上报）。 */
 export const FIELD_MARKERS = [
   'expression',
@@ -17,6 +19,7 @@ export const FIELD_MARKERS = [
   'tags',
   'url',
   'pitch-accent',
+  'pitch-graph',
   'frequency',
   'furigana',
 ] as const;
@@ -39,6 +42,8 @@ export interface CardContext {
   url?: string | undefined;
   /** 声调 HTML（调用方组装，原样插入不转义）。 */
   pitchAccent?: string | undefined;
+  /** 声调阶梯 SVG（buildCardContext 由 reading+pitchPositions 自动生成，原样插入）。 */
+  pitchGraph?: string | undefined;
   /** 词频（数字越小越常用）。 */
   frequency?: number | undefined;
   /** 带读音的词面（如振假名 HTML）；缺省回退 expression。 */
@@ -53,6 +58,8 @@ export interface CardSourceEntry {
   meanings: string[];
   partOfSpeech?: string | undefined;
   pitchLabel?: string | undefined;
+  /** 声调核位置（0=平板，1=头高，k=第 k 拍后降；供声调阶梯图）。 */
+  pitchPositions?: number[] | undefined;
   frequency?: number | undefined;
   sentence?: string | undefined;
   sourceUrl?: string | undefined;
@@ -106,6 +113,12 @@ export function buildCardContext(entry: CardSourceEntry): CardContext {
   if (entry.sourceUrl) ctx.url = entry.sourceUrl;
   if (entry.pitchLabel) ctx.pitchAccent = entry.pitchLabel;
   if (typeof entry.frequency === 'number') ctx.frequency = entry.frequency;
+  if (entry.reading && entry.pitchPositions && entry.pitchPositions.length > 0) {
+    const graph = buildPitchGraphSvg(entry.reading, entry.pitchPositions, {
+      ...(entry.pitchLabel ? { label: entry.pitchLabel } : {}),
+    });
+    if (graph) ctx.pitchGraph = graph;
+  }
   return ctx;
 }
 
@@ -130,6 +143,8 @@ function resolveMarker(marker: string, ctx: CardContext): string | undefined {
       return ctx.url ? escapeHtml(ctx.url) : undefined;
     case 'pitch-accent':
       return ctx.pitchAccent;
+    case 'pitch-graph':
+      return ctx.pitchGraph;
     case 'frequency':
       return typeof ctx.frequency === 'number' ? `#${ctx.frequency}` : undefined;
     case 'furigana':
@@ -378,7 +393,7 @@ export const BUILTIN_CARD_FORMATS: AnkiCardFormat[] = [
       Reading: '{reading}',
       Meaning: '{glossary}',
       Sentence: '{sentence}',
-      Pitch: '{pitch-accent}',
+      Pitch: '{pitch-accent} {pitch-graph}',
     },
     frontTemplate: '<div class="word">{{Expression}}</div>',
     backTemplate: [
@@ -390,7 +405,7 @@ export const BUILTIN_CARD_FORMATS: AnkiCardFormat[] = [
       '{{#Sentence}}<div class="sentence">{{Sentence}}</div>{{/Sentence}}',
     ].join('\n'),
     css: BUILTIN_CSS,
-    templateVersion: 1,
+    templateVersion: 2,
     userModified: false,
   },
 ];

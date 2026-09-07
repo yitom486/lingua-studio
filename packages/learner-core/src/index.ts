@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './card-templates.js';
+export * from './pitch-graph.js';
 export * from './daily-plan.js';
 export * from './practice-plan.js';
 export * from './profile.js';

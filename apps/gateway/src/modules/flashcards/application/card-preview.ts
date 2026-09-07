@@ -56,6 +56,12 @@ export function narrowCardSourceEntry(input: unknown): CardSourceEntry | undefin
   if (typeof v['reading'] === 'string') entry.reading = v['reading'].slice(0, 128);
   if (typeof v['partOfSpeech'] === 'string') entry.partOfSpeech = v['partOfSpeech'].slice(0, 64);
   if (typeof v['pitchLabel'] === 'string') entry.pitchLabel = v['pitchLabel'].slice(0, 256);
+  if (Array.isArray(v['pitchPositions'])) {
+    const positions = v['pitchPositions'].filter(
+      (p): p is number => typeof p === 'number' && Number.isFinite(p) && p >= 0
+    ).slice(0, 8);
+    if (positions.length > 0) entry.pitchPositions = positions;
+  }
   if (typeof v['frequency'] === 'number') entry.frequency = v['frequency'];
   if (typeof v['sentence'] === 'string') entry.sentence = v['sentence'].slice(0, 1000);
   if (typeof v['sourceUrl'] === 'string') entry.sourceUrl = v['sourceUrl'].slice(0, 500);

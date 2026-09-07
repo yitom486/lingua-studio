@@ -28,6 +28,28 @@ describe('card formats persistence', () => {
     expect(res.value.find((f) => f.id === 'study-basic')?.userModified).toBe(false);
   });
 
+  it('未改过的旧版行自动跟进内置；改过的行不动', async () => {
+    const db = repo.getRawDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO anki_card_formats (id, name, entry_type, deck_name, model_name, fields_json, front_template, back_template, css, template_version, user_modified, updated_at)
+       VALUES ('study-basic', '旧名', 'term', NULL, NULL, '{}', 'F', 'B', '', 1, 0, ?)`
+    ).run(now);
+    db.prepare(
+      `INSERT INTO anki_card_formats (id, name, entry_type, deck_name, model_name, fields_json, front_template, back_template, css, template_version, user_modified, updated_at)
+       VALUES ('my-own', '我的', 'term', NULL, NULL, '{"Expression":"{expression}"}', 'F', 'B', '', 1, 1, ?)`
+    ).run(now);
+    const res = await repo.listCardFormats();
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    const builtin = res.value.find((f) => f.id === 'study-basic');
+    expect(builtin?.templateVersion).toBeGreaterThanOrEqual(2);
+    expect(builtin?.name).toBe('Study Studio 基础');
+    expect(builtin?.fields['Pitch']).toContain('{pitch-graph}');
+    const mine = res.value.find((f) => f.id === 'my-own');
+    expect(mine?.name).toBe('我的');
+  });
+
   it('save 新建自定义模板并标 userModified；二次保存版本号递增', async () => {
     const narrowed = narrowSaveCardFormatInput(DRAFT);
     expect(narrowed).toBeDefined();
@@ -97,6 +119,16 @@ describe('previewCardFormat', () => {
     expect(res.value.rendered.frontHtml).toContain('食べる');
     expect(res.value.rendered.backHtml).toContain('to eat');
     expect(res.value.issues).toEqual([]);
+  });
+
+  it('声调核位置透传：Pitch 字段含阶梯图', async () => {
+    const res = await repo.previewCardFormat({
+      entry: { ...entry, pitchLabel: '⓪', pitchPositions: [0] },
+    });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.rendered.fields['Pitch']).toContain('⓪');
+    expect(res.value.rendered.fields['Pitch']).toContain('<svg');
   });
 
   it('inline 草稿只渲染不入库', async () => {

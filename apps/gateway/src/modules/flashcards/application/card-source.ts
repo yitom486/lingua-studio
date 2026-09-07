@@ -21,17 +21,25 @@ export interface ResolvedCardSource {
 }
 
 /** pronunciation_json → 声调 label（结构不对返回 undefined，不抛）。 */
-function pitchLabelOfPronunciation(raw: string | null): string | undefined {
-  if (!raw) return undefined;
+function pitchOfPronunciation(raw: string | null): { label?: string; positions?: number[] } {
+  if (!raw) return {};
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return undefined;
+    if (typeof parsed !== 'object' || parsed === null) return {};
     const pitch: unknown = (parsed as Record<string, unknown>)['pitch'];
-    if (typeof pitch !== 'object' || pitch === null) return undefined;
-    const label: unknown = (pitch as Record<string, unknown>)['label'];
-    return typeof label === 'string' && label ? label : undefined;
+    if (typeof pitch !== 'object' || pitch === null) return {};
+    const rec = pitch as Record<string, unknown>;
+    const out: { label?: string; positions?: number[] } = {};
+    if (typeof rec['label'] === 'string' && rec['label']) out.label = rec['label'];
+    if (Array.isArray(rec['positions'])) {
+      const positions = rec['positions'].filter(
+        (p): p is number => typeof p === 'number' && Number.isFinite(p) && p >= 0
+      );
+      if (positions.length > 0) out.positions = positions;
+    }
+    return out;
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -65,8 +73,10 @@ export async function resolveCardSourceEntry(
   const reading = entry.reading ?? entry.romanization ?? card.phonetic ?? undefined;
   if (reading) source.reading = reading;
   if (entry.partOfSpeech) source.partOfSpeech = entry.partOfSpeech;
-  const pitchLabel = pitchLabelOfPronunciation(entry.pronunciationJson);
-  if (pitchLabel) source.pitchLabel = pitchLabel;
+  const pitch = pitchOfPronunciation(entry.pronunciationJson);
+  if (pitch.label) source.pitchLabel = pitch.label;
+  // 阶梯图需要读音 + 核位置同时在场；缺一即不生成（不臆造图形）。
+  if (pitch.positions && source.reading) source.pitchPositions = pitch.positions;
   sourceLabel = entry.sourceLabel;
   try {
     const metaRows = await deps.db
