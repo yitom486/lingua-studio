@@ -52,7 +52,13 @@ export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
               const fsrsState = rowStr(fsrs, 'state');
               return {
                 id: rowStr(c, 'id'),
-                type: (c.type === 'GRAMMAR' ? 'GRAMMAR' : c.type === 'CONFUSION' ? 'CONFUSION' : 'VOCAB') as StudyCardItem['type'],
+                type: (c.type === 'GRAMMAR'
+                  ? 'GRAMMAR'
+                  : c.type === 'CONFUSION'
+                    ? 'CONFUSION'
+                    : c.type === 'SENTENCE'
+                      ? 'SENTENCE'
+                      : 'VOCAB') as StudyCardItem['type'],
                 frontWord: rowStr(c, 'front'),
                 reading: rowStr(c, 'phonetic'),
                 tag: nthStr(c.tags, 0, '核心词汇'),

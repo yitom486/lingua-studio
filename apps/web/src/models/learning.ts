@@ -19,7 +19,7 @@ export interface QuizQuestionItem {
 
 export interface StudyCardItem {
   id: string;
-  type: 'VOCAB' | 'GRAMMAR' | 'CONFUSION';
+  type: 'VOCAB' | 'GRAMMAR' | 'CONFUSION' | 'SENTENCE';
   frontWord: string;
   reading: string;
   tag: string;

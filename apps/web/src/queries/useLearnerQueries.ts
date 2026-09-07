@@ -10,7 +10,7 @@ export { useLearnerProfileQuery, useDailyTaskQuery, useDailyPlanQuery, useComple
 export { useCardsQuery, useAddCardsMutation, useUpdateCardMutation, vocabToStudyCard, useMistakesQuery, useUpdateMistakeMutation, useAddMistakeMutation, useQuestionsQuery, usePrependQuestionMutation, useMarkCardStudiedMutation } from './cards-mistakes-questions.js';
 
 // 生词草稿箱组已下沉 flashcards-drafts.ts（提议由网关/AI 侧写入，前端只确认）。
-export { useCardDraftsQuery, useUpdateCardDraftMutation, useAcceptCardDraftMutation, useDismissCardDraftMutation, type CardDraftItem } from './flashcards-drafts.js';
+export { useCardDraftsQuery, useUpdateCardDraftMutation, useAcceptCardDraftMutation, useDismissCardDraftMutation, useProposeCardDraftMutation, type CardDraftItem, type ProposeDraftVars } from './flashcards-drafts.js';
 
 // P1-2 拆分注：usePrependQuestionMutation / useAddCardsMutation / useUpdateCardMutation / useUpdateMistakeMutation / useAddMistakeMutation 已下沉 cards-mistakes-questions.ts，见文件顶部 barrel 重导出。
 // 双传输收敛：同名 useSubmitQuizMutation 只保留 useAgentMutations 的 WS 版（HTTP 记足迹版零消费已删除）。

@@ -13,15 +13,19 @@ import type {
 } from '../persistence/card-drafts.js';
 
 const DraftSourceSchema = z.enum(['ai-enrich', 'agent', 'import']);
+const DraftKindSchema = z.enum(['word', 'sentence']).optional();
+const DraftCardTypeSchema = z.enum(['VOCABULARY', 'GRAMMAR', 'CONFUSION_PAIR', 'SENTENCE']).optional();
 
 const DraftItemSchema = z.object({
   language: z.enum(['ja', 'en', 'ko']),
-  headword: z.string().min(1).max(64),
+  headword: z.string().min(1).max(500),
   reading: z.string().max(64).optional(),
   meanings: z.array(z.string()).min(1).max(12),
   partOfSpeech: z.string().max(32).optional(),
   source: DraftSourceSchema,
   sourceRef: z.string().max(256).optional(),
+  kind: DraftKindSchema,
+  cardType: DraftCardTypeSchema,
 });
 
 const DraftProposeSchema = z.object({

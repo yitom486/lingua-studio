@@ -14,20 +14,31 @@ import {
   buildTermKey,
   recordTermExposure,
 } from '../../dictionary/persistence/encountered-terms.js';
+import { CardTypeSchema, type CardType } from '@study-studio/protocol';
 
 /**
  * 生词草稿（CardDraft）域：AI/导入提议 → 用户逐字段确认 → 入库成卡。
  * - 去重键 (user_id, language, term_key, source_ref)：同一来源重复提议跳过，
  *   已有 pending 草稿绝不覆写——用户已编辑字段默认禁止覆盖（字段锁语义雏形）；
+ * - kind=word 走单词链（accept 回填相遇词）；kind=sentence 走句子链
+ *   （accept 不记相遇词——整句进相遇词是污染，见 STATIC #54 规则）；
  * - accept 与建卡 + 相遇词回填同事务；任一步失败整单回滚并如实报错。
  */
 
 export type CardDraftSource = 'ai-enrich' | 'agent' | 'import';
 export type CardDraftStatus = 'pending' | 'accepted' | 'dismissed';
+export type CardDraftKind = 'word' | 'sentence';
 
 const SUPPORTED_LANGUAGES = new Set(['ja', 'en', 'ko']);
 const SUPPORTED_SOURCES: ReadonlySet<string> = new Set(['ai-enrich', 'agent', 'import']);
 const SUPPORTED_STATUSES: ReadonlySet<string> = new Set(['pending', 'accepted', 'dismissed']);
+const SUPPORTED_KINDS: ReadonlySet<string> = new Set(['word', 'sentence']);
+const SUPPORTED_CARD_TYPES: ReadonlySet<string> = new Set([
+  'VOCABULARY',
+  'GRAMMAR',
+  'CONFUSION_PAIR',
+  'SENTENCE',
+]);
 const EDITABLE_FIELDS = new Set(['headword', 'reading', 'meanings', 'partOfSpeech']);
 
 export interface CardDraft {
@@ -41,6 +52,8 @@ export interface CardDraft {
   partOfSpeech?: string | undefined;
   source: CardDraftSource;
   sourceRef?: string | undefined;
+  kind: CardDraftKind;
+  cardType: CardType;
   status: CardDraftStatus;
   editedFields: string[];
   flashcardId?: string | undefined;
@@ -57,6 +70,8 @@ export interface ProposeCardDraftInput {
   partOfSpeech?: string | undefined;
   source: CardDraftSource;
   sourceRef?: string | undefined;
+  kind?: CardDraftKind | undefined;
+  cardType?: CardType | undefined;
 }
 
 interface CardDraftRow {
@@ -70,6 +85,8 @@ interface CardDraftRow {
   part_of_speech: string | null;
   source: string;
   source_ref: string | null;
+  kind: string | null;
+  card_type: string | null;
   status: string;
   edited_fields_json: string;
   flashcard_id: string | null;
@@ -89,6 +106,8 @@ function parseStringArray(raw: string | null): string[] {
 }
 
 function toCardDraft(row: CardDraftRow): CardDraft {
+  const kind: CardDraftKind = row.kind === 'sentence' ? 'sentence' : 'word';
+  const parsedType = typeof row.card_type === 'string' ? CardTypeSchema.safeParse(row.card_type) : null;
   const draft: CardDraft = {
     id: row.id,
     userId: row.user_id,
@@ -97,6 +116,13 @@ function toCardDraft(row: CardDraftRow): CardDraft {
     headword: row.headword,
     meanings: parseStringArray(row.meanings_json),
     source: SUPPORTED_SOURCES.has(row.source) ? (row.source as CardDraftSource) : 'agent',
+    kind,
+    cardType:
+      parsedType && parsedType.success
+        ? parsedType.data
+        : kind === 'sentence'
+          ? 'SENTENCE'
+          : 'VOCABULARY',
     status: SUPPORTED_STATUSES.has(row.status) ? (row.status as CardDraftStatus) : 'pending',
     editedFields: parseStringArray(row.edited_fields_json),
     createdAt: row.created_at,
@@ -110,7 +136,7 @@ function toCardDraft(row: CardDraftRow): CardDraft {
 }
 
 const DRAFT_COLUMNS = `id, user_id, language, term_key, headword, reading, meanings_json,
-  part_of_speech, source, source_ref, status, edited_fields_json, flashcard_id, created_at, updated_at`;
+  part_of_speech, source, source_ref, kind, card_type, status, edited_fields_json, flashcard_id, created_at, updated_at`;
 
 interface NarrowedPropose {
   userId: string;
@@ -121,6 +147,8 @@ interface NarrowedPropose {
   partOfSpeech?: string | undefined;
   source: CardDraftSource;
   sourceRef?: string | undefined;
+  kind: CardDraftKind;
+  cardType: CardType;
 }
 
 function narrowProposeInput(
@@ -136,13 +164,26 @@ function narrowProposeInput(
       error: new BusinessError('E_INVALID_INPUT', 'language 必须为 ja/en/ko', 'VALIDATION'),
     };
   }
-  const headword = input.headword.trim().slice(0, 64);
+  if (input.kind !== undefined && !SUPPORTED_KINDS.has(input.kind)) {
+    return { ok: false, error: new BusinessError('E_INVALID_INPUT', 'kind 非法', 'VALIDATION') };
+  }
+  const kind: CardDraftKind = input.kind ?? 'word';
+  // 词面长度按 kind 收敛：单词 64，句子 500（课文长句不断尾；键冲突由去重守卫兜底）。
+  const headword = input.headword.trim().slice(0, kind === 'sentence' ? 500 : 64);
   if (!headword) {
     return { ok: false, error: new BusinessError('E_INVALID_INPUT', 'headword 为空', 'VALIDATION') };
   }
   if (!SUPPORTED_SOURCES.has(input.source)) {
     return { ok: false, error: new BusinessError('E_INVALID_INPUT', 'source 非法', 'VALIDATION') };
   }
+  if (input.cardType !== undefined) {
+    const parsed = CardTypeSchema.safeParse(input.cardType);
+    if (!parsed.success) {
+      return { ok: false, error: new BusinessError('E_INVALID_INPUT', 'cardType 非法', 'VALIDATION') };
+    }
+  }
+  const cardType: CardType =
+    input.cardType ?? (kind === 'sentence' ? 'SENTENCE' : 'VOCABULARY');
   const meanings = input.meanings
     .filter((m) => typeof m === 'string')
     .map((m) => m.trim())
@@ -162,6 +203,8 @@ function narrowProposeInput(
       headword,
       meanings,
       source: input.source,
+      kind,
+      cardType,
       ...(input.reading !== undefined ? { reading: input.reading } : {}),
       ...(input.partOfSpeech !== undefined ? { partOfSpeech: input.partOfSpeech } : {}),
       ...(input.sourceRef !== undefined ? { sourceRef: input.sourceRef } : {}),
@@ -204,9 +247,9 @@ export async function proposeCardDrafts(
           .query(
             `INSERT INTO card_drafts
                (id, user_id, language, term_key, headword, reading, meanings_json,
-                part_of_speech, source, source_ref, status, edited_fields_json,
+                part_of_speech, source, source_ref, kind, card_type, status, edited_fields_json,
                 flashcard_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '[]', NULL, ?, ?)`
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', '[]', NULL, ?, ?)`
           )
           .run(
             id,
@@ -219,6 +262,8 @@ export async function proposeCardDrafts(
             (value.partOfSpeech ?? '').trim() ? (value.partOfSpeech ?? '').trim() : null,
             value.source,
             sourceRef ? sourceRef : null,
+            value.kind,
+            value.cardType,
             now,
             now
           );
@@ -345,9 +390,10 @@ export async function updateCardDraft(
       return err(new BusinessError('E_INVALID_INPUT', '没有可更新的字段', 'VALIDATION'));
     }
     // 改表记/读音即改键：新键若撞其他 pending 同源草稿则拒绝（防分叉）。
+    const headLimit = draft.kind === 'sentence' ? 500 : 64;
     const newHeadword =
       typeof patch.headword === 'string' && patch.headword.trim()
-        ? patch.headword.trim().slice(0, 64)
+        ? patch.headword.trim().slice(0, headLimit)
         : draft.headword;
     const newReading =
       typeof patch.reading === 'string' ? patch.reading.trim().slice(0, 64) : (draft.reading ?? '');
@@ -395,8 +441,9 @@ export async function updateCardDraft(
 }
 
 /**
- * 接受草稿入库（仅 pending）：建 VOCABULARY 卡 + 相遇词回填 + 草稿 accepted 同事务。
+ * 接受草稿入库（仅 pending）：按草稿 cardType 建卡 + 相遇词回填 + 草稿 accepted 同事务。
  * 用改后字段建卡；用户编辑过的字段即最终值，AI 不再有机会覆盖。
+ * 句子草稿不回填相遇词（整句进“见过”信号是污染）。
  */
 export async function acceptCardDraft(
   deps: RepoDeps,
@@ -434,16 +481,21 @@ export async function acceptCardDraft(
           `INSERT INTO flashcards
              (id, user_id, language, type, front, back, phonetic, audio_url,
               source_entry_id, tags, fsrs, studied_at)
-           VALUES (?, ?, ?, 'VOCABULARY', ?, ?, ?, NULL, NULL, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`
         )
         .run(
           cardId,
           uid,
           draft.language,
+          draft.cardType,
           draft.headword,
           draft.meanings.join('；'),
           draft.reading ?? null,
-          JSON.stringify(['草稿接受', draft.source, draft.partOfSpeech ?? '词汇']),
+          JSON.stringify([
+            '草稿接受',
+            draft.source,
+            draft.partOfSpeech ?? (draft.kind === 'sentence' ? '句子' : '词汇'),
+          ]),
           fsrs,
           // 草稿接受=用户逐字段确认过，天然讲透
           now
@@ -457,20 +509,23 @@ export async function acceptCardDraft(
     });
     tx();
     // 相遇词回填与 collect 漏斗同级：失败只 warn，不推翻已建的卡。
-    const exposure = await recordTermExposure(deps, {
-      userId: uid,
-      language: draft.language,
-      headword: draft.headword,
-      ...(draft.reading ? { reading: draft.reading } : {}),
-      source: draft.source === 'import' ? 'import' : 'collect',
-      markCollected: true,
-      flashcardId: cardId,
-    });
-    if (!isOk(exposure)) {
-      logger.warn('[card-drafts] accept exposure hook failed', {
-        code: exposure.error.code,
-        draftId,
+    // 句子草稿跳过（整句不是“词”，进相遇词是污染）。
+    if (draft.kind !== 'sentence') {
+      const exposure = await recordTermExposure(deps, {
+        userId: uid,
+        language: draft.language,
+        headword: draft.headword,
+        ...(draft.reading ? { reading: draft.reading } : {}),
+        source: draft.source === 'import' ? 'import' : 'collect',
+        markCollected: true,
+        flashcardId: cardId,
       });
+      if (!isOk(exposure)) {
+        logger.warn('[card-drafts] accept exposure hook failed', {
+          code: exposure.error.code,
+          draftId,
+        });
+      }
     }
     const updated = deps.sqlite
       .query(`SELECT ${DRAFT_COLUMNS} FROM card_drafts WHERE id = ?`)

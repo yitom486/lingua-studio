@@ -29,7 +29,7 @@ import {
 } from '../lib/selection-text.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import type { TextbookBook, TextbookLesson, TextbookVocabulary, FuriganaWord } from '../models/textbook.js';
-import { useAnnotationsQuery, useAddAnnotationMutation, useReadingPositionQuery, useSaveReadingPositionMutation } from '../queries/useLearnerQueries.js';
+import { useAnnotationsQuery, useAddAnnotationMutation, useReadingPositionQuery, useSaveReadingPositionMutation, useProposeCardDraftMutation } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -72,6 +72,42 @@ export function InteractivePdfReader({
   // 划线批注持久化查询与新增
   const { data: annotationsList = [] } = useAnnotationsQuery(book.id);
   const addAnnotation = useAddAnnotationMutation();
+  // 句子草稿提议（课文收句子 → 草稿箱确认 → 句子卡；接受时不记相遇词）
+  const proposeDraft = useProposeCardDraftMutation();
+  const handleCollectSentence = (sentence: string, translation: string) => {
+    if (proposeDraft.isPending) return;
+    const text = sentence.trim();
+    if (!text) return;
+    sound.playClick();
+    proposeDraft.mutate(
+      {
+        drafts: [
+          {
+            language: book.language === 'EN' ? 'en' : book.language === 'KO' ? 'ko' : 'ja',
+            headword: text.slice(0, 500),
+            meanings: [translation.trim() || '(译文待补)'],
+            partOfSpeech: '课文句子',
+            source: 'import',
+            sourceRef: `${positionKey}/${lesson.id}`,
+            kind: 'sentence',
+            cardType: 'SENTENCE',
+          },
+        ],
+      },
+      {
+        onSuccess: (created) => {
+          sound.playCorrect();
+          toast.success(
+            created.length > 0 ? '已收进草稿箱，去生词闪卡页确认入库' : '这句已在草稿箱里了'
+          );
+        },
+        onError: (e) => {
+          sound.playMistake();
+          toast.error(e instanceof Error ? e.message : '收句子失败');
+        },
+      }
+    );
+  };
 
   // 断点续读：位置键与批注同键（documentId 优先）；同课才恢复页码，不跨课串页。
   const positionKey = book.documentId ?? book.id;
@@ -369,6 +405,16 @@ export function InteractivePdfReader({
                           >
                             <Sparkles className="w-3.5 h-3.5" />
                             讲透
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCollectSentence(dlg.japanese, dlg.chinese)}
+                            disabled={proposeDraft.isPending}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold text-stone-500 hover:bg-amber-500/10 hover:text-amber-700 dark:text-stone-400 dark:hover:text-amber-300 cursor-pointer"
+                            title="收进生词草稿箱，确认后建成句子卡"
+                          >
+                            <BookmarkPlus className="w-3.5 h-3.5" />
+                            收句子
                           </button>
                         </div>
                         {showChineseTranslation && (

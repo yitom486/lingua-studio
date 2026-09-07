@@ -11,6 +11,8 @@ import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
 const DRAFT_SOURCES = new Set(['ai-enrich', 'agent', 'import']);
 const DRAFT_STATUSES = new Set(['pending', 'accepted', 'dismissed']);
+const DRAFT_KINDS = new Set(['word', 'sentence']);
+const DRAFT_CARD_TYPES = new Set(['VOCABULARY', 'GRAMMAR', 'CONFUSION_PAIR', 'SENTENCE']);
 
 function narrowProposeBody(body: Record<string, unknown> | null): ProposeCardDraftInput | null {
   if (typeof body?.userId !== 'string' || !body.userId.trim()) return null;
@@ -18,6 +20,15 @@ function narrowProposeBody(body: Record<string, unknown> | null): ProposeCardDra
   if (typeof body?.headword !== 'string' || !body.headword.trim()) return null;
   if (!Array.isArray(body?.meanings)) return null;
   if (typeof body?.source !== 'string' || !DRAFT_SOURCES.has(body.source)) return null;
+  if (body?.kind !== undefined && (typeof body.kind !== 'string' || !DRAFT_KINDS.has(body.kind))) {
+    return null;
+  }
+  if (
+    body?.cardType !== undefined &&
+    (typeof body.cardType !== 'string' || !DRAFT_CARD_TYPES.has(body.cardType))
+  ) {
+    return null;
+  }
   const input: ProposeCardDraftInput = {
     userId: body.userId,
     language: body.language,
@@ -28,6 +39,15 @@ function narrowProposeBody(body: Record<string, unknown> | null): ProposeCardDra
   if (typeof body?.reading === 'string') input.reading = body.reading;
   if (typeof body?.partOfSpeech === 'string') input.partOfSpeech = body.partOfSpeech;
   if (typeof body?.sourceRef === 'string') input.sourceRef = body.sourceRef;
+  if (body?.kind === 'word' || body?.kind === 'sentence') input.kind = body.kind;
+  if (
+    body?.cardType === 'VOCABULARY' ||
+    body?.cardType === 'GRAMMAR' ||
+    body?.cardType === 'CONFUSION_PAIR' ||
+    body?.cardType === 'SENTENCE'
+  ) {
+    input.cardType = body.cardType;
+  }
   return input;
 }
 

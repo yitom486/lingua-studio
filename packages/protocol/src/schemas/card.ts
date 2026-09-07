@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const CardTypeSchema = z.enum(['VOCABULARY', 'GRAMMAR', 'CONFUSION_PAIR']);
+export const CardTypeSchema = z.enum(['VOCABULARY', 'GRAMMAR', 'CONFUSION_PAIR', 'SENTENCE']);
 export type CardType = z.infer<typeof CardTypeSchema>;
 
 export const CardReviewRatingSchema = z.enum(['AGAIN', 'HARD', 'GOOD', 'EASY']);

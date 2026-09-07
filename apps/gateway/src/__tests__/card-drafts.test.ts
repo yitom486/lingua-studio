@@ -180,3 +180,92 @@ describe('reading-positions（阅读位置游标）', () => {
     }
   });
 });
+
+describe('card-drafts 句子类型（课文收句子）', () => {
+  let repo: DrizzleLearnerRepository;
+  beforeEach(() => {
+    repo = new DrizzleLearnerRepository(':memory:');
+  });
+
+  const SENTENCE =
+    '昨日は友達と一緒に新しいカフェに行きました。とても賑やかでした。';
+
+  it('提议句子草稿：kind/cardType 落库，长句不断尾', async () => {
+    const res = await repo.proposeCardDrafts([
+      {
+        userId: 'u1',
+        language: 'ja',
+        headword: SENTENCE,
+        meanings: ['昨天和朋友去了一家新咖啡馆，很热闹。'],
+        partOfSpeech: '课文句子',
+        source: 'import',
+        sourceRef: 'doc1/l1',
+        kind: 'sentence',
+        cardType: 'SENTENCE',
+      },
+    ]);
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.length).toBe(1);
+    expect(res.value[0]?.kind).toBe('sentence');
+    expect(res.value[0]?.cardType).toBe('SENTENCE');
+    expect(res.value[0]?.headword).toBe(SENTENCE);
+  });
+
+  it('kind 非法拒绝；cardType 非法拒绝', async () => {
+    const badKind = await repo.proposeCardDrafts([
+      {
+        userId: 'u1',
+        language: 'ja',
+        headword: 'あめ',
+        meanings: ['雨'],
+        source: 'agent',
+        kind: 'paragraph' as never,
+      },
+    ]);
+    expect(isOk(badKind)).toBe(false);
+    const badType = await repo.proposeCardDrafts([
+      {
+        userId: 'u1',
+        language: 'ja',
+        headword: 'あめ',
+        meanings: ['雨'],
+        source: 'agent',
+        cardType: 'ESSAY' as never,
+      },
+    ]);
+    expect(isOk(badType)).toBe(false);
+  });
+
+  it('接受句子草稿：建成 SENTENCE 卡，不记相遇词', async () => {
+    const proposed = await repo.proposeCardDrafts([
+      {
+        userId: 'u1',
+        language: 'ja',
+        headword: SENTENCE,
+        meanings: ['昨天和朋友去了一家新咖啡馆，很热闹。'],
+        partOfSpeech: '课文句子',
+        source: 'import',
+        sourceRef: 'doc1/l1',
+        kind: 'sentence',
+      },
+    ]);
+    if (!isOk(proposed)) return;
+    const accepted = await repo.acceptCardDraft('u1', proposed.value[0]!.id);
+    expect(isOk(accepted)).toBe(true);
+    if (!isOk(accepted)) return;
+    expect(accepted.value.draft.cardType).toBe('SENTENCE');
+    const card = repo
+      .getRawDb()
+      .query<{ type: string; studied: string | null }, [string]>(
+        'SELECT type AS type, studied_at AS studied FROM flashcards WHERE id = ?'
+      )
+      .get(accepted.value.cardId);
+    expect(card!.type).toBe('SENTENCE');
+    expect(card!.studied).not.toBeNull();
+    // 相遇词无此整句
+    const terms = await repo.listEncounteredTerms('u1', 'ja', 100);
+    if (!isOk(terms)) return;
+    expect(terms.value.some((t) => t.headword === SENTENCE)).toBe(false);
+  });
+});

@@ -119,6 +119,11 @@ function DraftRow({ draft }: { draft: CardDraftItem }) {
         )}
         {draft.partOfSpeech && <Badge variant="secondary">{draft.partOfSpeech}</Badge>}
         <Badge variant="outline">{SOURCE_LABEL[draft.source] ?? draft.source}</Badge>
+        {draft.kind === 'sentence' && (
+          <Badge variant="amber" title="句子草稿：接受后建成句子卡，不记相遇词">
+            句子
+          </Badge>
+        )}
         {draft.editedFields.length > 0 && (
           <Badge variant="amber" title={`已改字段：${draft.editedFields.join('、')}`}>
             已改
@@ -143,7 +148,7 @@ function DraftRow({ draft }: { draft: CardDraftItem }) {
           <input
             value={meaningsText}
             onChange={(e) => setMeaningsText(e.target.value)}
-            placeholder="释义，用 ； 分隔"
+            placeholder={draft.kind === 'sentence' ? '译文' : '释义，用 ； 分隔'}
             className="flex-1 h-7 px-2 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 outline-none focus:border-amber-500 text-xs"
           />
           <Button size="sm" disabled={!dirty || update.isPending} onClick={handleSave}>
@@ -163,7 +168,10 @@ function DraftRow({ draft }: { draft: CardDraftItem }) {
           </Button>
         </div>
       ) : (
-        <p className="text-xs text-stone-600 dark:text-stone-300">{draft.meanings.join('；')}</p>
+        <p className="text-xs text-stone-600 dark:text-stone-300">
+          {draft.kind === 'sentence' && <span className="text-stone-400">译文：</span>}
+          {draft.meanings.join('；')}
+        </p>
       )}
     </div>
   );

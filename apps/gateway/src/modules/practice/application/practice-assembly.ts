@@ -118,13 +118,14 @@ async function buildReadingQuestions(
   }));
 }
 
-/** P5-E7：从 FSRS 闪卡装配词义选择题（front→选 back；干扰项取其他卡的 back）。 */
+/** P5-E7：从 FSRS 闪卡装配词义选择题（front→选 back；干扰项取其他卡的 back）。
+ * 只吃 VOCABULARY 卡：句子卡（SENTENCE）当词义题出就是错题，绝不混入。 */
 export function buildVocabQuestionsFromCards(
   cards: Flashcard[],
   count: number,
   language: 'en' | 'ja' | 'ko'
 ): GeneratedQuestion[] {
-  const usable = cards.filter((c) => c.front && c.back);
+  const usable = cards.filter((c) => c.type === 'VOCABULARY' && c.front && c.back);
   const out: GeneratedQuestion[] = [];
   const skillPrefix = language === 'ja' ? 'jp' : language;
   for (let i = 0; i < Math.min(count, usable.length); i++) {
