@@ -409,6 +409,18 @@ export function initSchema(sqlite: Database): void {
       endpoint TEXT NOT NULL DEFAULT 'http://127.0.0.1:8765',
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS dictionary_media (
+      id TEXT PRIMARY KEY,
+      source_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      media_type TEXT NOT NULL,
+      file_hash TEXT NOT NULL,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dictionary_media_hash ON dictionary_media(file_hash);
+    CREATE INDEX IF NOT EXISTS idx_dictionary_media_source ON dictionary_media(source_id);
   `);
 
   // 增量列：已有库补字段

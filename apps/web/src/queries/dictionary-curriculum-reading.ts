@@ -871,8 +871,7 @@ export interface AnkiPushTts {
   gender?: 'FEMALE' | 'MALE';
 }
 
-/** 推送生词卡到本机 Anki（TTS 凭证随请求来、网关不落盘；不提供则音频留空）。 */
-export function usePushToAnkiMutation() {
+/** 推送生词卡到本机 Anki（TTS 凭证随请求来、网关不落盘；不提供则音频留空）。 */export function usePushToAnkiMutation() {
   return useMutation({
     mutationFn: async (payload: {
       userId?: string;
@@ -884,7 +883,7 @@ export function usePushToAnkiMutation() {
       const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/anki/push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ userId: DEFAULT_USER_ID, ...payload }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as {
@@ -925,6 +924,7 @@ export interface ApkgImportResult {
   skippedDuplicate: number;
   skippedEmpty: number;
   mediaSkipped: number;
+  mediaStored: number;
   decks: string[];
   truncated: boolean;
 }
@@ -949,7 +949,37 @@ export function useAnalyzeApkgMutation() {
   });
 }
 
-/** .apkg 笔记搬家（笔记 → FSRS 卡；进度一律 NEW；去重；媒体只计数）。 */
+/** .apkg 导出（自研卡 → Anki 包；二进制下载，移动端同步通道）。 */
+export function useExportApkgMutation() {
+  return useMutation({
+    mutationFn: async (payload: {
+      userId?: string;
+      language?: 'ja' | 'en' | 'ko';
+      deckName?: string;
+      formatId?: string;
+      maxCards?: number;
+    }) => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/apkg/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: DEFAULT_USER_ID, ...payload }),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(data?.error?.userMessage ?? '.apkg 导出失败。');
+      }
+      const disposition = response.headers.get('Content-Disposition') ?? '';
+      const match = disposition.match(/filename\*=UTF-8''([^;]+)/);
+      const filename = match?.[1] ? decodeURIComponent(match[1]) : 'cards.apkg';
+      const blob = await response.blob();
+      return { blob, filename };
+    },
+  });
+}
+
+/** .apkg 笔记搬家（笔记 → FSRS 卡；进度一律 NEW；去重；媒体入库/计数）。 */
 export function useImportApkgNotesMutation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -963,7 +993,7 @@ export function useImportApkgNotesMutation() {
       const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/apkg/import-notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ userId: DEFAULT_USER_ID, ...payload }),
       });
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as {

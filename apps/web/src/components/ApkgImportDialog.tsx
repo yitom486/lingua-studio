@@ -81,8 +81,7 @@ export function ApkgImportDialog({ open, onOpenChange }: ApkgImportDialogProps) 
         filePath: filePath.trim(),
         language: shell.track,
         deckNames: selectedDecks,
-      },
-      {
+      },      {
         onSuccess: (r) => {
           toast.success(
             `导入完成：新建 ${r.created} 张${r.skippedDuplicate ? `（去重 ${r.skippedDuplicate}）` : ''}${r.mediaSkipped ? `（媒体 ${r.mediaSkipped} 处待 S4 底座）` : ''}`
@@ -188,7 +187,8 @@ export function ApkgImportDialog({ open, onOpenChange }: ApkgImportDialogProps) 
                 {importNotes.data && (
                   <p className="mt-1.5 text-[11px] text-emerald-600">
                     新建 {importNotes.data.created} · 去重 {importNotes.data.skippedDuplicate} · 空正面{' '}
-                    {importNotes.data.skippedEmpty} · 媒体跳过 {importNotes.data.mediaSkipped}
+                    {importNotes.data.skippedEmpty} · 媒体入库 {importNotes.data.mediaStored} / 跳过{' '}
+                    {importNotes.data.mediaSkipped}
                     {importNotes.data.truncated ? ' · 达到上限被截断' : ''}
                   </p>
                 )}

@@ -176,31 +176,69 @@ export function validateFieldTemplate(template: string): string[] {
 /** 卡片模板引用的 `{{Field}}` 名（含 FrontSide/Tags 等特殊名，原样返回供调用方判断）。 */
 export function extractCardFields(template: string): string[] {
   const seen = new Set<string>();
-  const fieldPattern = /\{\{\s*([#^/]?)\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g;
+  const fieldPattern = /\{\{\s*([#^/]?)\s*([A-Za-z][A-Za-z0-9_:]*)\s*\}\}/g;
   let m: RegExpExecArray | null;
   while ((m = fieldPattern.exec(template)) !== null) {
     const name = m[2];
-    if (name) seen.add(name);
+    if (name) seen.add(name.split(':')[0] ?? name);
   }
   return [...seen];
 }
 
+/** 渲染期附加上下文（牌组/标签；ctx 自带 tags/deckName 时 renderCard 自动透传）。 */
+export interface CardRenderExtra {
+  tags?: string[] | undefined;
+  deckName?: string | undefined;
+  /** 正面渲染中（决定 cloze 遮住还是揭示；缺省按 frontHtml 是否为空判定）。 */
+  isFront?: boolean | undefined;
+}
+
+/** `{{c1::正文::提示}}` 挖空：正面显示提示或 […]，背面显示正文（基础支持，无多卡 ord 语义）。 */
+export function renderClozeText(text: string, reveal: boolean): string {
+  return text.replace(/\{\{c\d+::([\s\S]*?)\}\}/g, (_m, inner: string) => {
+    // inner 已不含 cN:: 前缀：parts[0]=正文，parts[1]=提示（可选）。
+    const parts = inner.split('::');
+    const body = parts[0] ?? '';
+    const hint = parts[1] ?? '';
+    if (reveal) return body;
+    return hint || '[...]';
+  });
+}
+
+function stripTagsInline(html: string): string {
+  return html.replace(/<[^>]*>/g, '');
+}
+
 /**
- * 渲染卡片模板（Anki Mustache 子集 v1）：
+ * 渲染卡片模板（Anki Mustache 子集 v1+S4）：
  * - `{{Field}}`：字段 HTML 原样插入（Anki 语义：字段值本身就是 HTML，不转义）；
  * - `{{FrontSide}}`：正面渲染结果（背面模板用；正面模板中为空）；
+ * - `{{Tags}}` / `{{Deck}}` / `{{Subdeck}}`：标签与牌组（extra 或 ctx 透传；缺省为空）；
+ * - `{{hint:Field}}`：折叠揭示（Anki 原生是点击链接；预览降级为 details 元素，不跑 JS）；
+ * - `{{text:Field}}`：去标签纯文本；`{{cloze:Field}}`：挖空（正面 […]，背面正文；无多卡 ord 语义）；
  * - `{{#F}}…{{/F}}`：字段非空才保留；`{{^F}}…{{/F}}`：字段为空才保留；
  * - 未知 `{{X}}`：按 Anki 行为置空（缺失字段不报错）。
- * 不支持（v1 明确拒绝，由校验上报）：`{{cloze:}}` `{{type:}}` `{{hint:}}` 等过滤器、
- * 未闭合的条件块。模板内 JS 不在此处理——预览层负责沙箱隔离。
+ * 仍不支持（由校验上报）：`{{type:}}` 答案输入（需交互判分，预览/导出均不渲染）。
+ * 模板内 JS 不在此处理——预览层负责沙箱隔离。
  */
 export function renderCardTemplate(
   template: string,
   fields: Record<string, string>,
-  frontHtml = ''
+  frontHtml = '',
+  extra: CardRenderExtra = {}
 ): string {
+  const tags = extra.tags ?? [];
+  const deckName = extra.deckName ?? '';
+  const specialValue = (name: string): string | undefined => {
+    if (name === 'FrontSide') return frontHtml;
+    if (name === 'Tags') return tags.join(' ');
+    if (name === 'Deck') return deckName;
+    if (name === 'Subdeck') return deckName.split('::').pop() ?? '';
+    return undefined;
+  };
   const isTruthy = (name: string): boolean => {
-    if (name === 'FrontSide') return frontHtml.trim().length > 0;
+    const special = specialValue(name);
+    if (special !== undefined) return special.trim().length > 0;
     return (fields[name] ?? '').trim().length > 0;
   };
   // 条件块（支持一层嵌套判定：由内向外多次规约，最多 8 轮防病态输入）。
@@ -216,10 +254,27 @@ export function renderCardTemplate(
       return keep ? inner : '';
     });
   }
-  // 普通占位
-  out = out.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_]*)\s*\}\}/g, (_m, name: string) => {
-    if (name === 'FrontSide') return frontHtml;
-    return fields[name] ?? '';
+  // 普通占位（含过滤器与特殊名）
+  out = out.replace(/\{\{\s*([A-Za-z][A-Za-z0-9_:]*)\s*\}\}/g, (_m, raw: string) => {
+    const parts = raw.split(':');
+    const head = parts[0] ?? raw;
+    if (!raw.includes(':')) {
+      const special = specialValue(head);
+      if (special !== undefined) return special;
+      return fields[head] ?? '';
+    }
+    const field = parts.slice(1).join(':');
+    const value = fields[field] ?? '';
+    if (head === 'hint') {
+      if (!value.trim()) return '';
+      return `<details class="anki-hint"><summary>${escapeHtml(field)}</summary>${value}</details>`;
+    }
+    if (head === 'text') return escapeHtml(stripTagsInline(value));
+    if (head === 'cloze') {
+      const isFront = extra.isFront ?? frontHtml.trim().length === 0;
+      return renderClozeText(value, !isFront);
+    }
+    return '';
   });
   return out;
 }
@@ -241,21 +296,25 @@ export function validateCardTemplate(template: string): string[] {
   if (opens.length !== closes.length) {
     issues.push(`条件块未闭合（{{#}}/{{^}} 共 ${opens.length} 个，{{/}} 共 ${closes.length} 个）`);
   }
-  const filterPattern = /\{\{\s*(cloze|type|hint|text|furigana|kanji|kana|romaji)\s*:/g;
+  const filterPattern = /\{\{\s*(type|furigana|kanji|kana|romaji)\s*:/g;
   if (filterPattern.test(template)) {
-    issues.push('使用了 v1 不支持的 Anki 过滤器（如 {{cloze:}} / {{type:}} / {{hint:}}），将原样输出不渲染');
+    issues.push('使用了尚不支持的 Anki 过滤器（如 {{type:}} 答案输入 / 日语注音系），将原样输出不渲染');
   }
   return issues;
 }
 
-/** 整包渲染：字段 → 正面 → 背面（含 FrontSide）。 */
+/** 整包渲染：字段 → 正面 → 背面（含 FrontSide）；ctx 的 tags/deckName 自动透传特殊占位。 */
 export function renderCard(format: AnkiCardFormat, ctx: CardContext): RenderedCard {
   const fields: Record<string, string> = {};
   for (const [name, fieldTemplate] of Object.entries(format.fields)) {
     fields[name] = renderFieldTemplate(fieldTemplate, ctx);
   }
-  const frontHtml = renderCardTemplate(format.frontTemplate, fields);
-  const backHtml = renderCardTemplate(format.backTemplate, fields, frontHtml);
+  const extra: CardRenderExtra = {
+    ...(ctx.tags ? { tags: ctx.tags } : {}),
+    ...(ctx.deckName ? { deckName: ctx.deckName } : {}),
+  };
+  const frontHtml = renderCardTemplate(format.frontTemplate, fields, '', { ...extra, isFront: true });
+  const backHtml = renderCardTemplate(format.backTemplate, fields, frontHtml, { ...extra, isFront: false });
   return { fields, frontHtml, backHtml };
 }
 
@@ -378,8 +437,8 @@ export function guessFieldMapping(fieldNames: string[]): Record<string, FieldMar
 
 /**
  * 网上模板兼容性分析（v1 渲染能力对照；返回中文提示，调用方展示给用户确认）。
- * 在 validateCardTemplate 基础上追加：script 脚本（永不执行）、{{Tags}}/{{Deck}} 等特殊名（v1 置空）、
- * <style> 内联样式（Anki 归 Styling 栏，建议移到 CSS）。
+ * 在 validateCardTemplate 基础上追加：script 脚本（永不执行）、{{Card}}/{{Type}} 等特殊名
+ * （仍置空）、<style> 内联样式（Anki 归 Styling 栏，建议移到 CSS）。
  */
 export function analyzeTemplateCompat(front: string, back: string, css: string): string[] {
   const issues = [...validateCardTemplate(front).map((i) => `正面模板：${i}`)];
@@ -388,7 +447,7 @@ export function analyzeTemplateCompat(front: string, back: string, css: string):
   if (/<script[\s>]/i.test(combined)) {
     issues.push('模板含 <script> 脚本：为安全起见永不执行，相关交互在 Anki 中将失效');
   }
-  const specials = ['Tags', 'Deck', 'Card', 'Type', 'Subdeck'];
+  const specials = ['Card', 'Type'];
   const used = extractCardFields(combined).filter((f) => specials.includes(f));
   if (used.length > 0) {
     issues.push(`使用了 v1 不渲染的特殊占位（${used.map((f) => `{{${f}}}`).join('、')}），将显示为空`);

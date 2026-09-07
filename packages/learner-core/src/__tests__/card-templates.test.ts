@@ -78,9 +78,11 @@ describe('card templates {{Field}} (Anki subset v1)', () => {
   it('校验：未闭合条件块与超集过滤器', () => {
     expect(validateCardTemplate('{{Expression}}')).toEqual([]);
     expect(validateCardTemplate('{{#Reading}}x').length).toBe(1);
-    const filter = validateCardTemplate('{{cloze:Text}}');
+    // S4 已支持 cloze/hint/text；type: 答案输入仍拒绝
+    expect(validateCardTemplate('{{cloze:Text}}{{hint:Meaning}}')).toEqual([]);
+    const filter = validateCardTemplate('{{type:Answer}}');
     expect(filter.length).toBe(1);
-    expect(filter[0]).toContain('cloze');
+    expect(filter[0]).toContain('type');
   });
 
   it('extractCardFields 含条件块内外字段名', () => {
@@ -159,8 +161,7 @@ describe('guessFieldMapping (网上模板字段映射推测)', () => {
   });
 });
 
-describe('analyzeTemplateCompat (网上模板兼容性分析)', () => {
-  it('干净模板无提示', () => {
+describe('analyzeTemplateCompat (网上模板兼容性分析)', () => {  it('干净模板无提示', () => {
     expect(analyzeTemplateCompat('{{Expression}}', '{{FrontSide}}{{Meaning}}', '.card {}')).toEqual([]);
   });
 
@@ -171,9 +172,57 @@ describe('analyzeTemplateCompat (网上模板兼容性分析)', () => {
       ''
     );
     expect(issues.some((i) => i.includes('<script>'))).toBe(true);
-    expect(issues.some((i) => i.includes('{{Tags}}'))).toBe(true);
-    expect(issues.some((i) => i.includes('cloze'))).toBe(true);
+    // Tags 已支持不再警告；cloze/text/hint 已支持不再警告
+    expect(issues.some((i) => i.includes('{{Tags}}'))).toBe(false);
+    expect(issues.some((i) => i.includes('cloze'))).toBe(false);
     expect(issues.some((i) => i.includes('<style>'))).toBe(true);
     expect(issues.some((i) => i.includes('CSS'))).toBe(true);
+  });
+
+  it('{{Card}}/{{Type}} 仍提示置空；{{type:}} 输入判分仍拒绝', () => {
+    const issues = analyzeTemplateCompat('{{Card}}', '{{Type}}{{type:Answer}}', '.card{}');
+    expect(issues.some((i) => i.includes('{{Card}}'))).toBe(true);
+    expect(issues.some((i) => i.includes('type'))).toBe(true);
+  });
+});
+
+describe('renderCardTemplate S4 compat (Tags/Deck/hint/text/cloze)', () => {
+  it('Tags/Deck/Subdeck 与条件块', () => {
+    const fields = { Expression: 'x' };
+    const extra = { tags: ['n5', 'mine'], deckName: 'Japanese::N5' };
+    expect(renderCardTemplate('{{Tags}}|{{Deck}}|{{Subdeck}}', fields, '', extra)).toBe(
+      'n5 mine|Japanese::N5|N5'
+    );
+    expect(renderCardTemplate('{{#Tags}}has{{/Tags}}{{^Deck}}nodeck{{/Deck}}', fields, '', extra)).toBe('has');
+    expect(renderCardTemplate('{{Tags}}', fields)).toBe('');
+  });
+
+  it('hint 折叠揭示；空值不输出', () => {
+    const out = renderCardTemplate('{{hint:Meaning}}', { Meaning: '<div>to eat</div>' });
+    expect(out).toContain('<details');
+    expect(out).toContain('to eat');
+    expect(renderCardTemplate('[{{hint:Missing}}]', {})).toBe('[]');
+  });
+
+  it('text 去标签；cloze 正面遮背面显', () => {
+    expect(renderCardTemplate('{{text:Meaning}}', { Meaning: '<div>to <b>eat</b></div>' })).toBe('to eat');
+    const front = renderCardTemplate('{{cloze:Text}}', { Text: 'I {{c1::like::prefer}} apples' }, '', { isFront: true });
+    expect(front).toBe('I prefer apples');
+    const frontHidden = renderCardTemplate('{{cloze:Text}}', { Text: 'I {{c1::like}} apples' }, '', { isFront: true });
+    expect(frontHidden).toBe('I [...] apples');
+    const back = renderCardTemplate('{{cloze:Text}}', { Text: 'I {{c1::like}} apples' }, 'FRONT', { isFront: false });
+    expect(back).toBe('I like apples');
+  });
+
+  it('renderCard 自动透传 ctx tags/deckName', () => {
+    const rendered = renderCard(
+      {
+        ...BUILTIN_CARD_FORMATS[0]!,
+        frontTemplate: '{{Tags}}/{{Deck}}',
+        backTemplate: '{{FrontSide}}',
+      },
+      { expression: 'x', glossary: '<div>y</div>', tags: ['t1'], deckName: 'D::S' }
+    );
+    expect(rendered.frontHtml).toBe('t1/D::S');
   });
 });

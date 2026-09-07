@@ -105,9 +105,11 @@ function buildCollectionBytes(): Uint8Array {
 function buildApkgBytes(): Uint8Array {
   const collection = buildCollectionBytes();
   const media = new TextEncoder().encode(JSON.stringify({ '0': 't.mp3' }));
+  const mp3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02]);
   return buildStoredZip([
     { name: 'collection.anki2', data: collection },
     { name: 'media', data: media },
+    { name: '0', data: mp3 },
   ]);
 }
 
@@ -148,19 +150,31 @@ describe('apkg analyze', () => {
 
 describe('apkg import notes', () => {
   let repo: DrizzleLearnerRepository;
-  beforeEach(() => {
+  let mediaRoot: string;
+  beforeEach(async () => {
     repo = new DrizzleLearnerRepository(':memory:');
+    mediaRoot = await fsp.mkdtemp(join(tmpdir(), 'ss-apkg-media-'));
   });
 
-  it('搬家：去重/空正面/媒体计数/牌组标签', async () => {
+  it('搬家：去重/空正面/媒体入库/牌组标签', async () => {
     const bytes = buildApkgBytes();
-    const res = await repo.importApkgNotes(bytes, { userId: 'u1', language: 'ja' });
+    const res = await repo.importApkgNotes(bytes, { userId: 'u1', language: 'ja', mediaRoot });
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.created).toBe(2);
     expect(res.value.skippedEmpty).toBe(1);
     expect(res.value.skippedDuplicate).toBe(0);
-    expect(res.value.mediaSkipped).toBe(1);
+    // t.mp3 包内有文件 → 入库而非跳过
+    expect(res.value.mediaStored).toBe(1);
+    expect(res.value.mediaSkipped).toBe(0);
+    const mediaRows = repo
+      .getRawDb()
+      .query<{ file_hash: string; media_type: string }, []>(
+        'SELECT file_hash, media_type FROM dictionary_media'
+      )
+      .all();
+    expect(mediaRows.length).toBe(1);
+    expect(mediaRows[0]?.media_type).toBe('audio/mpeg');
     expect(res.value.decks.sort()).toEqual(['Default', 'Japanese::N5']);
     const rows = repo
       .getRawDb()
@@ -187,6 +201,7 @@ describe('apkg import notes', () => {
       userId: 'u1',
       language: 'ja',
       deckNames: ['Default'],
+      mediaRoot,
     });
     expect(isOk(filtered)).toBe(true);
     if (!isOk(filtered)) return;

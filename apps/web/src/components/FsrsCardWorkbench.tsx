@@ -7,6 +7,7 @@ import { sound, type SupportedLanguage } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useCardsQuery, useUpdateCardMutation } from '../queries/useLearnerQueries.js';
+import { useExportApkgMutation } from '../queries/useLearnerQueries.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
@@ -24,6 +25,27 @@ export function FsrsCardWorkbench() {
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [cardFlipped, setCardFlipped] = useState(false);
   const [apkgOpen, setApkgOpen] = useState(false);
+  const exportApkg = useExportApkgMutation();
+
+  const handleExportApkg = () => {
+    sound.playClick();
+    exportApkg.mutate(
+      { language: shell.track },
+      {
+        onSuccess: ({ blob, filename }) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          a.rel = 'noopener';
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          toast.success(`已导出 ${filename}，传到手机导入 Anki 即可同步。`);
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : '.apkg 导出失败。'),
+      }
+    );
+  };
   const shell = useLearningShell();
   const cardSpeechLang: SupportedLanguage = trackToSpeechLang(shell.track);
   const dictionaryCopy =
@@ -116,6 +138,17 @@ export function FsrsCardWorkbench() {
             }}
           >
             从 Anki 搬家
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-[11px]"
+            disabled={exportApkg.isPending}
+            title="导出当前语种生词本为 .apkg（传到手机导入 Anki）"
+            onClick={handleExportApkg}
+          >
+            {exportApkg.isPending ? '导出中…' : '导出 .apkg'}
           </Button>
         <Tabs
           value={cardFilter}

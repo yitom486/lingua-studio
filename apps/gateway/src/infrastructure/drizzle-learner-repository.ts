@@ -76,6 +76,16 @@ import {
   type ApkgImportNotesOptions,
   type ApkgImportNotesResult,
 } from '../modules/flashcards/application/apkg-import.js';
+import {
+  exportApkgFromCards as exportApkgFromCardsDomain,
+  type ApkgExportOptions,
+  type ApkgExportResult,
+} from '../modules/flashcards/application/apkg-export.js';
+import {
+  readMediaBytes as readMediaBytesDomain,
+} from '../modules/flashcards/persistence/media-store.js';
+import { storeMedia as storeMediaDomain } from '../modules/flashcards/persistence/media-store.js';
+import type { StoredMedia } from '../modules/flashcards/persistence/media-store.js';
 import type { AnkiCardFormat } from '@study-studio/learner-core';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
@@ -328,6 +338,40 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     options: ApkgImportNotesOptions
   ): Promise<Result<ApkgImportNotesResult, BusinessError>> {
     return importApkgNotesDomain(this.deps, bytes, options);
+  }
+
+  /**
+   * `.apkg` 导出：用户 FSRS 卡 → Anki 包（移动端同步通道；进度不导出）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async exportApkgFile(
+    options: ApkgExportOptions
+  ): Promise<Result<ApkgExportResult, BusinessError>> {
+    return exportApkgFromCardsDomain(this.deps, options);
+  }
+
+  /**
+   * 用户媒体库读取（内容寻址；哈希即权限）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async readMediaFile(
+    fileHash: string,
+    mediaRoot?: string
+  ): Promise<Result<{ bytes: Uint8Array; mediaType: string }, BusinessError>> {
+    return readMediaBytesDomain(this.deps, fileHash, mediaRoot);
+  }
+
+  /**
+   * 用户媒体库写入（内容寻址去重；mediaRoot 仅单测注入）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async storeMediaFile(
+    sourceId: string,
+    filename: string,
+    bytes: Uint8Array,
+    mediaRoot?: string
+  ): Promise<Result<StoredMedia, BusinessError>> {
+    return storeMediaDomain(this.deps, sourceId, filename, bytes, mediaRoot);
   }
 
   /**

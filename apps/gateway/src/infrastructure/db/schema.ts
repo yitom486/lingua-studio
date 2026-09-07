@@ -541,3 +541,17 @@ export const ankiSettings = sqliteTable('anki_settings', {
   endpoint: text('endpoint').notNull().default('http://127.0.0.1:8765'),
   updatedAt: text('updated_at').notNull(),
 });
+
+/**
+ * 用户媒体库（词典/Anki 图片音频落盘；小文件亦落盘，SQLite 只存路径/哈希/类型）。
+ * 内容寻址（file_hash 去重）；path 相对媒体根目录，永不存绝对路径。
+ */
+export const dictionaryMedia = sqliteTable('dictionary_media', {
+  id: text('id').primaryKey(),
+  sourceId: text('source_id').notNull(),
+  path: text('path').notNull(),
+  mediaType: text('media_type').notNull(),
+  fileHash: text('file_hash').notNull(),
+  fileSize: integer('file_size').notNull(),
+  createdAt: text('created_at').notNull(),
+});

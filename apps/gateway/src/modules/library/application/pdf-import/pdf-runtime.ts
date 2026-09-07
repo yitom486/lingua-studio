@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { promises as fsp } from 'node:fs';
 import { BusinessError, logger, ok, err, type Result } from '@study-studio/shared';
+import { defaultRuntimeDir } from '../../../../infrastructure/persistence/app-paths.js';
 import {
   PDF_INSPECTOR_MAIN,
   PDF_INSPECTOR_VERSION,
@@ -68,11 +68,7 @@ const DOWNLOAD_TIMEOUT_MS = 180000;
 
 const inFlight = new Map<string, Promise<{ inspector: PdfInspectorLike; paths: PdfRuntimePaths }>>();
 
-export function defaultRuntimeDir(): string {
-  const override = process.env.STUDY_STUDIO_RUNTIME_DIR;
-  if (override && override.trim()) return override.trim();
-  return path.join(homedir(), '.study-studio', 'runtime');
-}
+export { defaultRuntimeDir };
 
 function sha512Base64(data: Uint8Array): string {
   return createHash('sha512').update(data).digest('base64');

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   ok,
   err,
+  isOk,
   type Result,
   BusinessError,
   translateToBusinessError,
@@ -19,6 +20,7 @@ import {
 import { extractZip } from '../../library/application/pdf-import/archive.js';
 import { flashcards } from '../../../infrastructure/db/index.js';
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
+import { storeMedia } from '../persistence/media-store.js';
 import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
 import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
 
@@ -66,13 +68,18 @@ export interface ApkgImportNotesOptions {
   language: TrackLanguage;
   deckNames?: string[] | undefined;
   maxNotes?: number | undefined;
+  /** 媒体根目录覆盖（单测注入临时目录；缺省用户媒体库）。 */
+  mediaRoot?: string | undefined;
 }
 
 export interface ApkgImportNotesResult {
   created: number;
   skippedDuplicate: number;
   skippedEmpty: number;
+  /** 引用了但包内无对应文件的媒体计数（S4 前全部落此；有文件则入库）。 */
   mediaSkipped: number;
+  /** 已写入用户媒体库的文件数（内容寻址去重）。 */
+  mediaStored: number;
   decks: string[];
   truncated: boolean;
 }
@@ -91,6 +98,8 @@ interface ParsedApkg {
   models: Map<string, { name: string; fields: string[]; front: string; back: string; css: string }>;
   mediaRefCount: number;
   mediaFileCount: number;
+  /** 媒体映射文件名 → 字节（供导入入库；键为包内原始文件名）。 */
+  mediaBlobs: Map<string, Uint8Array>;
 }
 
 /** 本机 .apkg 直读（大包不走 HTTP 拷贝；上限 300MB 与解包器对齐）。 */
@@ -135,6 +144,18 @@ function countMediaRefs(rawFields: string): number {
   return (sound?.length ?? 0) + (img?.length ?? 0);
 }
 
+/** 字段原文中的媒体引用文件名（[sound:x] 与 <img src="x">）。 */
+export function extractMediaRefs(rawFields: string): string[] {
+  const refs: string[] = [];
+  for (const m of rawFields.matchAll(/\[sound:([^\]]+)\]/g)) {
+    if (m[1]) refs.push(m[1]);
+  }
+  for (const m of rawFields.matchAll(/<img[^>]+src="([^"]+)"/gi)) {
+    if (m[1]) refs.push(m[1]);
+  }
+  return refs;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -153,6 +174,7 @@ async function parseApkgCollection(collectionBytes: Uint8Array): Promise<ParsedA
     models: new Map(),
     mediaRefCount: 0,
     mediaFileCount: 0,
+    mediaBlobs: new Map(),
   };
   try {
     await fsp.mkdir(dir, { recursive: true });
@@ -223,6 +245,7 @@ async function parseApkgCollection(collectionBytes: Uint8Array): Promise<ParsedA
         models,
         mediaRefCount,
         mediaFileCount: 0,
+        mediaBlobs: new Map(),
       };
     } finally {
       db.close();
@@ -257,13 +280,26 @@ export async function parseApkgBytes(bytes: Uint8Array): Promise<ParsedApkg> {
   }
   const parsed = await parseApkgCollection(collection.data);
   const mediaEntry = entries.find((e) => e.path === 'media');
+  const mediaNameByIndex = new Map<string, string>();
   if (mediaEntry) {
     try {
       const text = Buffer.from(mediaEntry.data).toString('utf8');
       const map = asRecord(JSON.parse(text));
-      parsed.mediaFileCount = map ? Object.keys(map).length : 0;
+      if (map) {
+        for (const [index, name] of Object.entries(map)) {
+          if (typeof name === 'string') mediaNameByIndex.set(index, name);
+        }
+        parsed.mediaFileCount = mediaNameByIndex.size;
+      }
     } catch {
       parsed.mediaFileCount = 0;
+    }
+  }
+  // 包内媒体文件以序号命名（"0"/"1"…），经映射表还原原始文件名后登记字节。
+  if (mediaNameByIndex.size > 0) {
+    for (const e of entries) {
+      const original = mediaNameByIndex.get(e.path);
+      if (original) parsed.mediaBlobs.set(original, e.data);
     }
   }
   return parsed;
@@ -337,6 +373,7 @@ export async function importApkgNotes(
     let skippedDuplicate = 0;
     let skippedEmpty = 0;
     let mediaSkipped = 0;
+    let mediaStored = 0;
     let truncated = false;
     const decks = new Set<string>();
     let processed = 0;
@@ -358,7 +395,17 @@ export async function importApkgNotes(
         continue;
       }
       seen.add(front);
-      mediaSkipped += countMediaRefs(note.fields.join('\x1f'));
+      // 媒体：包内有文件则入库（内容寻址去重），缺失只计数（卡片正文不臆造引用）。
+      for (const ref of extractMediaRefs(note.fields.join('\x1f'))) {
+        const blob = parsed.mediaBlobs.get(ref);
+        if (!blob) {
+          mediaSkipped += 1;
+          continue;
+        }
+        const stored = await storeMedia(deps, `apkg:${note.deckName}`, ref, blob, options.mediaRoot);
+        if (isOk(stored)) mediaStored += 1;
+        else mediaSkipped += 1;
+      }
       const tags = [`Anki 导入：${note.deckName}`, ...note.tags].slice(0, 16);
       await deps.db.insert(flashcards).values({
         id: generateId('card_apkg'),
@@ -381,6 +428,7 @@ export async function importApkgNotes(
       skippedDuplicate,
       skippedEmpty,
       mediaSkipped,
+      mediaStored,
       decks: [...decks],
       truncated,
     });

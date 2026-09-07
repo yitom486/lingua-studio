@@ -4,6 +4,7 @@ import type { AnkiCardFormat } from '@study-studio/learner-core';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import { narrowSaveCardFormatInput } from '../persistence/card-formats.js';
 import { narrowCardSourceEntry } from '../application/card-preview.js';
+import { toDetachedArrayBuffer } from './response-bytes.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 
 /** 卡片模板域路由（呈现资产 CRUD + 预览；FSRS 调度仍走 review 域）。 */
@@ -193,6 +194,52 @@ export function createCardFormatRoutes(deps: GatewayDeps) {
           return formatBusinessErrorResponse(c, res.error, 'apkgImport');
         } catch (e) {
           return formatBusinessErrorResponse(c, e, 'apkgImport');
+        }
+      })
+      // .apkg 导出（自研卡 → Anki 包；移动端同步通道；二进制下载）。
+      .post('/api/flashcards/apkg/export', async (c) => {
+        try {
+          const body = (await c.req.json().catch(() => null)) as {
+            userId?: unknown;
+            language?: unknown;
+            deckName?: unknown;
+            formatId?: unknown;
+            maxCards?: unknown;
+          } | null;
+          if (
+            body?.language !== undefined &&
+            body.language !== 'ja' &&
+            body.language !== 'en' &&
+            body.language !== 'ko'
+          ) {
+            return formatBusinessErrorResponse(
+              c,
+              new Error('导出语种须为 ja/en/ko（决定卡片范围，不可猜）'),
+              'apkgExport'
+            );
+          }
+          const res = await deps.repo.exportApkgFile({
+            userId: typeof body?.userId === 'string' && body.userId ? body.userId : 'default_user',
+            ...(body?.language === 'ja' || body?.language === 'en' || body?.language === 'ko'
+              ? { language: body.language }
+              : {}),
+            ...(typeof body?.deckName === 'string' && body.deckName
+              ? { deckName: body.deckName.slice(0, 80) }
+              : {}),
+            ...(typeof body?.formatId === 'string' ? { formatId: body.formatId } : {}),
+            ...(typeof body?.maxCards === 'number' ? { maxCards: Math.floor(body.maxCards) } : {}),
+          });
+          if (!isOk(res)) return formatBusinessErrorResponse(c, res.error, 'apkgExport');
+          const filename = res.value.filename;
+          return new Response(toDetachedArrayBuffer(res.value.bytes), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/zip',
+              'Content-Disposition': `attachment; filename="cards.apkg"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+            },
+          });
+        } catch (e) {
+          return formatBusinessErrorResponse(c, e, 'apkgExport');
         }
       })
   );
