@@ -402,6 +402,13 @@ export function initSchema(sqlite: Database): void {
       user_modified INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS anki_settings (
+      id TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      endpoint TEXT NOT NULL DEFAULT 'http://127.0.0.1:8765',
+      updated_at TEXT NOT NULL
+    );
   `);
 
   // 增量列：已有库补字段

@@ -1,12 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { BookPlus, Check, ExternalLink, Search } from 'lucide-react';
+import { BookPlus, Check, ExternalLink, Search, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCollectDictionaryEntryMutation,
   useDictionaryHistoryQuery,
   useDictionaryLookupQuery,
+  useAnkiStatusQuery,
+  usePushToAnkiMutation,
+  type AnkiPushTts,
 } from '../queries/useLearnerQueries.js';
+import { useTtsStore } from '../stores/useTtsStore.js';
 import { QUERY_KEYS } from '../queries/query-keys.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
@@ -63,6 +67,15 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
   const collect = useCollectDictionaryEntryMutation();
   const queryClient = useQueryClient();
   const history = useDictionaryHistoryQuery(language);
+  const ankiStatus = useAnkiStatusQuery(true);
+  const pushToAnki = usePushToAnkiMutation();
+  // TTS 凭证只存浏览器本地：推送时随请求携带、网关不落盘；未配置则音频留空。
+  const customPluginUrl = useTtsStore((s) => s.customPluginUrl);
+  const isCustomPluginEnabled = useTtsStore((s) => s.isCustomPluginEnabled);
+  const customPluginApiKey = useTtsStore((s) => s.customPluginApiKey);
+  const customPluginVoiceId = useTtsStore((s) => s.customPluginVoiceId);
+  const ttsRate = useTtsStore((s) => s.rate);
+  const ankiPushable = (ankiStatus.data?.enabled && ankiStatus.data.connected) === true;
   // 查到结果后刷新最近查词（画像信号已由网关记录）
   useEffect(() => {
     if (lookup.data) {
@@ -77,6 +90,40 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
           result.created
             ? '已加入生词本，今天即可在 FSRS 闪卡中复习。'
             : '该词已经在你的生词本中。'
+        );
+      },
+      onError: (error) => {
+        toast.error(error instanceof Error ? error.message : '暂时无法加入生词本，请稍后重试。');
+      },
+    });
+  };
+
+  /** 推送到本机 Anki：先入库生词本（去重），再按卡片模板渲染推送。 */
+  const pushEntryToAnki = (entryId: string) => {
+    let tts: AnkiPushTts | undefined;
+    if (isCustomPluginEnabled && customPluginUrl) {
+      tts = {
+        provider: 'openai-compatible',
+        baseUrl: customPluginUrl,
+        ...(customPluginApiKey ? { apiKey: customPluginApiKey } : {}),
+        ...(customPluginVoiceId ? { voice: customPluginVoiceId } : {}),
+        rate: ttsRate,
+      };
+    }
+    collect.mutate(entryId, {
+      onSuccess: (result) => {
+        pushToAnki.mutate(
+          { cardId: result.card.id, ...(tts ? { tts } : {}) },
+          {
+            onSuccess: (r) => {
+              toast.success(
+                `已推送到 Anki「${r.deckName}」${r.audioStored ? '（含发音）' : '（无音频）'}`
+              );
+            },
+            onError: (error) => {
+              toast.error(error instanceof Error ? error.message : '推送到 Anki 失败。');
+            },
+          }
         );
       },
       onError: (error) => {
@@ -189,11 +236,12 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                     </p>
                     <p className="mt-1 text-[11px] text-stone-400">来源：{entry.sourceLabel}</p>
                   </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="shrink-0 gap-1.5"
+                    className="gap-1.5"
                     disabled={collect.isPending}
                     onClick={() => collectEntry(entry.id)}
                   >
@@ -204,6 +252,21 @@ export function DictionaryLookupPanel({ language, title, helper }: DictionaryLoo
                     )}
                     加入生词本
                   </Button>
+                  {ankiPushable && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5 text-[11px]"
+                      disabled={collect.isPending || pushToAnki.isPending}
+                      title="先加入生词本，再按卡片模板推送到本机 Anki"
+                      onClick={() => pushEntryToAnki(entry.id)}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      推送 Anki
+                    </Button>
+                  )}
+                  </div>
                 </div>
                   ))}
                 </div>

@@ -45,8 +45,11 @@ import {
   useInstallCustomDictionaryMutation,
   useUpdateDictionaryPackageMutation,  useAzureVoicesQuery,
   useInvalidateTtsVoices,
+  useAnkiStatusQuery,
+  useSaveAnkiSettingsMutation,
   type AzureVoiceOption,
 } from '../queries/useLearnerQueries.js';
+import { Switch } from './ui/switch.js';
 import { useGatewayStore } from '../stores/useGatewayStore.js';
 import { AnkiTemplateWorkbench } from './AnkiTemplateWorkbench.js';
 import { getPlatform } from '../platform/capabilities.js';
@@ -111,6 +114,8 @@ export function SystemSettingsPopover() {
   const installDictionaryPackage = useInstallDictionaryPackageMutation();
   const updateDictionaryPackage = useUpdateDictionaryPackageMutation();
   const installCustomDictionary = useInstallCustomDictionaryMutation();
+  const ankiStatus = useAnkiStatusQuery(open);
+  const saveAnkiSettings = useSaveAnkiSettingsMutation();
   const [customDictLicenseOk, setCustomDictLicenseOk] = useState(false);
   const [cardWorkbenchOpen, setCardWorkbenchOpen] = useState(false);
   const [customDictLang, setCustomDictLang] = useState<'ja' | 'en' | 'ko'>(shell.track);
@@ -1003,6 +1008,47 @@ export function SystemSettingsPopover() {
                 />
                 <span>我确认有权使用该词典并接受其许可证（网关如实标注“未验证”）。</span>
               </label>
+            </div>
+          </div>
+
+          <div className="h-px bg-stone-100 dark:bg-stone-800/80" />
+
+          {/* 3b. Anki 推送（EXTERNAL 桥接，默认关闭；只连本机 AnkiConnect）。 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between font-medium text-stone-700 dark:text-stone-300">
+              <div className="flex items-center gap-1.5">
+                <Plug className="w-3.5 h-3.5 text-amber-500" />
+                <span>推送到 Anki</span>
+              </div>
+              {ankiStatus.data && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/30 px-1.5 py-0 text-[10px] text-amber-600 dark:text-amber-400"
+                >
+                  {ankiStatus.data.connected
+                    ? `已连接 v${ankiStatus.data.ankiVersion ?? '?'}`
+                    : '本机 Anki 未连接'}
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-stone-200/80 bg-stone-50/70 p-2.5 dark:border-stone-800 dark:bg-stone-900/50">
+              <p className="text-[10px] leading-relaxed text-stone-500 dark:text-stone-400">
+                把生词本卡片推送到本机 Anki（需打开 Anki + 安装 AnkiConnect 插件）。关闭时查词面板不显示推送入口。
+              </p>
+              <Switch
+                checked={ankiStatus.data?.enabled ?? false}
+                disabled={!isConnected || saveAnkiSettings.isPending}
+                onCheckedChange={(v) => {
+                  sound.playClick();
+                  saveAnkiSettings.mutate(
+                    { enabled: v },
+                    {
+                      onError: (e) =>
+                        toast.error(e instanceof Error ? e.message : 'Anki 设置保存失败。'),
+                    }
+                  );
+                }}
+              />
             </div>
           </div>
 

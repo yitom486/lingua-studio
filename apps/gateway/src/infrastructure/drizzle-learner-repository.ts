@@ -61,6 +61,16 @@ import {
   type PreviewCardRequest,
   type PreviewCardResult,
 } from '../modules/flashcards/application/card-preview.js';
+import {
+  getAnkiSettings as getAnkiSettingsDomain,
+  saveAnkiSettings as saveAnkiSettingsDomain,
+  type AnkiPushSettings,
+} from '../modules/flashcards/persistence/anki-settings.js';
+import {
+  pushCardToAnki as pushCardToAnkiDomain,
+  type AnkiPushRequest,
+  type AnkiPushResult,
+} from '../modules/flashcards/application/anki-push.js';
 import type { AnkiCardFormat } from '@study-studio/learner-core';
 import {
   resolveActiveLanguage as resolveActiveLanguageDomain,
@@ -278,6 +288,30 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     request: PreviewCardRequest
   ): Promise<Result<PreviewCardResult, BusinessError>> {
     return previewCardDomain(this.deps, request);
+  }
+
+  /**
+   * Anki 推送开关读/写（默认关闭；TTS 凭证永不落盘）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async getAnkiPushSettings(): Promise<AnkiPushSettings> {
+    return getAnkiSettingsDomain(this.deps);
+  }
+
+  public async saveAnkiPushSettings(
+    patch: { enabled?: boolean; endpoint?: string }
+  ): Promise<Result<AnkiPushSettings, BusinessError>> {
+    return saveAnkiSettingsDomain(this.deps, patch);
+  }
+
+  /**
+   * 生词卡推送本机 Anki（HTTP 与 flashcards.anki_push Tool 共用此命令）。
+   * 实现已下沉 flashcards 域，此处仅委托。
+   */
+  public async pushCardToAnki(
+    request: AnkiPushRequest
+  ): Promise<Result<AnkiPushResult, BusinessError>> {
+    return pushCardToAnkiDomain(this.deps, fetch, request);
   }
 
   /**

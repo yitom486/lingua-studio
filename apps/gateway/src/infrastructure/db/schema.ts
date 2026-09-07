@@ -530,3 +530,14 @@ export const ankiCardFormats = sqliteTable('anki_card_formats', {
   userModified: integer('user_modified').notNull().default(0),
   updatedAt: text('updated_at').notNull(),
 });
+
+/**
+ * AnkiConnect 推送开关（EXTERNAL 桥接，默认关闭；endpoint 仅本机回环）。
+ * TTS 凭证永不落盘：推送时由调用方随请求携带，用完即弃。
+ */
+export const ankiSettings = sqliteTable('anki_settings', {
+  id: text('id').primaryKey(),
+  enabled: integer('enabled').notNull().default(0),
+  endpoint: text('endpoint').notNull().default('http://127.0.0.1:8765'),
+  updatedAt: text('updated_at').notNull(),
+});

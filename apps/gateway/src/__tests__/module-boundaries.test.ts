@@ -39,6 +39,8 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   'modules/practice/__tests__/practice-assembly.test.ts -> transport/tools/learning-content-tool.js',
   // Yomitan zip 解包复用 library 的 archive.ts（纯函数，无状态；避免重复实现）。
   'modules/dictionary/application/yomitan.ts -> modules/library/application/pdf-import/archive.js',
+  // Anki 推送复用 tts-proxy 合成（只取音频字节；Key 随调用来、用完即弃，永不落盘）。
+  'modules/flashcards/application/anki-push.ts -> modules/tts/application/tts-proxy.js',
 ]);
 
 function collectTs(dir: string, out: string[] = []): string[] {

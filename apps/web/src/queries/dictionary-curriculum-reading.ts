@@ -783,8 +783,7 @@ export interface CardPreviewEntry {
 }
 
 /** 预览渲染（草稿只渲染不入库；与工作台防抖调用）。 */
-export function usePreviewCardMutation() {
-  return useMutation({
+export function usePreviewCardMutation() {  return useMutation({
     mutationFn: async (payload: {
       formatId?: string;
       inlineFormat?: AnkiCardFormatInfo;
@@ -802,6 +801,98 @@ export function usePreviewCardMutation() {
         throw new Error(data?.error?.userMessage ?? '预览渲染失败。');
       }
       return (await response.json()) as CardPreviewResult;
+    },
+  });
+}
+
+/** AnkiConnect 状态（开关 + 端点 + 本机 Anki 探测；默认关闭）。 */
+export interface AnkiPushStatus {
+  enabled: boolean;
+  endpoint: string;
+  connected: boolean;
+  ankiVersion: number | null;
+}
+
+/** 推送结果（noteId 为 Anki 侧笔记 id；无 TTS 凭证时音频留空并明说）。 */
+export interface AnkiPushResult {
+  noteId: number;
+  deckName: string;
+  modelName: string;
+  formatId: string;
+  audioStored: boolean;
+  audioSkippedReason?: string;
+}
+
+export function useAnkiStatusQuery(enabled = true) {
+  return useQuery<AnkiPushStatus>({
+    queryKey: [...QUERY_KEYS.DICTIONARY, 'anki-status'],
+    enabled,
+    queryFn: async () => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/anki/status`);
+      if (!response.ok) throw new Error('暂时无法读取 Anki 推送状态。');
+      return (await response.json()) as AnkiPushStatus;
+    },
+    staleTime: 1000 * 30,
+  });
+}
+
+/** AnkiConnect 开关/端点（endpoint 仅本机回环，网关拒绝远程地址）。 */
+export function useSaveAnkiSettingsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: { enabled?: boolean; endpoint?: string }) => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/anki/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(payload?.error?.userMessage ?? 'Anki 设置保存失败。');
+      }
+      return (await response.json()) as AnkiPushStatus;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'anki-status'] });
+    },
+  });
+}
+
+export interface AnkiPushTts {
+  provider: string;
+  baseUrl?: string;
+  region?: string;
+  apiKey?: string;
+  voice?: string;
+  model?: string;
+  rate?: number;
+  gender?: 'FEMALE' | 'MALE';
+}
+
+/** 推送生词卡到本机 Anki（TTS 凭证随请求来、网关不落盘；不提供则音频留空）。 */
+export function usePushToAnkiMutation() {
+  return useMutation({
+    mutationFn: async (payload: {
+      userId?: string;
+      cardId: string;
+      formatId?: string;
+      deckName?: string;
+      tts?: AnkiPushTts;
+    }) => {
+      const response = await fetch(`${GATEWAY_BASE_URL}/api/flashcards/anki/push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as {
+          error?: { userMessage?: string };
+        } | null;
+        throw new Error(data?.error?.userMessage ?? '推送到 Anki 失败。');
+      }
+      return (await response.json()) as AnkiPushResult;
     },
   });
 }
