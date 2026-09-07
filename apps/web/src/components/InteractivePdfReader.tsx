@@ -354,6 +354,22 @@ export function InteractivePdfReader({
                             text={dlg.japanese}
                             lang={book.language || 'JA'}
                           />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              sound.playClick();
+                              onAskAiTutor(
+                                dlg.japanese,
+                                `在《${book.title}》${lesson.title}（${dlg.speaker}）的语境中，请讲透这句的语法成分、关键助词/接续与语感，并给中文翻译对照：`
+                              );
+                              toast.info('已将整句提交给 AI 导师讲透');
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-semibold text-amber-700 hover:bg-amber-500/10 dark:text-amber-300 cursor-pointer"
+                            title="整句讲透：语法成分 + 助词接续 + 语感（不用先划选）"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            讲透
+                          </button>
                         </div>
                         {showChineseTranslation && (
                           <div className="text-xs text-stone-500 dark:text-stone-400 font-sans">
