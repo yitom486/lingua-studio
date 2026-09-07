@@ -72,8 +72,11 @@ export function seedInitialData(sqlite: Database): void {
         .get();
       if (!countRow || countRow.count === 0) {
         const insertStmt = sqlite.prepare(`
-          INSERT INTO curriculum_kana (id, type, hiragana, katakana, romaji, row, col, mnemonic, audio_text, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO curriculum_kana (
+            id, type, hiragana, katakana, romaji, row, col, mnemonic,
+            learning_guide_json, audio_text, sort_order
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         for (const k of KANA_SEEDS) {
           insertStmt.run(
@@ -85,10 +88,25 @@ export function seedInitialData(sqlite: Database): void {
             k.row,
             k.col,
             k.mnemonic ?? null,
+            k.learningGuide ? JSON.stringify(k.learningGuide) : null,
             k.audioText,
             k.sortOrder
           );
         }
+      }
+
+      // 已有数据库可能只有旧版 mnemonic；课程资产不是用户编辑内容，按种子补齐讲义并修复旧字形。
+      const updateKanaGuideStmt = sqlite.prepare(`
+        UPDATE curriculum_kana
+        SET katakana = ?, learning_guide_json = ?
+        WHERE id = ?
+      `);
+      for (const k of KANA_SEEDS) {
+        updateKanaGuideStmt.run(
+          k.katakana,
+          k.learningGuide ? JSON.stringify(k.learningGuide) : null,
+          k.id
+        );
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed curriculum_kana:', e);

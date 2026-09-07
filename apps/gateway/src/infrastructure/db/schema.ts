@@ -69,6 +69,9 @@ export const studyActivityLogs = sqliteTable(
     listeningMinutes: integer('listening_minutes').notNull().default(0),
     mistakesResolvedCount: integer('mistakes_resolved_count').notNull().default(0),
     readingCount: integer('reading_count').notNull().default(0),
+    /** v4：字母 drill 当日计数（带路按天判定；与 quizzesCount 分离，假名练习不再冒充自适应做题） */
+    kanaCount: integer('kana_count').notNull().default(0),
+    hangulCount: integer('hangul_count').notNull().default(0),
     isGoalCompleted: integer('is_goal_completed', { mode: 'boolean' }).notNull().default(false),
     intensityLevel: integer('intensity_level').notNull().default(0), // 0 ~ 4
     isOvertimeBurst: integer('is_overtime_burst', { mode: 'boolean' }).notNull().default(false),
@@ -235,6 +238,7 @@ export const curriculumKana = sqliteTable('curriculum_kana', {
   row: text('row').notNull(),
   col: text('col').notNull(),
   mnemonic: text('mnemonic'),
+  learningGuideJson: text('learning_guide_json'),
   audioText: text('audio_text').notNull(),
   sortOrder: integer('sort_order').notNull(),
 });

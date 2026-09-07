@@ -23,6 +23,13 @@ describe('Curriculum Kana Repository & Seeds (Companion Integration)', () => {
       expect(a?.katakana).toBe('ア');
       expect(a?.romaji).toBe('a');
       expect(a?.type).toBe('SEION');
+      expect(a?.learningGuide?.soundDescription).toContain('假名拍');
+      expect(a?.learningGuide?.memoryTip).toContain('啊');
+      expect(a?.learningGuide?.exampleWords?.[0]?.meaning).toBe('早上');
+      expect(res.value.every((item) => Boolean(item.learningGuide?.pronunciationTip))).toBe(true);
+
+      const su = res.value.find((k) => k.id === 'kana_su');
+      expect(su?.katakana).toBe('ス');
     }
   });
 

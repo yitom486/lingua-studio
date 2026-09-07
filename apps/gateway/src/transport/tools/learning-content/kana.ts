@@ -45,8 +45,10 @@ export async function handleKanaDrillAction(
       options,
       correctAnswer: item.romaji,
       explanation:
-        item.mnemonic ||
-        `\u5e73\u5047\u540d\u300c${item.hiragana}\u300d\u6807\u51c6\u7f57\u9a6c\u97f3\u4e3a ${item.romaji}\u3002`,
+        item.learningGuide
+          ? `${item.learningGuide.soundDescription} ${item.learningGuide.memoryTip}`
+          : item.mnemonic ||
+            `\u5e73\u5047\u540d\u300c${item.hiragana}\u300d\u6807\u51c6\u7f57\u9a6c\u97f3\u4e3a ${item.romaji}\u3002`,
       testedSkillId: 'jp.kana.hiragana',
       difficultyTier: 1,
     });

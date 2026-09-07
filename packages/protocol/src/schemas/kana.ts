@@ -9,6 +9,26 @@ export const KanaTypeSchema = z.enum([
 ]);
 export type KanaType = z.infer<typeof KanaTypeSchema>;
 
+export const KanaExampleWordSchema = z.object({
+  word: z.string().min(1),
+  reading: z.string().min(1),
+  meaning: z.string().min(1),
+});
+export type KanaExampleWord = z.infer<typeof KanaExampleWordSchema>;
+
+/**
+ * 假名点击后的基础小讲义。
+ * 这些是稳定的课程事实与可替换的记忆联想；个性化追问仍交给 AI 导师。
+ */
+export const KanaLearningGuideSchema = z.object({
+  soundDescription: z.string().min(1),
+  memoryTip: z.string().min(1),
+  pronunciationTip: z.string().min(1),
+  confusionNotes: z.string().min(1).optional(),
+  exampleWords: z.array(KanaExampleWordSchema).max(3).optional(),
+});
+export type KanaLearningGuide = z.infer<typeof KanaLearningGuideSchema>;
+
 export const KanaItemSchema = z.object({
   id: z.string(),
   type: KanaTypeSchema,
@@ -17,7 +37,8 @@ export const KanaItemSchema = z.object({
   romaji: z.string(),
   row: z.string(), // あ行, か行...
   col: z.string(), // あ段, い段...
-  mnemonic: z.string().optional(), // 字源与记忆技巧
+  mnemonic: z.string().optional(), // 兼容旧版字源/简短助记
+  learningGuide: KanaLearningGuideSchema.optional(),
   audioText: z.string(),
   sortOrder: z.number().int(),
 });

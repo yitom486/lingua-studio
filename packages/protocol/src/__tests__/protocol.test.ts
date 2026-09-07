@@ -3,6 +3,8 @@ import {
   WsEnvelopeSchema,
   WsEventTypes,
   GeneratedQuestionSchema,
+  KanaItemSchema,
+  KanaLearningGuideSchema,
   QuizGradingResultSchema,
   parseTextbookAST,
   TextbookASTSchema,
@@ -53,6 +55,42 @@ describe('Protocol Package Schemas', () => {
 
     const parsed = GeneratedQuestionSchema.safeParse(question);
     expect(parsed.success).toBe(true);
+  });
+
+  it('should validate the structured kana learning guide and keep it optional', () => {
+    const guide = {
+      soundDescription: '表示日语的 a 音，是一个假名拍。',
+      memoryTip: '张大嘴说“啊”。',
+      pronunciationTip: '口腔打开，短促发音。',
+      confusionNotes: '与お对照字形。',
+      exampleWords: [{ word: '朝', reading: 'あさ', meaning: '早上' }],
+    };
+    expect(KanaLearningGuideSchema.safeParse(guide).success).toBe(true);
+    expect(
+      KanaItemSchema.safeParse({
+        id: 'kana_a',
+        type: 'SEION',
+        hiragana: 'あ',
+        katakana: 'ア',
+        romaji: 'a',
+        row: 'あ行',
+        col: 'あ段',
+        audioText: 'あ',
+        sortOrder: 1,
+        learningGuide: guide,
+      }).success
+    ).toBe(true);
+    expect(KanaItemSchema.safeParse({
+      id: 'kana_a',
+      type: 'SEION',
+      hiragana: 'あ',
+      katakana: 'ア',
+      romaji: 'a',
+      row: 'あ行',
+      col: 'あ段',
+      audioText: 'あ',
+      sortOrder: 1,
+    }).success).toBe(true);
   });
 
   it('should validate structured grading result schema', () => {

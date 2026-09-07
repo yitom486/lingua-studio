@@ -7,8 +7,8 @@ import {
   translateToBusinessError,
   nowIso,
 } from '@study-studio/shared';
-import type { KanaItem, ReadingPassageSet } from '@study-studio/protocol';
-import { KanaTypeSchema, type KanaType } from '@study-studio/protocol';
+import type { KanaItem, ReadingPassageSet, KanaLearningGuide } from '@study-studio/protocol';
+import { KanaLearningGuideSchema, KanaTypeSchema, type KanaType } from '@study-studio/protocol';
 import type { HangulItem } from '@study-studio/protocol';
 import { HangulTypeSchema, type HangulType } from '@study-studio/protocol';
 import {
@@ -38,6 +38,20 @@ function coerceKanaType(value: unknown): KanaType {
   const parsed = KanaTypeSchema.safeParse(value);
   return parsed.success ? parsed.data : 'SEION';
 }
+
+/**
+ * DB JSON 列 → 结构化小讲义；课程资产损坏时只丢弃该字段，不影响假名表读取。
+ */
+function parseKanaLearningGuide(value: unknown): KanaLearningGuide | undefined {
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  try {
+    const parsed = KanaLearningGuideSchema.safeParse(JSON.parse(value) as unknown);
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getCurriculumKana(
   deps: RepoDeps,
   type?: string
@@ -57,18 +71,22 @@ export async function getCurriculumKana(
         .orderBy(asc(curriculumKana.sortOrder));
     }
 
-    const items: KanaItem[] = rows.map((r) => ({
-      id: r.id,
-      type: coerceKanaType(r.type),
-      hiragana: r.hiragana,
-      katakana: r.katakana,
-      romaji: r.romaji,
-      row: r.row,
-      col: r.col,
-      mnemonic: r.mnemonic ?? undefined,
-      audioText: r.audioText,
-      sortOrder: r.sortOrder,
-    }));
+    const items: KanaItem[] = rows.map((r) => {
+      const learningGuide = parseKanaLearningGuide(r.learningGuideJson);
+      return {
+        id: r.id,
+        type: coerceKanaType(r.type),
+        hiragana: r.hiragana,
+        katakana: r.katakana,
+        romaji: r.romaji,
+        row: r.row,
+        col: r.col,
+        ...(r.mnemonic ? { mnemonic: r.mnemonic } : {}),
+        ...(learningGuide ? { learningGuide } : {}),
+        audioText: r.audioText,
+        sortOrder: r.sortOrder,
+      };
+    });
 
     return ok(items);
   } catch (error) {

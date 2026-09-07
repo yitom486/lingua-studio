@@ -10,6 +10,13 @@ const A: KanaItem = {
   row: 'あ行',
   col: 'あ段',
   mnemonic: '安字的一半',
+  learningGuide: {
+    soundDescription: '表示日语的 a 音，是一个发音单位。',
+    memoryTip: '张大嘴说“啊”。',
+    pronunciationTip: '口腔打开，短促地发 a。',
+    confusionNotes: '与お看字形。',
+    exampleWords: [{ word: '朝', reading: 'あさ', meaning: '早上' }],
+  },
   type: 'SEION',
 } as KanaItem;
 
@@ -30,9 +37,12 @@ describe('buildKanaTutorContext', () => {
     expect(ctx.questionText).toContain('a');
     expect(ctx.questionText).toContain('口诀');
     expect(ctx.questionText).toContain('い');
+    expect(ctx.questionText).toContain('课程事实');
+    expect(ctx.questionText).toContain('不要把假名编造成');
     expect(ctx.correctAnswer).toBe('あ / ア (a)');
     expect(ctx.skillTag).toBe('jp.kana.hiragana');
     expect(ctx.explanation).toContain('安字的一半');
+    expect(ctx.explanation).toContain('张大嘴说“啊”');
   });
 
   it('switches face and skill for katakana', () => {
