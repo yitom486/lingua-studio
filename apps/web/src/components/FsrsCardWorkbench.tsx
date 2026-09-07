@@ -1,16 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import type { CardReviewRating } from '@study-studio/protocol';
+import { buildCardContext, renderCard } from '@study-studio/learner-core';
 import { fireSuccessConfetti } from './magicui/index.js';
 import { sound, type SupportedLanguage } from '../utils/audio.js';
 import { UnifiedTtsPlayer } from './UnifiedTtsPlayer.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { usePreferencesStore } from '../stores/usePreferencesStore.js';
 import { useCardsQuery, useUpdateCardMutation } from '../queries/useLearnerQueries.js';
+import { useCardFormatsQuery } from '../queries/useLearnerQueries.js';
+import { studyCardToSourceEntry, buildReviewCardDoc } from '../lib/review-card.js';
 import { useExportApkgMutation } from '../queries/useLearnerQueries.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { PracticeQueueToCardsPanel } from './PracticeQueueToCardsPanel.js';
@@ -26,6 +37,12 @@ export function FsrsCardWorkbench() {
   const [cardFlipped, setCardFlipped] = useState(false);
   const [apkgOpen, setApkgOpen] = useState(false);
   const exportApkg = useExportApkgMutation();
+  const cardFormats = useCardFormatsQuery(true);
+  const reviewFormatId = usePreferencesStore((s) => s.reviewCardFormatId);
+  const setReviewCardFormatId = usePreferencesStore((s) => s.setReviewCardFormatId);
+  const reviewFormat =
+    cardFormats.data?.formats.find((f) => f.id === reviewFormatId) ??
+    cardFormats.data?.formats[0];
 
   const handleExportApkg = () => {
     sound.playClick();
@@ -69,6 +86,28 @@ export function FsrsCardWorkbench() {
 
   const filteredCards = cards.filter((c) => cardFilter === 'ALL' || c.type === cardFilter);
   const activeCard: StudyCardItem | undefined = filteredCards[currentCardIndex] || filteredCards[0];
+
+  // 复习内容区经模板渲染（与工作台预览/导出同链路）；外层徽标/TTS/评分 chrome 不动。
+  const renderedReview = useMemo(() => {
+    if (!activeCard || !reviewFormat) return null;
+    const ctx = buildCardContext(studyCardToSourceEntry(activeCard));
+    const rendered = renderCard(reviewFormat, ctx);
+    return {
+      frontDoc: buildReviewCardDoc(reviewFormat.css, rendered.frontHtml),
+      backDoc: buildReviewCardDoc(reviewFormat.css, rendered.backHtml),
+    };
+  }, [activeCard, reviewFormat]);
+
+  const autosizeFrame = (frame: HTMLIFrameElement | null) => {
+    if (!frame) return;
+    try {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      frame.style.height = `${Math.max(120, doc.documentElement.scrollHeight)}px`;
+    } catch {
+      // 跨源异常不抛（srcDoc 同源，正常走不到这里）
+    }
+  };
 
   const handleCardReview = (rating: CardReviewRating) => {
     sound.playClick();
@@ -150,6 +189,28 @@ export function FsrsCardWorkbench() {
           >
             {exportApkg.isPending ? '导出中…' : '导出 .apkg'}
           </Button>
+          {cardFormats.data && cardFormats.data.formats.length > 0 && (
+            <Select
+              value={reviewFormat?.id ?? 'study-basic'}
+              onValueChange={(v) => {
+                if (typeof v === 'string') {
+                  sound.playClick();
+                  setReviewCardFormatId(v);
+                }
+              }}
+            >
+              <SelectTrigger className="h-7 w-32 text-[11px]" title="复习卡片模板">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {cardFormats.data.formats.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         <Tabs
           value={cardFilter}
           onValueChange={(val) => {
@@ -205,13 +266,27 @@ export function FsrsCardWorkbench() {
                   </span>
                 </div>
                 <div className="text-center py-8 flex flex-col items-center">
-                  <h2 className="text-4xl sm:text-5xl font-bold font-serif text-stone-900 dark:text-stone-100 tracking-wide">
-                    {activeCard.frontWord}
-                  </h2>
-                  {activeCard.reading && (
-                    <p className="text-sm text-amber-700 dark:text-amber-400 font-mono mt-2">
-                      {activeCard.reading}
-                    </p>
+                  {renderedReview ? (
+                    <iframe
+                      key={`front-${activeCard.id}`}
+                      title="卡片正面"
+                      sandbox=""
+                      srcDoc={renderedReview.frontDoc}
+                      onLoad={(e) => autosizeFrame(e.currentTarget)}
+                      className="w-full rounded-2xl bg-white dark:bg-stone-950"
+                      style={{ height: 180 }}
+                    />
+                  ) : (
+                    <>
+                      <h2 className="text-4xl sm:text-5xl font-bold font-serif text-stone-900 dark:text-stone-100 tracking-wide">
+                        {activeCard.frontWord}
+                      </h2>
+                      {activeCard.reading && (
+                        <p className="text-sm text-amber-700 dark:text-amber-400 font-mono mt-2">
+                          {activeCard.reading}
+                        </p>
+                      )}
+                    </>
                   )}
                   <div className="mt-4" onClick={(e) => e.stopPropagation()}>
                     <UnifiedTtsPlayer
@@ -236,24 +311,43 @@ export function FsrsCardWorkbench() {
                   <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
                     中文释义与核心考点
                   </span>
-                  <h3 className="text-xl sm:text-2xl font-bold font-serif text-stone-900 dark:text-stone-100">
-                    {activeCard.backMeaning}
-                  </h3>
-                  <div className="p-3.5 rounded-xl bg-amber-500/10 dark:bg-stone-900/60 border border-amber-900/5 text-xs space-y-1">
-                    <div className="font-medium text-stone-900 dark:text-stone-100 flex items-center justify-between">
-                      <span>{activeCard.exampleJp}</span>
-                      <span onClick={(e) => e.stopPropagation()}>
-                        <UnifiedTtsPlayer
-                          variant="inline"
-                          text={activeCard.exampleJp}
-                          lang={cardSpeechLang}
-                        />
-                      </span>
-                    </div>
-                    <p className="text-stone-500 dark:text-stone-400 font-serif">
+                  {renderedReview ? (
+                    <iframe
+                      key={`back-${activeCard.id}`}
+                      title="卡片背面"
+                      sandbox=""
+                      srcDoc={renderedReview.backDoc}
+                      onLoad={(e) => autosizeFrame(e.currentTarget)}
+                      className="w-full rounded-2xl bg-white dark:bg-stone-950"
+                      style={{ height: 220 }}
+                    />
+                  ) : (
+                    <>
+                      <h3 className="text-xl sm:text-2xl font-bold font-serif text-stone-900 dark:text-stone-100">
+                        {activeCard.backMeaning}
+                      </h3>
+                      <div className="p-3.5 rounded-xl bg-amber-500/10 dark:bg-stone-900/60 border border-amber-900/5 text-xs space-y-1">
+                        <div className="font-medium text-stone-900 dark:text-stone-100 flex items-center justify-between">
+                          <span>{activeCard.exampleJp}</span>
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <UnifiedTtsPlayer
+                              variant="inline"
+                              text={activeCard.exampleJp}
+                              lang={cardSpeechLang}
+                            />
+                          </span>
+                        </div>
+                        <p className="text-stone-500 dark:text-stone-400 font-serif">
+                          {activeCard.exampleZh}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  {activeCard.exampleZh && (
+                    <p className="text-xs text-stone-500 dark:text-stone-400 font-serif">
                       {activeCard.exampleZh}
                     </p>
-                  </div>
+                  )}
                   {activeCard.note && (
                     <p className="text-xs text-amber-800 dark:text-amber-300">💡 {activeCard.note}</p>
                   )}

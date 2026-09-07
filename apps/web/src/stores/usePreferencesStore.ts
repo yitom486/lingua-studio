@@ -38,6 +38,8 @@ export interface PreferencesState {
   coachPersistThread: boolean;
   /** collaborationMode：default | plan | 服务端返回的 name */
   coachCollaborationMode: string;
+  /** 复习页卡片模板 id（默认 study-basic；持久化偏好） */
+  reviewCardFormatId: string;
 
   setTheme: (theme: 'light' | 'dark') => void;
   toggleTheme: () => void;
@@ -61,6 +63,7 @@ export interface PreferencesState {
   setLearningThreadId: (threadId: string) => void;
   setCoachPersistThread: (persist: boolean) => void;
   setCoachCollaborationMode: (mode: string) => void;
+  setReviewCardFormatId: (formatId: string) => void;
 }
 
 const applyThemeToDom = (theme: 'light' | 'dark') => {
@@ -94,6 +97,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       learningThreadId: '',
       coachPersistThread: true,
       coachCollaborationMode: '',
+      reviewCardFormatId: 'study-basic',
 
       setTheme: (theme: 'light' | 'dark') => {
         applyThemeToDom(theme);
@@ -137,6 +141,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCoachPersistThread: (coachPersistThread: boolean) => set({ coachPersistThread }),
       setCoachCollaborationMode: (coachCollaborationMode: string) =>
         set({ coachCollaborationMode }),
+      setReviewCardFormatId: (reviewCardFormatId: string) => set({ reviewCardFormatId }),
     }),
     {
       name: 'study_studio_user_preferences',
