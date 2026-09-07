@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { toast } from 'sonner';
 import { LoaderCircle, RotateCcw, Save } from 'lucide-react';
 import { Button } from './ui/button.js';
@@ -77,7 +77,7 @@ export function AnkiTemplateWorkbench({ open, onOpenChange }: AnkiTemplateWorkbe
   const [css, setCss] = useState('');
   const [fieldsError, setFieldsError] = useState<string | null>(null);
   const [loadedKey, setLoadedKey] = useState('');
-  const lastFocusRef = useRef<{ set: (v: string) => void; get: () => string } | null>(null);
+  const lastAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const frontRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selected = formats.find((f) => f.id === selectedId) ?? formats[0];
@@ -123,22 +123,38 @@ export function AnkiTemplateWorkbench({ open, onOpenChange }: AnkiTemplateWorkbe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, fieldsJson, front, back, css, name, selectedId]);
 
+  type EditorField = 'fields' | 'front' | 'back' | 'css';
+  const setByField = (field: EditorField, value: string) => {
+    if (field === 'fields') setFieldsJson(value);
+    else if (field === 'front') setFront(value);
+    else if (field === 'back') setBack(value);
+    else setCss(value);
+  };
+  const areaProps = (field: EditorField) => ({
+    'data-field': field,
+    onFocus: (e: FocusEvent<HTMLTextAreaElement>) => {
+      lastAreaRef.current = e.currentTarget;
+    },
+  });
+
   const insertMarker = (marker: string) => {
-    const target = lastFocusRef.current;
     const token = `{${marker}}`;
-    if (!target) {
+    const area = lastAreaRef.current;
+    if (!area || !area.isConnected) {
       setFront((v) => v + token);
       frontRef.current?.focus();
       return;
     }
-    target.set(target.get() + token);
+    const field = (area.dataset['field'] ?? 'front') as EditorField;
+    const start = area.selectionStart ?? area.value.length;
+    const end = area.selectionEnd ?? area.value.length;
+    setByField(field, area.value.slice(0, start) + token + area.value.slice(end));
+    requestAnimationFrame(() => {
+      area.focus();
+      const pos = start + token.length;
+      area.setSelectionRange(pos, pos);
+    });
   };
-
-  const trackFocus = (set: (v: string) => void, get: () => string) => ({
-    onFocus: () => {
-      lastFocusRef.current = { set, get };
-    },
-  });
 
   const handleSave = () => {
     if (!selected) return;
@@ -230,7 +246,7 @@ export function AnkiTemplateWorkbench({ open, onOpenChange }: AnkiTemplateWorkbe
               </div>
               <div>
                 <p className="mb-1 text-[11px] font-medium text-stone-600 dark:text-stone-300">
-                  插入字段标记（点按追加到上次聚焦的编辑器）
+                  插入字段标记（点按插入到光标处）
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {FIELD_MARKERS.map((m) => (
@@ -252,6 +268,7 @@ export function AnkiTemplateWorkbench({ open, onOpenChange }: AnkiTemplateWorkbe
                 <textarea
                   value={fieldsJson}
                   onChange={(e) => setFieldsJson(e.target.value)}
+                  {...areaProps('fields')}
                   rows={5}
                   spellCheck={false}
                   className="w-full rounded-lg border border-stone-200 bg-white p-2 font-mono text-[11px] dark:border-stone-700 dark:bg-stone-900"
@@ -266,14 +283,32 @@ export function AnkiTemplateWorkbench({ open, onOpenChange }: AnkiTemplateWorkbe
                   ref={frontRef}
                   value={front}
                   onChange={(e) => setFront(e.target.value)}
-                  {...trackFocus(setFront, () => frontRef.current?.value ?? '')}
+                  {...areaProps('front')}
                   rows={3}
                   spellCheck={false}
                   className="w-full rounded-lg border border-stone-200 bg-white p-2 font-mono text-[11px] dark:border-stone-700 dark:bg-stone-900"
                 />
               </label>
-              <EditorArea label="背面模板" value={back} onChange={setBack} rows={5} onTrack={trackFocus} />
-              <EditorArea label="样式（CSS，仅作用于卡片预览与导出）" value={css} onChange={setCss} rows={6} onTrack={trackFocus} />
+              <EditorArea
+                label="背面模板"
+                field="back"
+                value={back}
+                onChange={setBack}
+                rows={5}
+                onFocusArea={(area) => {
+                  lastAreaRef.current = area;
+                }}
+              />
+              <EditorArea
+                label="样式（CSS，仅作用于卡片预览与导出）"
+                field="css"
+                value={css}
+                onChange={setCss}
+                rows={6}
+                onFocusArea={(area) => {
+                  lastAreaRef.current = area;
+                }}
+              />
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -341,22 +376,22 @@ export function AnkiTemplateWorkbench({ open, onOpenChange }: AnkiTemplateWorkbe
 
 function EditorArea(props: {
   label: string;
+  field: 'back' | 'css';
   value: string;
   rows: number;
   onChange: (v: string) => void;
-  onTrack: (set: (v: string) => void, get: () => string) => { onFocus: () => void };
+  onFocusArea: (area: HTMLTextAreaElement) => void;
 }) {
-  const ref = useRef<HTMLTextAreaElement | null>(null);
   return (
     <label className="block">
       <span className="mb-1 block text-[11px] font-medium text-stone-600 dark:text-stone-300">
         {props.label}
       </span>
       <textarea
-        ref={ref}
         value={props.value}
         onChange={(e) => props.onChange(e.target.value)}
-        {...props.onTrack(props.onChange, () => ref.current?.value ?? '')}
+        data-field={props.field}
+        onFocus={(e) => props.onFocusArea(e.currentTarget)}
         rows={props.rows}
         spellCheck={false}
         className="w-full rounded-lg border border-stone-200 bg-white p-2 font-mono text-[11px] dark:border-stone-700 dark:bg-stone-900"
