@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { AiTutorDrawer } from './components/AiTutorDrawer.js';
+import { OnboardingDialog } from './components/OnboardingDialog.js';
 import { SelectionLookupPopup } from './components/SelectionLookupPopup.js';
 import { AgentChatPanel } from './components/AgentChatPanel.js';
 import { AppHeader } from './components/AppHeader.js';
@@ -479,6 +480,7 @@ export function App() {
             </Suspense>
           </ErrorBoundary>
         </main>
+        <OnboardingDialog />
       </div>
     </div>
   );
