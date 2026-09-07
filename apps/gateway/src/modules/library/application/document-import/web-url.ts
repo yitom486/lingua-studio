@@ -76,8 +76,8 @@ export async function assertPublicWebUrl(rawUrl: string): Promise<string> {
   return url.toString();
 }
 
-/** 限流读 body（超上限抛中文错；调用方不再二次读流）。 */
-async function readBoundedText(res: Response): Promise<string> {
+/** 限流读 body（超上限抛中文错；调用方不再二次读流）。新闻管线复用同一上限。 */
+export async function readBoundedText(res: Response): Promise<string> {
   const declared = Number(res.headers.get('content-length') ?? 0);
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
     throw new BusinessError('E_INVALID_INPUT', '网页过大（上限 5MB），拒绝抓取', 'VALIDATION', false);

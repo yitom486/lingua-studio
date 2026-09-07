@@ -3,6 +3,7 @@ import {
   type StudyContentLanguage,
   normalizeContentLanguage,
 } from '../../../services/learning-language-policy.js';
+import { assertPublicWebUrl } from '../../library/application/document-import/web-url.js';
 
 export interface RssItem {
   title: string;
@@ -225,6 +226,16 @@ export async function fetchRssItems(
   const timeoutMs = options?.timeoutMs ?? 10_000;
   const limit = options?.limit ?? 8;
   const fetcher = options?.fetcher ?? fetch;
+  // 纵深防御：源地址固定来自配置表，但入口仍验公网（防未来某个栏目映射被污染）。
+  try {
+    await assertPublicWebUrl(feedUrl);
+  } catch (e) {
+    return err(
+      e instanceof BusinessError
+        ? e
+        : new BusinessError('E_NEWS_RSS_FETCH', '新闻源地址非法。', 'NETWORK', true)
+    );
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 

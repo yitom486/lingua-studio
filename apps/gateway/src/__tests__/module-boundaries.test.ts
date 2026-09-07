@@ -55,6 +55,9 @@ const CROSS_MODULE_ALLOWLIST = new Set([
   'modules/library/application/document-import/epub-reader.ts -> modules/library/application/pdf-import/archive.js',
   // 网页正文复用新闻管线的 Readability 抽取纯函数（抓取层自备 SSRF 防护）。
   'modules/library/application/document-import/url-reader.ts -> modules/curriculum/infrastructure/news-article-fetch.js',
+  // 新闻管线复用 URL 导入的 SSRF 守卫（公网断言/重定向复检/限流读取同一口径）。
+  'modules/curriculum/infrastructure/news-article-fetch.ts -> modules/library/application/document-import/web-url.js',
+  'modules/curriculum/infrastructure/news-rss.ts -> modules/library/application/document-import/web-url.js',
 ]);
 
 function collectTs(dir: string, out: string[] = []): string[] {
