@@ -5,6 +5,7 @@ import {
   assemblePracticeRun,
   acceptedDbTypesForBlock,
   buildVocabQuestionsFromCards,
+  buildTranslationQuestionsFromCards,
 } from '../application/practice-assembly.js';
 import { LearningContentTool } from '../../../transport/tools/learning-content-tool.js';
 import type { Flashcard, PracticeBlockSpec } from '@study-studio/protocol';
@@ -367,3 +368,81 @@ function flashcard(id: string, front: string, back: string, state: Flashcard['fs
     fsrs: { stability: 1, difficulty: 5, reps: 1, lapses: 0, dueAt: new Date().toISOString(), state },
   };
 }
+
+describe('translation assembly from studied sentence cards（句子练习门）', () => {
+  let repo: DrizzleLearnerRepository;
+  const userId = 'sent_asm_user';
+
+  beforeEach(async () => {
+    repo = new DrizzleLearnerRepository(':memory:');
+    await repo.updateLearnerProfile(userId, { targetLanguage: 'ja' });
+  });
+
+  function sentenceCard(id: string, front: string, back: string, studied: boolean): Flashcard {
+    return {
+      id,
+      userId,
+      type: 'SENTENCE',
+      front,
+      back,
+      phonetic: undefined,
+      audioUrl: undefined,
+      tags: ['课文句子'],
+      ...(studied ? { studiedAt: new Date().toISOString() } : {}),
+      fsrs: {
+        stability: 1,
+        difficulty: 5,
+        reps: 0,
+        lapses: 0,
+        dueAt: new Date().toISOString(),
+        state: 'NEW',
+      },
+    };
+  }
+
+  it('只吃讲透句子卡：未讲透与单词卡不混入', () => {
+    const cards: Flashcard[] = [
+      { ...sentenceCard('s1', '原句一', '译文一', true) },
+      { ...sentenceCard('s2', '原句二', '译文二', true) },
+      { ...sentenceCard('s3', '原句三', '译文三', true) },
+      { ...sentenceCard('s4', '原句四', '译文四', false) },
+      {
+        ...sentenceCard('v1', 'たべる', '吃', true),
+        type: 'VOCABULARY',
+      },
+    ];
+    const qs = buildTranslationQuestionsFromCards(cards, 5, 'ja');
+    expect(qs.length).toBeGreaterThan(0);
+    expect(qs.every((q) => String(q.id).startsWith('sentence_'))).toBe(true);
+    expect(qs.every((q) => q.testedSkillId === 'jp.sentence.review')).toBe(true);
+    const contents = qs.map((q) => String(q.content));
+    expect(contents.some((t) => t.includes('原句四'))).toBe(false);
+    expect(contents.some((t) => t.includes('たべる'))).toBe(false);
+  });
+
+  it('TRANSLATION 块优先装配句子卡（不够再走池链）', async () => {
+    for (const [id, front, back] of [
+      ['ss1', '句子甲', '译文甲'],
+      ['ss2', '句子乙', '译文乙'],
+      ['ss3', '句子丙', '译文丙'],
+    ] as Array<[string, string, string]>) {
+      const res = await repo.saveCard(sentenceCard(id, front, back, true));
+      expect(isOk(res)).toBe(true);
+    }
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'ja',
+      blocks: [{ id: 'blk_tr', kind: 'TRANSLATION', count: 2, gradingMode: 'AUTO_IMMEDIATE' }],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    const items = await repo.getPracticeRunItems(userId, runRes.value.id);
+    if (!isOk(items)) return;
+    const fromSentences = items.value.filter((it) =>
+      String(it.question.id).startsWith('sentence_')
+    );
+    expect(fromSentences.length).toBeGreaterThan(0);
+  });
+});

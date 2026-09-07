@@ -152,6 +152,42 @@ export function buildVocabQuestionsFromCards(
   return out;
 }
 
+/** 句子翻译选择题（原句→选译文；干扰项取其他句子卡的译文）。
+ * 只吃讲透过的 SENTENCE 卡（accept 即讲透）；未讲透的不进，宁缺毋滥。 */
+export function buildTranslationQuestionsFromCards(
+  cards: Flashcard[],
+  count: number,
+  language: 'en' | 'ja' | 'ko'
+): GeneratedQuestion[] {
+  const usable = cards.filter(
+    (c) => c.type === 'SENTENCE' && c.studiedAt && c.front && c.back
+  );
+  const out: GeneratedQuestion[] = [];
+  const skillPrefix = language === 'ja' ? 'jp' : language;
+  for (let i = 0; i < Math.min(count, usable.length); i++) {
+    const card = usable[i]!;
+    const distractors = usable
+      .filter((c) => c.id !== card.id && c.back !== card.back)
+      .slice(0, 3);
+    if (distractors.length < 2) break;
+    const opts = [card.back, ...distractors.map((d) => d.back)];
+    const rot = i % opts.length;
+    const options = [...opts.slice(rot), ...opts.slice(0, rot)];
+    out.push({
+      id: `sentence_${card.id}`,
+      type: 'MULTIPLE_CHOICE',
+      prompt: '选出正确的翻译',
+      content: card.front,
+      options,
+      correctAnswer: card.back,
+      explanation: card.tags.filter(Boolean).join(' · ') || '来自你的课文句子卡',
+      testedSkillId: `${skillPrefix}.sentence.review`,
+      difficultyTier: 3,
+    });
+  }
+  return out;
+}
+
 export async function assemblePracticeRun(
   repo: DrizzleLearnerRepository,
   userId: string,
@@ -201,6 +237,15 @@ export async function assemblePracticeRun(
     // 1b) READING 块：从最近阅读套题装配（篇目随题携带）
     if (block.kind === 'READING') {
       pushFresh(await buildReadingQuestions(repo, userId, block, run.language));
+    }
+
+    // 1c) TRANSLATION 块：优先吃讲透句子卡；不够再走池/模板链（不断旧行为）。
+    if (block.kind === 'TRANSLATION') {
+      const sentRes = await repo.getDueCards(userId, block.count * 4 + 8, {
+        language: run.language,
+      });
+      const studied = isOk(sentRes) ? (sentRes.value ?? []) : [];
+      pushFresh(buildTranslationQuestionsFromCards(studied, block.count, run.language));
     }
 
     // 2) 题型（+难度）池精选
