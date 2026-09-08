@@ -138,6 +138,13 @@ export function createLearningProgressRoutes(deps: GatewayDeps) {
     if (isOk(res)) return c.json(res.value);
     return formatBusinessErrorResponse(c, res.error, 'levelInfo');
   })
+  // 3c. 课程路线（长期路线求值 + 新掌握写档；每日计划从中取任务）。
+  .get('/api/course-route/:userId', async (c) => {
+    const userId = c.req.param('userId');
+    const res = await deps.repo.getCourseRoute(userId, c.req.query('lang') || 'ja');
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error, 'courseRoute');
+  })
   // 4. 错题本存取与消除
   .get('/api/mistakes/:userId', async (c) => {
     const userId = c.req.param('userId');

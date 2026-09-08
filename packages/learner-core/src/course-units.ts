@@ -343,3 +343,9 @@ function unitProgressText(
 export function nextUnit(route: UnitRouteItem[]): UnitRouteItem | null {
   return route.find((r) => r.status === 'available') ?? null;
 }
+
+/** 路线快照（网关求值 + 写档后返回；前端渲染阶段/解锁链）。 */
+export interface CourseRouteSnapshot {
+  units: UnitRouteItem[];
+  nextUpId: string | null;
+}

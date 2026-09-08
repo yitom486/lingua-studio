@@ -113,6 +113,10 @@ import {
   type TextbookFocus,
 } from '../modules/library/persistence/textbook-focus.js';
 import {
+  getCourseRoute as getCourseRouteDomain,
+} from '../modules/learning-progress/persistence/course-route.js';
+import type { CourseRouteSnapshot } from '@study-studio/learner-core';
+import {
   listWordlists as listWordlistsDomain,
   type WordlistGroup,
 } from '../modules/dictionary/persistence/wordlists.js';
@@ -461,6 +465,14 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     language: string
   ): Promise<Result<TextbookFocus | null, BusinessError>> {
     return getTextbookFocusDomain(this.deps, userId, language);
+  }
+
+  /** 课程路线（求值 + 新掌握写档）。实现已下沉 learning-progress 域，此处仅委托。 */
+  public async getCourseRoute(
+    userId: string,
+    language: string
+  ): Promise<Result<CourseRouteSnapshot, BusinessError>> {
+    return getCourseRouteDomain(this.deps, userId, language);
   }
 
   /** 零基础单词表（含已收/已学透态）。实现已下沉 dictionary 域，此处仅委托。 */

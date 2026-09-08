@@ -1,6 +1,7 @@
 import type { Result, BusinessError } from '@study-studio/shared';
 import type { LearnerLevel } from '@study-studio/protocol';
 import type { StudyGateSnapshot } from './skill-gate.js';
+import type { CourseRouteSnapshot } from './course-units.js';
 import type {
   SkillMetric,
   LearnerProfileSnapshot,
@@ -67,6 +68,14 @@ export interface LearnerRepository {
       BusinessError
     >
   >;
+  /**
+   * 课程路线（可选能力：长期路线求值 + 新掌握写档）。
+   * DrizzleLearnerRepository 已实现；缺实现时计划保持现有逻辑。
+   */
+  getCourseRoute?(
+    userId: string,
+    language: string
+  ): Promise<Result<CourseRouteSnapshot, BusinessError>>;
 
   // 每日任务打卡与足迹
   getDailyTaskProgress(userId: string, date?: string): Promise<Result<DailyTaskProgress, BusinessError>>;

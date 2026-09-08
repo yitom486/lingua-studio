@@ -695,6 +695,22 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       );
     `,
   },
+  {
+    // v12：课程单元掌握记录（只记 mastered，不过渡态；已记录永不自动收回）。
+    // 证据全部来自既有表（做题/假名/讲义/生词/测评），本表只存结论 + 快照。
+    version: 12,
+    name: 'unit-progress',
+    sql: `
+      CREATE TABLE IF NOT EXISTS unit_progress (
+        user_id TEXT NOT NULL,
+        unit_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'mastered',
+        evidence_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, unit_id)
+      );
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {
