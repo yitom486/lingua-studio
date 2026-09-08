@@ -63,8 +63,37 @@ export async function backupDesktopDatabase(): Promise<string> {
   return String(dest);
 }
 
+export interface DesktopGatewayConnection {
+  port: number;
+  httpUrl: string;
+  wsUrl: string;
+}
+
+/** 读取桌面壳为本次进程选择的 Gateway 端口。 */
+export async function getDesktopGatewayConnection(): Promise<DesktopGatewayConnection> {
+  const raw = await tauriInvoke('gateway_connection');
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('桌面壳未返回有效的 Gateway 配置');
+  }
+
+  const value = raw as Record<string, unknown>;
+  const port = typeof value.port === 'number' ? value.port : NaN;
+  const httpUrl = typeof value.http_url === 'string' ? value.http_url : '';
+  const wsUrl = typeof value.ws_url === 'string' ? value.ws_url : '';
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('桌面壳返回的 Gateway 端口无效');
+  }
+  if (
+    httpUrl !== `http://localhost:${port}` ||
+    wsUrl !== `ws://localhost:${port}/ws`
+  ) {
+    throw new Error('桌面壳返回的 Gateway 地址无效');
+  }
+  return { port, httpUrl, wsUrl };
+}
+
 /** 调用 Tauri 全局 invoke；未注入时抛错以触发回退。 */
-function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+export function tauriInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Tauri invoke 不可用：无 window'));
   }

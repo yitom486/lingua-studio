@@ -9,6 +9,7 @@ import {
 import { toast } from 'sonner';
 import { App } from './App.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
+import { configureGatewayForRuntime } from './platform/gateway-runtime.js';
 import { ensureTtsEngines } from './tts/tts-engines.js';
 import './index.css';
 
@@ -71,17 +72,27 @@ export const queryClient = new QueryClient({
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
-      <ErrorBoundary
-        variant="fullscreen"
-        title="应用遇到了意外崩溃"
-        message="Lingua Studio 核心运行环境遇到了不可预期的错误。您的本地设置与学习资产已得到保护。"
-      >
-        <QueryClientProvider client={queryClient}>
-          <App />
-        </QueryClientProvider>
-      </ErrorBoundary>
-    </React.StrictMode>
-  );
+  const root = rootElement;
+
+  async function bootstrap(): Promise<void> {
+    try {
+      await configureGatewayForRuntime();
+    } finally {
+      ReactDOM.createRoot(root).render(
+        <React.StrictMode>
+          <ErrorBoundary
+            variant="fullscreen"
+            title="应用遇到了意外崩溃"
+            message="Lingua Studio 核心运行环境遇到了不可预期的错误。您的本地设置与学习资产已得到保护。"
+          >
+            <QueryClientProvider client={queryClient}>
+              <App />
+            </QueryClientProvider>
+          </ErrorBoundary>
+        </React.StrictMode>
+      );
+    }
+  }
+
+  void bootstrap();
 }

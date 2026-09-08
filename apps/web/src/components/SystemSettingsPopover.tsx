@@ -529,6 +529,37 @@ export function SystemSettingsPopover() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-4 text-xs">
+          {isDesktop && (
+            <div className="space-y-2 rounded-xl border border-amber-500/25 bg-amber-50/60 p-2.5 dark:border-amber-400/20 dark:bg-amber-950/20">
+              <div className="flex items-center justify-between font-medium text-stone-700 dark:text-stone-300">
+                <div className="flex items-center gap-1.5">
+                  <RefreshCw className="h-3.5 w-3.5 text-amber-500" />
+                  <span>应用更新</span>
+                </div>
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/30 px-1.5 py-0 text-[10px] text-amber-600 dark:text-amber-400"
+                >
+                  桌面端
+                </Badge>
+              </div>
+              <p className="text-[10px] leading-relaxed text-stone-500 dark:text-stone-400">
+                启动时会自动检查更新；你也可以随时手动检查。更新应用不会覆盖学习数据和本地配置。
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 w-full gap-1.5 border-amber-500/30 text-[11px] text-amber-700 hover:bg-amber-100/70 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                disabled={updateChecking}
+                onClick={() => void handleCheckForUpdate()}
+              >
+                <RefreshCw className={updateChecking ? 'h-3 w-3 animate-spin' : 'h-3 w-3'} />
+                {updateChecking ? '正在检查…' : '检查更新'}
+              </Button>
+            </div>
+          )}
+
           {/* 1. TTS 语音设置 */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
@@ -1165,17 +1196,6 @@ export function SystemSettingsPopover() {
                       <Download className="h-3 w-3" />
                     )}
                     备份学习数据库
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="mt-2 ml-1 h-7 gap-1 px-2 text-[11px]"
-                    disabled={updateChecking}
-                    onClick={() => void handleCheckForUpdate()}
-                  >
-                    <RefreshCw className={updateChecking ? 'h-3 w-3 animate-spin' : 'h-3 w-3'} />
-                    检查更新
                   </Button>
                 </div>
               </div>

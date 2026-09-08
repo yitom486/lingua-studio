@@ -1,4 +1,7 @@
-use tauri::{AppHandle, Manager};
+use std::net::TcpListener;
+
+use serde::Serialize;
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::ShellExt;
@@ -53,7 +56,7 @@ fn get_extension(filename: &str) -> &str {
 // P4-B：Agent Gateway sidecar 生命周期与数据库备份
 // 网关以编译产物 sidecar 随壳启动（`bun scripts/build-sidecar.ts` 产出
 // `binaries/study-studio-gateway-<target-triple>`），库路径指向系统应用数据目录，
-// 重启后学习数据保留；前端仍连 http://localhost:8080，无需改动。
+// 重启后学习数据保留；前端在启动时读取本次进程协商出的本机端口。
 // ---------------------------------------------------------------------------
 
 /// 网关 SQLite 库路径：系统应用数据目录（重启保留、卸载清理，区别于仓库根开发库）。
@@ -68,9 +71,46 @@ fn gateway_db_path(app: &AppHandle) -> std::path::PathBuf {
 #[allow(dead_code)]
 struct GatewaySidecar(std::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
 
+struct GatewayPort(std::sync::Mutex<u16>);
+
+#[derive(Debug, Serialize)]
+struct GatewayConnection {
+    port: u16,
+    http_url: String,
+    ws_url: String,
+}
+
+/// 选择一个本机临时端口：由操作系统分配，并明确避开 15000 及以下端口。
+/// 端口只绑定到本机，Gateway 不对外网卡暴露。
+fn pick_gateway_port() -> Result<u16, String> {
+    for _ in 0..32 {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", 0)) {
+            if let Ok(address) = listener.local_addr() {
+                if address.port() > 15_000 {
+                    return Ok(address.port());
+                }
+            }
+        }
+    }
+    Err("无法分配大于 15000 的本机临时端口，请关闭冲突应用后重试。".to_string())
+}
+
+#[tauri::command]
+fn gateway_connection(state: State<'_, GatewayPort>) -> Result<GatewayConnection, String> {
+    let port = *state
+        .0
+        .lock()
+        .map_err(|_| "网关端口状态暂时不可用，请重启应用后重试。".to_string())?;
+    Ok(GatewayConnection {
+        port,
+        http_url: format!("http://localhost:{port}"),
+        ws_url: format!("ws://localhost:{port}/ws"),
+    })
+}
+
 /// 拉起网关 sidecar；二进制缺失或启动失败只打日志，不阻塞壳启动
 ///（离线模式下前端走本地降级，见 `useGateway`）。
-fn spawn_gateway_sidecar(app: &AppHandle) {
+fn spawn_gateway_sidecar(app: &AppHandle, port: u16) {
     let data_dir = app
         .path()
         .app_data_dir()
@@ -89,11 +129,15 @@ fn spawn_gateway_sidecar(app: &AppHandle) {
     };
     match command
         .env("STUDY_STUDIO_DB", &db_path)
-        .env("GATEWAY_PORT", "8080")
+        .env("GATEWAY_PORT", port.to_string())
         .spawn()
     {
         Ok((mut rx, child)) => {
-            println!("[sidecar] 网关已拉起（库路径={}）", db_path.display());
+            println!(
+                "[sidecar] 网关已拉起（端口={}，库路径={}）",
+                port,
+                db_path.display()
+            );
             app.manage(GatewaySidecar(std::sync::Mutex::new(Some(child))));
             tauri::async_runtime::spawn(async move {
                 use tauri_plugin_shell::process::CommandEvent;
@@ -174,9 +218,18 @@ pub fn run() {
             platform_clipboard_write_text,
             platform_save_text_file,
             platform_backup_database,
+            gateway_connection,
         ])
         .setup(|app| {
-            spawn_gateway_sidecar(app.handle());
+            let port = match pick_gateway_port() {
+                Ok(port) => port,
+                Err(message) => {
+                    eprintln!("[sidecar] {message}");
+                    return Ok(());
+                }
+            };
+            app.manage(GatewayPort(std::sync::Mutex::new(port)));
+            spawn_gateway_sidecar(app.handle(), port);
             Ok(())
         })
         .run(tauri::generate_context!())
