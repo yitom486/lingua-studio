@@ -16,7 +16,6 @@ import type {
 } from '@study-studio/learner-core';
 import {
   buildDailyPlanStepTemplates,
-  buildTrailStepTemplates,
   parseCompletedStepIds,
   parseDailyPlanStepTemplates,
   summarizeDailyStudyPlan,
@@ -39,8 +38,6 @@ import {
   mirrorLanguageProfileToMain,
 } from './profile-internals.js';
 import { getTodayString, getYesterdayString, safeJsonParse } from '../../../infrastructure/persistence/repo-utils.js';
-import { alphabetBasicsDoneFromMetrics } from './trail.js';
-import { getBeginnerTrail } from './trail.js';
 
 /**
  * 足迹/计划域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
@@ -582,26 +579,19 @@ export async function hydrateDailyStudyPlan(
   }
   const signals = {
     track: language,
+    learnerLevel: profile.learnerLevel,
     dailyGoalQuizzes: profile.dailyGoalQuizzes,
     dailyGoalCards: profile.dailyGoalCards,
     dueCardsCount: dueRes.value.length,
     unresolvedMistakesCount: mistakesRes.value.length,
-    // 字母门：五十音/谚文累计尝试<15 视为没认完，只排字母跟读，不推精读与难题。
-    alphabetReady: alphabetBasicsDoneFromMetrics(snapshotRes.value.allMetrics ?? [], language),
+    // 基础阶段由画像阶段决定，练习总次数不能证明字母覆盖或掌握。
+    alphabetReady: profile.learnerLevel !== 'NOVICE',
     ...(topWeakness ? { topWeakness: { skillId: topWeakness.id, name: topWeakness.name } } : {}),
     ...(textbookFocus ? { textbookFocus } : {}),
   };
 
   // P5-E3：练习计划 run 进度信号（活跃 run 或当日完成 run 才存在）
   const practiceSignal = await getPracticePlanRunSignal(deps, userId, language, targetDate);
-
-  // M1 带路合一：带路未走完时，当日计划即带路（未完成 stage 直映射为步骤）；
-  // 走完后回到标准计划。带路进度与模板同源，overlay 吃同一份当日计数。
-  const trailRes = await getBeginnerTrail(deps, userId, language);
-  const trailOpen = isOk(trailRes) && !trailRes.value.complete;
-  const trailStages = trailOpen && isOk(trailRes) ? trailRes.value.stages : [];
-  const trailCounts: Record<string, number> = {};
-  for (const s of trailStages) trailCounts[s.id] = s.progress;
 
   const existingRows = await deps.db
     .select()
@@ -625,7 +615,8 @@ export async function hydrateDailyStudyPlan(
     ? parseDailyPlanStepTemplates(safeJsonParse(existing.stepsJson))
     : null;
 
-  if (existing && parsedTemplates) {
+  if (existing && parsedTemplates && !parsedTemplates.some((s) => s.trailStageId) &&
+      !(profile.learnerLevel === 'NOVICE' && parsedTemplates.some((s) => s.kind === 'READING' || s.kind === 'QUIZ' || s.kind === 'GRAMMAR'))) {
     planId = existing.id;
     createdAt = existing.createdAt;
     templates = parsedTemplates;
@@ -639,22 +630,7 @@ export async function hydrateDailyStudyPlan(
         .where(eq(dailyStudyPlans.id, existing.id));
     }
   } else {
-    // 带路未走完：当日计划即带路（只列未完成 stage；做完的自动消失）。
-    templates = trailOpen
-      ? buildTrailStepTemplates(
-          trailStages
-            .filter((s) => !s.done)
-            .map((s) => ({
-              id: s.id,
-              day: s.day,
-              title: s.title,
-              hint: s.hint,
-              tab: s.tab,
-              criterionKind: s.criterion.kind,
-              goal: s.criterion.goal,
-            }))
-        )
-      : buildDailyPlanStepTemplates(signals);
+    templates = buildDailyPlanStepTemplates(signals);
     if (practiceSignal) templates = appendPracticePlanStep(templates, practiceSignal.totalItems);
     planId = existing?.id ?? generateId('plan');
     createdAt = existing?.createdAt ?? nowIso();
@@ -692,7 +668,6 @@ export async function hydrateDailyStudyPlan(
       unresolvedMistakesCount: mistakesRes.value.length,
       completedStepIds,
       practicePlan: practiceSignal,
-      ...(trailOpen ? { trail: trailCounts } : {}),
     })
   );
 }

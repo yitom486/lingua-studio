@@ -21,7 +21,7 @@ import { DEFAULT_USER_ID } from '../queries/query-keys.js';
 
 const LEVEL_ORDER: PlacementLevel[] = ['NOVICE', 'BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
 const LEVEL_LABELS: Record<PlacementLevel, string> = {
-  NOVICE: '入门',
+  NOVICE: '零基础 / 入门',
   BEGINNER: '初级',
   INTERMEDIATE: '中级',
   ADVANCED: '高级',
@@ -144,7 +144,7 @@ export function LevelCard() {
         ))}
       </div>
       <p className="text-[11px] text-stone-400">
-        连续 3 天达标自动升（慢上），1 天掉线降一档（快下）；觉得自己不止这档就直接考。
+        通过阶段测评后升级；日常失误不降级。收藏数量不计入晋级。
       </p>
     </section>
   );

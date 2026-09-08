@@ -28,7 +28,7 @@ import {
 /**
  * 等级状态机（网关侧）：
  * - 状态变量就是画像 learnerLevel（NOVICE/BEGINNER/INTERMEDIATE/ADVANCED，按语种隔离），不另起宇宙；
- * - 自动边：做题/字母落盘后求值一次，上行慢（一次一档）下行快（当天跌破维持线降一档，考试通过当天豁免）；
+ * - 自动边：做题/字母落盘后求值一次，保留阶段资格，日常活动不再改变等级；
  * - 考试边：见 practice 域 placement.ts（跳级通道）；
  * - 求值失败只 warn，永不挡做题/字母主路径。
  */
@@ -36,7 +36,7 @@ import {
 const LEVEL_SET = new Set(['NOVICE', 'BEGINNER', 'INTERMEDIATE', 'ADVANCED']);
 
 function narrowLevel(raw: unknown): LearnerLevel {
-  return typeof raw === 'string' && LEVEL_SET.has(raw) ? (raw as LearnerLevel) : 'BEGINNER';
+  return typeof raw === 'string' && LEVEL_SET.has(raw) ? (raw as LearnerLevel) : 'NOVICE';
 }
 
 export interface LevelChange {

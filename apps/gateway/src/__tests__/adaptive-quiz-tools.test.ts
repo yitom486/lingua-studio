@@ -44,6 +44,7 @@ describe('Adaptive Quiz Tools (M4)', () => {
     });
 
     it('should extract top weakness from learner profile if not specified', async () => {
+      await repo.updateLearnerProfile('user_test', { targetLanguage: 'ja', learnerLevel: 'BEGINNER' });
       // 写入一个弱项画像
       await repo.saveSkillMetric('user_test', {
         id: 'jp.grammar.conditional_tara',

@@ -113,7 +113,7 @@ export async function getLearnerProfile(
       displayName: '学员 ' + userId.slice(-4),
       targetLanguage: 'en',
       studyGoal: 'CET6',
-      learnerLevel: 'BEGINNER',
+      learnerLevel: 'NOVICE',
       overallLevel: '待评测',
       overallProficiency: 0,
       streakDays: 0,

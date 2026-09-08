@@ -23,10 +23,10 @@ export function safeJsonParse(raw: string | null | undefined): unknown {
 
 export function defaultLanguageProfileSeed(language: TrackLanguage) {
   if (language === 'ja') {
-    return { studyGoal: 'JLPT_N2', learnerLevel: 'BEGINNER', overallLevel: 'N3-' };
+    return { studyGoal: 'JLPT_N2', learnerLevel: 'NOVICE', overallLevel: 'N3-' };
   }
   if (language === 'ko') {
-    return { studyGoal: 'TOPIK_I', learnerLevel: 'BEGINNER', overallLevel: 'A1' };
+    return { studyGoal: 'TOPIK_I', learnerLevel: 'NOVICE', overallLevel: 'A1' };
   }
-  return { studyGoal: 'CET6', learnerLevel: 'BEGINNER', overallLevel: 'B1' };
+  return { studyGoal: 'CET6', learnerLevel: 'NOVICE', overallLevel: 'B1' };
 }

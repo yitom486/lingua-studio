@@ -60,6 +60,7 @@ describe('practice assembly by block spec (P5-E4)', () => {
   });
 
   it('selects per-block question types, dedupes across blocks, and falls back when a type is missing', async () => {
+    await repo.updateLearnerProfile(userId, { targetLanguage: 'en', learnerLevel: 'BEGINNER' });
     await seed('CHOICE', 'q_mc_1');
     await seed('CHOICE', 'q_mc_2');
     await seed('FILL_BLANK', 'q_fill_1');

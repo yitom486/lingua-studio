@@ -149,15 +149,16 @@ describe('Beginner Trail (learning-progress domain)', () => {
     expect(data.stages?.length).toBe(5);
   });
 
-  it('M1：带路未走完时当日计划即带路（网关 hydrate 直映射）', async () => {
+  it('功能体验路线不覆盖零基础计划', async () => {
     await repo.updateLearnerProfile(userId, { targetLanguage: 'ja' });
     const planRes = await repo.getOrCreateDailyStudyPlan(userId);
     expect(isOk(planRes)).toBe(true);
     if (!isOk(planRes)) return;
     const ids = planRes.value.steps.map((s) => s.id);
-    expect(ids[0]).toBe('step_trail_ja-1');
-    expect(ids.every((id) => id.startsWith('step_trail_'))).toBe(true);
-    expect(planRes.value.steps[0]?.title).toContain('第 1 天');
+    expect(ids[0]).toBe('step_alphabet');
+    expect(ids.some((id) => id.startsWith('step_trail_'))).toBe(false);
+    expect(planRes.value.steps.some(s => s.kind === 'READING' || s.kind === 'QUIZ')).toBe(false);
+    expect(planRes.value.steps[0]?.title).toContain('五十音');
   });
 
   it('M1：带路走完后计划回到标准步骤', async () => {

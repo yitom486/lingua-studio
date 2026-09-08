@@ -67,20 +67,20 @@ describe('level state machine（网关自动边）', () => {
     repo = new DrizzleLearnerRepository(':memory:');
   });
 
-  it('做题落盘触发自动升级：NOVICE→BEGINNER（字母95%+30次+200收）', async () => {
+  it('练习与收藏不能自动升级', async () => {
     await setLevel(repo, 'ja', 'NOVICE');
     await kanaGood(repo, 30);
     await collects(repo, 200);
     // 最后一次字母落盘触发求值（hook 在 repo.recordKanaPractice 内）
     await repo.recordKanaPractice(UID, 'lv_kana_last', true, 'HIRAGANA');
-    expect(await levelOf(repo)).toBe('BEGINNER');
+    expect(await levelOf(repo)).toBe('NOVICE');
   });
 
-  it('掉级：INTER 当天做题拉胯降回 BEGINNER（只降一档）', async () => {
+  it('日常失误保留中级资格', async () => {
     await setLevel(repo, 'ja', 'INTERMEDIATE');
     await kanaGood(repo, 30);
     await wrongQuizzes(repo, 3);
-    expect(await levelOf(repo)).toBe('BEGINNER');
+    expect(await levelOf(repo)).toBe('INTERMEDIATE');
   });
 
   it('hint 给出升级进度', async () => {
@@ -120,8 +120,13 @@ describe('placement exam（跳级通道）', () => {
     const dup = await repo.startPlacementExam(UID, 'ja', 'BEGINNER');
     expect(isOk(dup)).toBe(false);
 
-    // 12 道全对（直接落 graded 尝试，绕开 runner UI）
-    for (let i = 0; i < 12; i++) {
+    const incomplete = await repo.finishPlacementExam(UID, started.value.exam.id);
+    expect(isOk(incomplete)).toBe(false);
+    if (!isOk(incomplete)) expect(incomplete.error.code).toBe('E_EXAM_INCOMPLETE');
+    const stillOpen = await repo.getPracticePlanRun(UID, started.value.runId);
+    expect(isOk(stillOpen) && stillOpen.value?.status).not.toBe('COMPLETED');
+    // 20 道全对（直接落 graded 尝试，绕开 runner UI）
+    for (let i = 0; i < 20; i++) {
       repo
         .getRawDb()
         .prepare(
@@ -151,7 +156,7 @@ describe('placement exam（跳级通道）', () => {
     await kanaGood(repo, 15);
     const started = await repo.startPlacementExam(UID, 'ja', 'BEGINNER');
     if (!isOk(started)) return;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 20; i++) {
       repo
         .getRawDb()
         .prepare(
@@ -183,7 +188,7 @@ describe('placement exam（跳级通道）', () => {
     await kanaGood(repo, 15);
     const started = await repo.startPlacementExam(UID, 'ja', 'BEGINNER');
     if (!isOk(started)) return;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 20; i++) {
       repo
         .getRawDb()
         .prepare(

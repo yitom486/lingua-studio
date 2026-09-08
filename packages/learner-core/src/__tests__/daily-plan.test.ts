@@ -213,9 +213,9 @@ describe('daily plan alphabet gate（零基础不推精读）', () => {
     alphabetReady: false,
   };
 
-  it('未过关：只排字母跟读，不推精读/自适应/新词', () => {
+  it('未过关：字母跟读和词语学习，不推精读/自适应', () => {
     const steps = buildDailyPlanStepTemplates(gatedBase);
-    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET']);
+    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET', 'NEW_WORDS']);
     expect(steps[0]?.navigateTo).toBe('KANA');
     expect(steps[0]?.targetCount).toBe(5);
   });
@@ -234,7 +234,7 @@ describe('daily plan alphabet gate（零基础不推精读）', () => {
       ...gatedBase,
       topWeakness: { skillId: 'jp.kana.hiragana', name: '平假名认读' },
     });
-    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET']);
+    expect(steps.map((s) => s.kind)).toEqual(['ALPHABET', 'NEW_WORDS']);
   });
 
   it('字母薄弱项回字母工作室，而非自适应做题', () => {
@@ -309,5 +309,16 @@ describe('trail-mapped plan steps（带路合一）', () => {
     const parsed = parseDailyPlanStepTemplates(JSON.parse(JSON.stringify(templates)));
     expect(parsed?.[0]?.trailStageId).toBe('ja-1');
     expect(parsed?.[0]?.kind).toBe('ALPHABET');
+  });
+});
+
+describe('零基础能力门', () => {
+  it('刷够字母次数仍不推精读，允许学词', () => {
+    const steps = buildDailyPlanStepTemplates({ track: 'ja', learnerLevel: 'NOVICE', alphabetReady: true, dailyGoalQuizzes: 5, dailyGoalCards: 5, dueCardsCount: 0, unresolvedMistakesCount: 0 });
+    expect(steps.map(s => s.kind)).toEqual(['ALPHABET', 'NEW_WORDS']);
+  });
+  it('英语零基础不因无需假名而自动进入精读', () => {
+    const steps = buildDailyPlanStepTemplates({ track: 'en', learnerLevel: 'NOVICE', alphabetReady: true, dailyGoalQuizzes: 5, dailyGoalCards: 5, dueCardsCount: 0, unresolvedMistakesCount: 0 });
+    expect(steps.map(s => s.kind)).toEqual(['NEW_WORDS']);
   });
 });

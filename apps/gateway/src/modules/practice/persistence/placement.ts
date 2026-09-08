@@ -27,7 +27,7 @@ import {
 import { LEVEL_THRESHOLDS } from '@study-studio/learner-core';
 
 const LEVEL_SET: LearnerLevel[] = ['NOVICE', 'BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
-const EXAM_MIN_GRADED = 10;
+const EXAM_MIN_GRADED = LEVEL_THRESHOLDS.examVocabQuestions;
 
 export interface PlacementExam {
   id: string;
@@ -224,8 +224,6 @@ export async function finishPlacementExam(
     if (!isOk(runRes) || !runRes.value) {
       return err(new BusinessError('E_RUN_NOT_FOUND', '考试用卷未找到', 'DATABASE'));
     }
-    const finRes = await finalizePracticePlanRun(deps, userId, exam.runId);
-    if (!isOk(finRes)) return err(finRes.error);
     const attemptsRes = await listPracticeItemAttempts(deps, exam.runId);
     if (!isOk(attemptsRes)) return err(attemptsRes.error);
     const graded = attemptsRes.value.filter((a) => a.status === 'GRADED' && a.gradingResult);
@@ -238,6 +236,8 @@ export async function finishPlacementExam(
         )
       );
     }
+    const finRes = await finalizePracticePlanRun(deps, userId, exam.runId);
+    if (!isOk(finRes)) return err(finRes.error);
     const correct = graded.filter((a) => {
       const g = a.gradingResult as { isCorrect?: unknown } | undefined;
       return g?.isCorrect === true;
@@ -269,13 +269,7 @@ export async function finishPlacementExam(
       } else {
         level = written.value;
       }
-      // 考试豁免：考过的人名下未讲透卡一次全标记（逐词讲透免了，不是免了复习）。
-      deps.sqlite
-        .query(
-          `UPDATE flashcards SET studied_at = ?
-           WHERE user_id = ? AND language = ? AND studied_at IS NULL`
-        )
-        .run(now, userId, exam.language);
+
     }
     return ok({ passed, accuracy, graded: graded.length, level });
   } catch (error) {

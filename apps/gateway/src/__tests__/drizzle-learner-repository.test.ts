@@ -18,7 +18,7 @@ describe('DrizzleLearnerRepository', () => {
     expect(res.value.userId).toBe(testUserId);
     expect(res.value.targetLanguage).toBe('en');
     expect(res.value.studyGoal).toBe('CET6');
-    expect(res.value.learnerLevel).toBe('BEGINNER');
+    expect(res.value.learnerLevel).toBe('NOVICE');
     expect(res.value.streakDays).toBe(0);
     expect(res.value.dailyGoalQuizzes).toBe(5);
     expect(res.value.dailyGoalCards).toBe(10);
@@ -361,7 +361,7 @@ describe('DrizzleLearnerRepository', () => {
 
   it('creates a stable daily study plan and overlays live activity', async () => {
     const userId = 'plan_user_01';
-    await repo.updateLearnerProfile(userId, { targetLanguage: 'en' });
+    await repo.updateLearnerProfile(userId, { targetLanguage: 'en', learnerLevel: 'BEGINNER' });
     // M1：新用户先走完带路（收3词/做3题/读1篇），计划才回到标准步骤
     for (let i = 0; i < 3; i++) {
       await repo.recordTermExposure({
@@ -416,6 +416,7 @@ describe('DrizzleLearnerRepository', () => {
     // P4-A 验收：做完题、攻克错题后，日计划重新查询得到正确变化，刷新一致。
     const userId = 'plan_user_02';
     await repo.updateLearnerProfile(userId, {
+      learnerLevel: 'BEGINNER',
       targetLanguage: 'en',
       dailyGoalQuizzes: 1,
       dailyGoalCards: 1,

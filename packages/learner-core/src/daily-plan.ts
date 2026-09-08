@@ -1,4 +1,4 @@
-import type { TargetLanguage } from './types.js';
+import type { LearnerLevel, TargetLanguage } from './types.js';
 
 export const DAILY_PLAN_STEP_KINDS = [
   'NEW_WORDS',
@@ -58,6 +58,7 @@ export interface DailyStudyPlan {
 }
 
 export interface DailyPlanSignals {
+  learnerLevel?: LearnerLevel;
   track: TargetLanguage;
   dailyGoalQuizzes: number;
   dailyGoalCards: number;
@@ -113,14 +114,15 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
   const steps: DailyPlanStepTemplate[] = [];
   const quizGoal = Math.max(1, signals.dailyGoalQuizzes);
   const cardGoal = Math.max(1, signals.dailyGoalCards);
-  const alphabetGate = !signals.alphabetReady && (signals.track === 'ja' || signals.track === 'ko');
+  const novice = signals.learnerLevel === 'NOVICE';
+  const alphabetGate = (novice || !signals.alphabetReady) && (signals.track === 'ja' || signals.track === 'ko');
 
   if (alphabetGate) {
     steps.push({
       id: 'step_alphabet',
       kind: 'ALPHABET',
       title: signals.track === 'ko' ? '谚文跟读' : '五十音跟读',
-      summary: '点字母听发音并跟读，做 5 道小测；字母不过关不碰单词和文章。',
+      summary: '每次选一小组字母，先听音跟读，再做 5 道已学内容小测；完成次数不代表掌握。',
       navigateTo: signals.track === 'ko' ? 'HANGUL' : 'KANA',
       targetCount: 5,
     });
@@ -136,7 +138,7 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
       navigateTo: 'CARDS',
       targetCount,
     });
-  } else if (!alphabetGate) {
+  } else {
     steps.push({
       id: 'step_new_words',
       kind: 'NEW_WORDS',
@@ -147,7 +149,7 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
     });
   }
 
-  if (signals.topWeakness && !alphabetGate) {
+  if (signals.topWeakness && !alphabetGate && !novice) {
     steps.push({
       id: 'step_grammar',
       kind: 'GRAMMAR',
@@ -164,7 +166,7 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
     });
   }
 
-  if (!alphabetGate) {
+  if (!alphabetGate && !novice) {
     const focus = signals.textbookFocus;
     steps.push({
       id: 'step_reading',

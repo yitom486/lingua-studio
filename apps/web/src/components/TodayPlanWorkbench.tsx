@@ -187,7 +187,7 @@ export function TodayPlanWorkbench() {
                           disabled={completeStep.isPending}
                           onClick={() => markDone(step)}
                         >
-                          标记完成
+                          记录已完成活动
                         </Button>
                       )}
                     </div>
