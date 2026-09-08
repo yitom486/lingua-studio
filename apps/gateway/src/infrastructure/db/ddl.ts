@@ -724,6 +724,75 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       ALTER TABLE placement_exams ADD COLUMN subscores_json TEXT;
     `,
   },
+  {
+    // v14：教材 shred——AST 大绳拆成关系行 + FTS + 知识映射（只建表，不写数据）。
+    // - 四张行表与 documents.ast_json 同源（底稿保留），落库/enrich 时同事务全删全插；
+    // - textbook_term_map 只记精确匹配（skill_id/entry_id 为空=未映射，可统计覆盖率，绝不臆造边）；
+    // - FTS 为 contentless 手工同步（shred 时同事务重建），不设触发器。
+    version: 14,
+    name: 'textbook-shred',
+    sql: `
+      CREATE TABLE IF NOT EXISTS textbook_lessons (
+        document_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        lesson_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        PRIMARY KEY (document_id, lesson_id)
+      );
+      CREATE TABLE IF NOT EXISTS textbook_vocab (
+        document_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        surface TEXT NOT NULL,
+        reading TEXT,
+        pos TEXT,
+        gloss_zh TEXT,
+        pitch TEXT,
+        example_ja TEXT,
+        example_zh TEXT,
+        PRIMARY KEY (document_id, lesson_id, ord)
+      );
+      CREATE INDEX IF NOT EXISTS idx_textbook_vocab_surface
+        ON textbook_vocab(document_id, surface);
+      CREATE TABLE IF NOT EXISTS textbook_grammar (
+        document_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        connection TEXT,
+        explanation TEXT,
+        PRIMARY KEY (document_id, lesson_id, ord)
+      );
+      CREATE TABLE IF NOT EXISTS textbook_lines (
+        document_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        ord INTEGER NOT NULL,
+        speaker TEXT,
+        ja TEXT NOT NULL,
+        zh TEXT,
+        PRIMARY KEY (document_id, lesson_id, ord)
+      );
+      CREATE INDEX IF NOT EXISTS idx_textbook_lines_lesson
+        ON textbook_lines(document_id, lesson_id, ord);
+      CREATE VIRTUAL TABLE IF NOT EXISTS textbook_fts USING fts5(
+        surface, reading, gloss, ja, zh,
+        document_id UNINDEXED, lesson_id UNINDEXED, kind UNINDEXED, ref UNINDEXED
+      );
+      CREATE TABLE IF NOT EXISTS textbook_term_map (
+        document_id TEXT NOT NULL,
+        lesson_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        ref_text TEXT NOT NULL,
+        skill_id TEXT,
+        entry_id TEXT,
+        PRIMARY KEY (document_id, lesson_id, kind, ref_text)
+      );
+      CREATE INDEX IF NOT EXISTS idx_textbook_term_map_skill
+        ON textbook_term_map(skill_id);
+      CREATE INDEX IF NOT EXISTS idx_textbook_term_map_entry
+        ON textbook_term_map(entry_id);
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {
