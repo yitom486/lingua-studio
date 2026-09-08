@@ -78,6 +78,11 @@ export function minLevelForSkill(skillId: string | null | undefined): LearnerLev
   return null;
 }
 
+/** 已知技能 id（分类/映射类任务的允许集合；课程讲义技能另从 curriculum_lessons 取）。 */
+export function listKnownSkillIds(): string[] {
+  return Object.keys(SKILL_MIN_LEVEL);
+}
+
 export function tierCapForLevel(level: LearnerLevel): number {
   return TIER_CAP[level] ?? 2;
 }

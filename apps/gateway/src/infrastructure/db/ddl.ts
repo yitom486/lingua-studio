@@ -793,6 +793,24 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
         ON textbook_term_map(entry_id);
     `,
   },
+  {
+    // v15：文档结构分类结果（mini 模型判选 + 接地校验；观测先行，不影响导入主流程）。
+    // 一文档一行（后跑覆盖先跑）；headings 为输入候选，classes 为校验后输出。
+    version: 15,
+    name: 'document-structure',
+    sql: `
+      CREATE TABLE IF NOT EXISTS document_structure (
+        document_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        headings_json TEXT NOT NULL DEFAULT '[]',
+        classes_json TEXT NOT NULL DEFAULT '[]',
+        model TEXT NOT NULL DEFAULT '',
+        effort TEXT NOT NULL DEFAULT '',
+        dropped INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {

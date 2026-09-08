@@ -121,6 +121,11 @@ import {
   listWordlists as listWordlistsDomain,
   type WordlistGroup,
 } from '../modules/dictionary/persistence/wordlists.js';
+import {
+  saveDocumentStructure as saveDocumentStructureDomain,
+  getDocumentStructure as getDocumentStructureDomain,
+  type SavedDocumentStructure,
+} from '../modules/library/persistence/document-structure.js';
 import type { StudyGateSnapshot } from '@study-studio/learner-core';
 import {
   previewCard as previewCardDomain,
@@ -482,6 +487,35 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     language: string
   ): Promise<Result<WordlistGroup[], BusinessError>> {
     return listWordlistsDomain(this.deps, userId, language);
+  }
+
+  /** 保存文档结构分类。实现已下沉 library 域，此处仅委托。 */
+  public async saveDocumentStructure(
+    userId: string,
+    documentId: string,
+    input: {
+      headings: Array<{ page: number; text: string }>;
+      classes: Array<{
+        text: string;
+        page: number;
+        kind: 'lesson' | 'section' | 'toc' | 'noise';
+        lessonNo: string | null;
+        skillId: string | null;
+      }>;
+      model: string;
+      effort: string;
+      dropped: number;
+    }
+  ): Promise<Result<SavedDocumentStructure, BusinessError>> {
+    return saveDocumentStructureDomain(this.deps, userId, documentId, input);
+  }
+
+  /** 读取文档结构分类（无记录返回 null）。实现已下沉 library 域，此处仅委托。 */
+  public async getDocumentStructure(
+    userId: string,
+    documentId: string
+  ): Promise<Result<SavedDocumentStructure | null, BusinessError>> {
+    return getDocumentStructureDomain(this.deps, userId, documentId);
   }
 
   /**

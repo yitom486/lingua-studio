@@ -683,3 +683,133 @@ export function useAnnotationToCardMutation(userId = DEFAULT_USER_ID) {
     },
   });
 }
+
+export type StructureHeading = { page: number; text: string };
+export type StructureClassKind = 'lesson' | 'section' | 'toc' | 'noise';
+export interface StructureClassItem {
+  text: string;
+  page: number;
+  kind: StructureClassKind;
+  lessonNo: string | null;
+  skillId: string | null;
+}
+export interface ClassifyStructureResult {
+  classes: StructureClassItem[];
+  dropped: number;
+  model: string;
+  allowedSkillIds: string[];
+}
+export interface SavedStructure {
+  documentId: string;
+  headings: StructureHeading[];
+  classes: StructureClassItem[];
+  model: string;
+  effort: string;
+  dropped: number;
+  createdAt: string;
+}
+
+/**
+ * 标题结构分类（mini 分流观测）：输入 map 阶段标题候选，瞬时返回判选（不落库）。
+ * 模型与 effort 由导入页独立选择后显式传入；网关只透传。
+ */
+export function useClassifyStructureMutation() {
+  return useMutation({
+    mutationFn: async (vars: {
+      headings: StructureHeading[];
+      lang?: string;
+      model?: string;
+      effort?: string;
+    }): Promise<ClassifyStructureResult> => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/structure/classify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(vars),
+      });
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `结构分类失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const p = (payload ?? {}) as Record<string, unknown>;
+      const kinds = new Set(['lesson', 'section', 'toc', 'noise']);
+      return {
+        classes: (Array.isArray(p.classes) ? p.classes : [])
+          .filter((c): c is Record<string, unknown> => !!c && typeof c === 'object')
+          .filter((c) => typeof c.text === 'string' && kinds.has(c.kind as string))
+          .map((c) => ({
+            text: c.text as string,
+            page: typeof c.page === 'number' ? c.page : 0,
+            kind: c.kind as StructureClassKind,
+            lessonNo: typeof c.lessonNo === 'string' ? c.lessonNo : null,
+            skillId: typeof c.skillId === 'string' ? c.skillId : null,
+          })),
+        dropped: typeof p.dropped === 'number' ? p.dropped : 0,
+        model: typeof p.model === 'string' ? p.model : '',
+        allowedSkillIds: Array.isArray(p.allowedSkillIds)
+          ? (p.allowedSkillIds as unknown[]).filter((s): s is string => typeof s === 'string')
+          : [],
+      };
+    },
+    onError: (e) => {
+      logger.debug('[useClassifyStructureMutation] classify failed', e);
+    },
+  });
+}
+
+/** 保存已验分类（一文档一行；导入确认后调用）。 */
+export function useSaveDocumentStructureMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      documentId: string;
+      headings: StructureHeading[];
+      classes: StructureClassItem[];
+      model: string;
+      effort: string;
+      dropped: number;
+    }): Promise<SavedStructure | null> => {
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(vars.documentId)}/structure`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            headings: vars.headings,
+            classes: vars.classes,
+            model: vars.model,
+            effort: vars.effort,
+            dropped: vars.dropped,
+          }),
+        }
+      );
+      if (!res.ok) return null;
+      return (await res.json().catch(() => null)) as SavedStructure | null;
+    },
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.TEXTBOOKS, userId, vars.documentId, 'structure'] });
+    },
+  });
+}
+
+/** 读回已存分类（无记录返回 null，不报错）。 */
+export function useDocumentStructureQuery(documentId: string | undefined, userId = DEFAULT_USER_ID) {
+  return useQuery<SavedStructure | null>({
+    queryKey: [...QUERY_KEYS.TEXTBOOKS, userId, documentId ?? '', 'structure'],
+    enabled: Boolean(documentId),
+    queryFn: async () => {
+      if (!documentId) return null;
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}/api/documents/${encodeURIComponent(userId)}/${encodeURIComponent(documentId)}/structure`
+      );
+      if (!res.ok) return null;
+      const payload: unknown = await res.json().catch(() => null);
+      if (!payload || typeof payload !== 'object') return null;
+      return payload as SavedStructure;
+    },
+    staleTime: 1000 * 60 * 5,
+  });
+}

@@ -13,7 +13,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { parseTextbookAST, type TextbookAST } from '@study-studio/protocol';
-import { useImportPdfMutation, useMapPdfMutation, useAppendPdfMutation, useImportDocumentMutation } from '../queries/useLearnerQueries.js';
+import { useImportPdfMutation, useMapPdfMutation, useAppendPdfMutation, useImportDocumentMutation, useClassifyStructureMutation, useSaveDocumentStructureMutation, type StructureClassItem, type StructureHeading } from '../queries/useLearnerQueries.js';
+import { useCodexModelsQuery } from '../queries/useCodexQueries.js';
+import { pickClassifyEffort } from '../utils/classify-effort.js';
 import { sound } from '../utils/audio.js';
 import { getPlatform } from '../platform/capabilities.js';
 import type { TextbookBook, FuriganaWord } from '../models/textbook.js';
@@ -62,6 +64,21 @@ export function TextbookImporterModal({
   const [pdfEndPage, setPdfEndPage] = useState<string>('');
   const importPdf = useImportPdfMutation();
   const mapPdf = useMapPdfMutation();
+  const classify = useClassifyStructureMutation();
+  // 分类模型独立选择（与聊天模型偏好分开；默认取列表最末=最便宜可用）
+  const { data: codexModels = [] } = useCodexModelsQuery(true);
+  const [classifyModelId, setClassifyModelId] = useState<string>('');
+  const effectiveClassifyModelId =
+    classifyModelId || (codexModels.length > 0 ? (codexModels[codexModels.length - 1]?.model ?? '') : '');
+  const [classifyResult, setClassifyResult] = useState<{
+    classes: StructureClassItem[];
+    dropped: number;
+    model: string;
+  } | null>(null);
+  // 分类输入标题（与结果同源；确认入库时一并保存，供回来查看）
+  const [classifyInputHeadings, setClassifyInputHeadings] = useState<StructureHeading[]>([]);
+  const saveStructure = useSaveDocumentStructureMutation();
+  const [classifyEffort, setClassifyEffort] = useState<string>('');
   const appendPdf = useAppendPdfMutation();
   const importDoc = useImportDocumentMutation();
   const [appendTarget, setAppendTarget] = useState<string>('');
@@ -194,6 +211,43 @@ export function TextbookImporterModal({
         onError: (err) => {
           setParseError(err instanceof Error ? err.message : '结构预览失败');
           sound.playMistake();
+        },
+      }
+    );
+  };
+
+  const handleClassifyHeadings = () => {
+    if (classify.isPending) return;
+    const headings = (mapPdf.data?.headings ?? [])
+      .filter((h) => h.text.trim())
+      .slice(0, 200)
+      .map((h) => ({ page: h.page, text: h.text }));
+    if (headings.length === 0) {
+      setParseError('先点结构预览扫出标题，再做 AI 分类');
+      return;
+    }
+    setParseError(null);
+    sound.playClick();
+    const meta = codexModels.find((m) => m.model === effectiveClassifyModelId);
+    const effort = pickClassifyEffort(meta?.supportedReasoningEfforts, meta?.defaultReasoningEffort);
+    setClassifyEffort(effort ?? '');
+    setClassifyInputHeadings(headings);
+    classify.mutate(
+      {
+        headings,
+        lang: 'ja',
+        ...(effectiveClassifyModelId ? { model: effectiveClassifyModelId } : {}),
+        ...(effort ? { effort } : {}),
+      },
+      {
+        onSuccess: (r) => {
+          sound.playCorrect();
+          setClassifyResult({ classes: r.classes, dropped: r.dropped, model: r.model });
+          toast.success(`AI 分类完成：${r.classes.length} 条已判，丢弃 ${r.dropped} 条（${r.model}）`);
+        },
+        onError: (e) => {
+          sound.playMistake();
+          setParseError(e instanceof Error ? e.message : 'AI 分类失败');
         },
       }
     );
@@ -383,6 +437,17 @@ export function TextbookImporterModal({
     }
 
     onImportBook(convertedBook, totalCardsCount);
+    // 分类结果随确认入库（观测存档：回来可查当时判了什么、用的哪个模型）
+    if (classifyResult && classifyResult.classes.length > 0) {
+      saveStructure.mutate({
+        documentId: convertedBook.id,
+        headings: classifyInputHeadings,
+        classes: classifyResult.classes,
+        model: classifyResult.model,
+        effort: classifyEffort,
+        dropped: classifyResult.dropped,
+      });
+    }
     toast.success(
       `成功导入《${convertedBook.title}》！已收录 ${convertedBook.lessons.length} 课，${totalCardsCount > 0 ? `生成 ${totalCardsCount} 张 FSRS 记忆卡片` : ''}`
     );
@@ -574,6 +639,80 @@ export function TextbookImporterModal({
                     </button>
                   ))}
                 </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="font-bold">分类模型：</span>
+                  <Select
+                    value={effectiveClassifyModelId}
+                    onValueChange={(v: string | null) => {
+                      sound.playClick();
+                      setClassifyModelId(v ?? '');
+                      setClassifyResult(null);
+                    }}
+                    disabled={codexModels.length === 0}
+                  >
+                    <SelectTrigger className="h-7 min-w-44 text-[11px]">
+                      <SelectValue
+                        placeholder={codexModels.length === 0 ? '无可用模型（用网关默认）' : '选择分类模型'}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {codexModels.map((m) => (
+                        <SelectItem key={m.id} value={m.model} className="text-[11px]">
+                          {m.displayName || m.model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px] gap-1.5"
+                    disabled={classify.isPending}
+                    onClick={handleClassifyHeadings}
+                    title="小模型判选：课/节/目录/噪音 + 能力板块（临时会话，跑完即焚；默认取列表最末模型）"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>{classify.isPending ? '分类中…' : 'AI 分类'}</span>
+                  </Button>
+                </div>
+                {classifyResult && (
+                  <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-2 space-y-1.5">
+                    <p className="font-bold text-stone-700 dark:text-stone-200">
+                      分类结果（{classifyResult.model}）：{classifyResult.classes.length} 条已判
+                      {classifyResult.dropped > 0 && `，丢弃 ${classifyResult.dropped} 条（对不上原文/非法）`}
+                    </p>
+                    <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+                      {classifyResult.classes.map((c, i) => (
+                        <div
+                          key={`${c.page}-${i}`}
+                          className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-white/60 dark:bg-stone-900/40"
+                        >
+                          <span className="truncate">
+                            {c.text}
+                            <span className="ml-1 font-mono text-stone-400">p{c.page}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-1">
+                            <Badge variant="outline" className="text-[10px]">
+                              {c.kind === 'lesson'
+                                ? `课${c.lessonNo ? ` · ${c.lessonNo}` : ''}`
+                                : c.kind === 'section'
+                                  ? '节'
+                                  : c.kind === 'toc'
+                                    ? '目录'
+                                    : '噪音'}
+                            </Badge>
+                            {c.skillId && (
+                              <Badge variant="amber" className="text-[10px] font-mono">
+                                {c.skillId}
+                              </Badge>
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

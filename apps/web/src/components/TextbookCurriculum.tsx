@@ -25,6 +25,7 @@ import { sound } from '../utils/audio.js';
 import { ShimmerButton } from './magicui/index.js';
 import { InteractivePdfReader } from './InteractivePdfReader.js';
 import { TextbookImporterModal } from './TextbookImporterModal.js';
+import { BookStructureRow } from './BookStructureRow.js';
 import {
   useTextbooksQuery,
   useImportTextbookMutation,
@@ -356,6 +357,10 @@ export function TextbookCurriculum({
             </Button>
           </div>
         </div>
+        <BookStructureRow
+          documentId={currentBook?.documentId}
+          bookTitle={currentBook?.shortTitle || currentBook?.title || ''}
+        />
       </div>
 
 

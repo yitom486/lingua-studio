@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { isOk } from '@study-studio/shared';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
+import type { DocumentItem } from '@study-studio/protocol';
 
 /**
  * v14 教材 shred 表：只验表结构与约束（shred 写逻辑下一轮）。
@@ -66,5 +68,47 @@ describe('textbook shred schema（v14）', () => {
       .query('SELECT COUNT(*) AS n FROM textbook_term_map WHERE skill_id IS NULL AND entry_id IS NULL')
       .get() as { n: number };
     expect(unmapped.n).toBe(1);
+  });
+
+  it('结构分类存取往返（一文档一行，别人的文档拒绝）', async () => {
+    const doc: DocumentItem = {
+      id: 'doc_struct_1',
+      userId: 'u_struct',
+      title: '测试书',
+      sourceKind: 'user_import',
+      language: 'ja',
+      content: '测试书',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const saved = await repo.saveDocument(doc);
+    expect(isOk(saved)).toBe(true);
+    const write = await repo.saveDocumentStructure('u_struct', 'doc_struct_1', {
+      headings: [{ page: 3, text: '第3課' }],
+      classes: [{ text: '第3課', page: 3, kind: 'lesson', lessonNo: '3', skillId: null }],
+      model: 'mini-test',
+      effort: 'low',
+      dropped: 0,
+    });
+    expect(isOk(write)).toBe(true);
+    const read = await repo.getDocumentStructure('u_struct', 'doc_struct_1');
+    expect(isOk(read)).toBe(true);
+    if (!isOk(read)) return;
+    expect(read.value?.classes.length).toBe(1);
+    expect(read.value?.model).toBe('mini-test');
+    // 别人的文档拒绝
+    const denied = await repo.saveDocumentStructure('intruder', 'doc_struct_1', {
+      headings: [],
+      classes: [],
+      model: '',
+      effort: '',
+      dropped: 0,
+    });
+    expect(isOk(denied)).toBe(false);
+    // 无记录返回 null
+    const miss = await repo.getDocumentStructure('u_struct', 'no-such-doc');
+    expect(isOk(miss)).toBe(true);
+    if (!isOk(miss)) return;
+    expect(miss.value).toBeNull();
   });
 });
