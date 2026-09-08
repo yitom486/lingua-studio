@@ -41,6 +41,20 @@ const inlineCssTreePatchPlugin = {
   name: 'inline-css-tree-data-patch',
   setup(build: { onLoad: (options: { filter: RegExp }, callback: (args: { path: string }) => Promise<unknown>) => void }) {
     build.onLoad(
+      { filter: /[\\/]jsdom[\\/]lib[\\/]jsdom[\\/]living[\\/]css[\\/]helpers[\\/]computed-style\.js$/ },
+      async (args) => {
+        const stylesheetPath = join(dirname(args.path), '..', '..', '..', 'browser', 'default-stylesheet.css');
+        const stylesheet = await Bun.file(stylesheetPath).text();
+        let contents = await Bun.file(args.path).text();
+        contents = contents.replace(
+          /const defaultStyleSheet = fs\.readFileSync\([\s\S]*?\);/,
+          `const defaultStyleSheet = ${toJavaScriptLiteral(stylesheet)};`,
+        );
+        return { contents, loader: 'js' };
+      },
+    );
+
+    build.onLoad(
       { filter: /[\\/]css-tree[\\/](?:lib[\\/]data-patch\.js|cjs[\\/]data-patch\.cjs)$/ },
       async (args) => {
         const patchPath = join(dirname(args.path), '..', 'data', 'patch.json');

@@ -1,10 +1,12 @@
 use std::net::TcpListener;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
+use std::process::{Child, Command, Stdio};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_shell::ShellExt;
 
 /// 学习 Studio 桌面壳命令（P4-B 平台能力 Rust 侧）。
 /// 与 `apps/web/src/platform/tauri-capabilities.ts` 经 `window.__TAURI__.core.invoke` 对接。
@@ -69,7 +71,19 @@ fn gateway_db_path(app: &AppHandle) -> std::path::PathBuf {
 
 /// sidecar 子进程句柄：保活至应用退出（Tauri 退出时自动回收）。
 #[allow(dead_code)]
-struct GatewaySidecar(std::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
+struct GatewaySidecar(std::sync::Mutex<Option<Child>>);
+
+impl Drop for GatewaySidecar {
+    fn drop(&mut self) {
+        let Ok(mut guard) = self.0.lock() else {
+            return;
+        };
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
 
 struct GatewayPort(std::sync::Mutex<u16>);
 
@@ -108,6 +122,27 @@ fn gateway_connection(state: State<'_, GatewayPort>) -> Result<GatewayConnection
     })
 }
 
+fn gateway_sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let filename = if cfg!(windows) {
+        "study-studio-gateway.exe"
+    } else {
+        "study-studio-gateway"
+    };
+    let mut candidates = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join(filename));
+        }
+    }
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.join(filename));
+    }
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .ok_or_else(|| format!("网关 sidecar 不存在：{filename}"))
+}
+
 /// 拉起网关 sidecar；二进制缺失或启动失败只打日志，不阻塞壳启动
 ///（离线模式下前端走本地降级，见 `useGateway`）。
 fn spawn_gateway_sidecar(app: &AppHandle, port: u16) {
@@ -120,39 +155,48 @@ fn spawn_gateway_sidecar(app: &AppHandle, port: u16) {
     }
     let db_path = data_dir.join("study-studio.db");
 
-    let command = match app.shell().sidecar("study-studio-gateway") {
-        Ok(command) => command,
+    let sidecar_path = match gateway_sidecar_path(app) {
+        Ok(path) => path,
         Err(e) => {
-            eprintln!("[sidecar] 网关 sidecar 二进制缺失：{e}（先运行 bun scripts/build-sidecar.ts）");
+            eprintln!("[sidecar] {e}（请重新安装完整安装包）");
             return;
         }
     };
-    match command
+    let mut command = Command::new(&sidecar_path);
+    command
         .env("STUDY_STUDIO_DB", &db_path)
         .env("GATEWAY_PORT", port.to_string())
-        .spawn()
-    {
-        Ok((mut rx, child)) => {
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    match command.spawn() {
+        Ok(mut child) => {
             println!(
-                "[sidecar] 网关已拉起（端口={}，库路径={}）",
+                "[sidecar] 网关已拉起（端口={}，库路径={}，程序={}）",
                 port,
-                db_path.display()
+                db_path.display(),
+                sidecar_path.display()
             );
-            app.manage(GatewaySidecar(std::sync::Mutex::new(Some(child))));
-            tauri::async_runtime::spawn(async move {
-                use tauri_plugin_shell::process::CommandEvent;
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
-                            print!("[gateway] {}", String::from_utf8_lossy(&line))
-                        }
-                        _ => {}
+            if let Some(stdout) = child.stdout.take() {
+                std::thread::spawn(move || {
+                    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                        println!("[gateway] {line}");
                     }
-                }
-            });
+                });
+            }
+            if let Some(stderr) = child.stderr.take() {
+                std::thread::spawn(move || {
+                    for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                        eprintln!("[gateway] {line}");
+                    }
+                });
+            }
+            app.manage(GatewaySidecar(std::sync::Mutex::new(Some(child))));
         }
         Err(e) => {
-            eprintln!("[sidecar] 网关启动失败：{e}（前端将以降级离线模式运行）");
+            eprintln!(
+                "[sidecar] 网关启动失败：{e}（程序={}，前端将以降级离线模式运行）",
+                sidecar_path.display()
+            );
         }
     }
 }

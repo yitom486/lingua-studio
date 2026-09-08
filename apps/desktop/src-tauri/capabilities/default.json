@@ -8,6 +8,16 @@
     "opener:default",
     "clipboard-manager:default",
     "dialog:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "study-studio-gateway",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
     "updater:default",
     "process:default"
   ]
