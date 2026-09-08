@@ -22,7 +22,8 @@ export type DailyPlanNavigateTarget =
   | 'PRACTICE_PLAN'
   | 'KANA'
   | 'HANGUL'
-  | 'TEXTBOOK';
+  | 'TEXTBOOK'
+  | 'RADAR';
 
 /** P5-E3：练习计划 run 步骤的确定性 id（同一天多次读取/完成状态稳定） */
 export const PRACTICE_PLAN_STEP_ID = 'step_practice_plan';
