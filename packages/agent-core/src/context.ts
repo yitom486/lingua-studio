@@ -26,6 +26,14 @@ export interface LearnerDigest {
     limitation: string;
   };
   topWeaknesses: LearnerWeaknessDigest[];
+  /** 课程路线（长期，不随每日重置；推荐理由与解锁判断共用同一份快照） */
+  courseRoute?: {
+    stage: string;
+    nextUpTitle?: string | undefined;
+    nextUpProgress?: string | undefined;
+    mastered: number;
+    total: number;
+  } | undefined;
   dueCardsCount?: number | undefined;
   unresolvedMistakesCount?: number | undefined;
   streakDays?: number | undefined;

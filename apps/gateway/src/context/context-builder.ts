@@ -1,5 +1,5 @@
 import type { ContextSnapshot, ContextFocusItem } from '@study-studio/agent-core';
-import { summarizeLearningEvidence, type LearnerProfileSnapshot, type LearnerRepository } from '@study-studio/learner-core';
+import { summarizeLearningEvidence, COURSE_STAGES, type LearnerProfileSnapshot, type LearnerRepository } from '@study-studio/learner-core';
 import type { GeneratedQuestion, Flashcard } from '@study-studio/protocol';
 import { isOk } from '@study-studio/shared';
 import {
@@ -114,11 +114,12 @@ export class ContextBuilder {
     const profileRes = await learnerRepo.getLearnerProfile(userId);
     const activeProfile = isOk(profileRes) ? profileRes.value : null;
     const track = resolveTrack(clientSnapshot, activeProfile?.targetLanguage);
-    const [snapshotRes, dueCardsRes, mistakesRes, planRes] = await Promise.all([
+    const [snapshotRes, dueCardsRes, mistakesRes, planRes, routeRes] = await Promise.all([
       learnerRepo.getProfileSnapshot(userId, track),
       learnerRepo.getDueCards(userId, 100, { language: track }),
       learnerRepo.getMistakes(userId, { resolved: false, language: track }),
       learnerRepo.getOrCreateDailyStudyPlan(userId),
+      learnerRepo.getCourseRoute?.(userId, track),
     ]);
     const snapshot = isOk(snapshotRes) ? snapshotRes.value : null;
     const profile = snapshot?.profile?.targetLanguage === track ? snapshot.profile
@@ -156,6 +157,29 @@ export class ContextBuilder {
 
     const coachMeta = buildTrackCoachMetadata(track);
 
+    // 课程路线摘要（长期路线；推荐理由与解锁判断共用同一份快照）。
+    const routeDigest =
+      routeRes && isOk(routeRes)
+        ? (() => {
+            const units = routeRes.value.units ?? [];
+            const nextUp = units.find((u) => u.unit.id === routeRes.value.nextUpId) ?? null;
+            const stageNum = nextUp
+              ? nextUp.unit.stage
+              : units.length > 0
+                ? Math.max(...units.map((u) => u.unit.stage))
+                : 0;
+            const stage = COURSE_STAGES.find((s) => s.stage === stageNum)?.name ?? `阶段${stageNum}`;
+            return {
+              courseRoute: {
+                stage,
+                ...(nextUp ? { nextUpTitle: nextUp.unit.title, nextUpProgress: nextUp.progress } : {}),
+                mastered: units.filter((u) => u.status === 'mastered').length,
+                total: units.length,
+              },
+            };
+          })()
+        : {};
+
     return {
       targetLanguage: track,
       learnerLevel: profile?.learnerLevel ?? 'UNKNOWN',
@@ -166,6 +190,7 @@ export class ContextBuilder {
         topWeaknesses: weaknesses,
         ...(profile ? { recordedStage: profile.learnerLevel, studyGoal: profile.studyGoal } : {}),
         ...(snapshot ? { practiceEvidence: summarizeLearningEvidence(allMetrics, track) } : {}),
+        ...routeDigest,
         ...(isOk(dueCardsRes) ? { dueCardsCount } : {}),
         ...(isOk(mistakesRes) ? { unresolvedMistakesCount } : {}),
         ...(profile ? { streakDays: profile.streakDays } : {}),

@@ -1,6 +1,6 @@
 import { ok, err, isOk, type Result, BusinessError, generateId } from '@study-studio/shared';
 import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun, LearnerLevel } from '@study-studio/protocol';
-import { isLessonLocked, isQuestionAllowed, resolveStudyGate } from '@study-studio/learner-core';
+import { isLessonLocked, isQuestionAllowed, resolveStudyGate, tierCapForLevel } from '@study-studio/learner-core';
 import type { AssessmentBlueprint } from '@study-studio/learner-core';
 import type { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import type { PersistableQuestion } from '../persistence/questions.js';
@@ -92,8 +92,9 @@ const isVocabBlock = (block: PracticeBlockSpec) =>
   block.kind === 'VOCAB_REVIEW' || block.kind === 'VOCAB_NEW';
 
 /**
- * P5-E9：READING 块从最近一篇阅读套题装配（篇目随题携带，Runner 渲染可折叠面板）。
- * 无可用套题时返回空数组，交由后续回退链。
+ * P5-E7：READING 块从最近一篇阅读套题装配（篇目随题携带，Runner 渲染可折叠面板）。
+ * 选篇看难度：取最近一篇“档位内”（set.difficulty ≤ tier 上限）且有题的篇目；
+ * 超纲篇目不硬上（由调用方回退链处理）。无可用套题时返回空数组。
  */
 async function buildReadingQuestions(
   repo: DrizzleLearnerRepository,
@@ -104,7 +105,14 @@ async function buildReadingQuestions(
   const langUpper = language === 'ja' ? 'JA' : language === 'ko' ? 'KO' : 'EN';
   const setsRes = await repo.listReadingSets(userId, undefined, langUpper);
   if (!isOk(setsRes)) return [];
-  const set = (setsRes.value ?? []).find((s) => s.questions.length > 0);
+  let cap = 5;
+  try {
+    const gate = await resolveStudyGate(repo, userId, language, null);
+    cap = tierCapForLevel(gate.level);
+  } catch {
+    cap = 5;
+  }
+  const set = (setsRes.value ?? []).find((s) => s.questions.length > 0 && s.difficulty <= cap);
   if (!set) return [];
   return set.questions.slice(0, block.count).map((rq) => ({
     id: `read_${rq.id}`,

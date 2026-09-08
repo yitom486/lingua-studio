@@ -148,18 +148,29 @@ export class GenerateAdaptiveQuizTool
       let targetSkillId = explicitSkill;
       let reason = '用户指定专项练习';
 
-      // 如果未指定薄弱项，从学习者画像数据库提取首要弱项
+      // 如果未指定薄弱项，从学习者画像数据库提取首个“讲义不锁”的弱项
+      // （锁定的弱项先指去学讲义，不直接推题；全锁定时走默认降级链）。
+      let lockedNote = '';
       if (!targetSkillId) {
         const snapshotRes = await this.learnerRepo.getProfileSnapshot(
           context.userId,
           input.targetLanguage
         );
-        if (isOk(snapshotRes) && snapshotRes.value.weaknesses.length > 0) {
-          const topWeakness = snapshotRes.value.weaknesses[0];
-          if (topWeakness) {
-            targetSkillId = topWeakness.id;
-            reason = `基于您的学情画像：考点【${topWeakness.name}】近期连续出错 ${topWeakness.consecutiveErrors} 次，准确度偏低，系统为您定向生成靶向加练`;
+        if (isOk(snapshotRes)) {
+          const weaknesses = snapshotRes.value.weaknesses ?? [];
+          const open = weaknesses.find((w) => w && !isLessonLocked(w.id, gate));
+          if (open) {
+            targetSkillId = open.id;
+            reason = `基于您的学情画像：考点【${open.name}】近期连续出错 ${open.consecutiveErrors} 次，准确度偏低，系统为您定向生成靶向加练`;
+          } else {
+            const lockedNames = weaknesses
+              .filter((w) => w && isLessonLocked(w.id, gate))
+              .map((w) => `【${w.name}】`);
+            if (lockedNames.length > 0) {
+              lockedNote = `画像弱项${lockedNames.join('、')}讲义还没学完，已跳过；`;
+            }
           }
+          // 全锁定时 targetSkillId 保持空，走默认降级链（降级注记由下方案例统一报告）。
         }
       }
 
@@ -218,14 +229,14 @@ export class GenerateAdaptiveQuizTool
           targetSkillId: firstLocked,
           targetSkillName: '先学讲义',
           adaptationReason:
-            `${notes.join('；') || '暂无合适考点'}。先去语法讲义学完【${firstLocked}】再来，` +
+            `${lockedNote}${notes.join('；') || '暂无合适考点'}。先去语法讲义学完【${firstLocked}】再来，` +
             `学完自动解锁这类题；也可以直接点该考点专项练习`,
           questions: [],
         });
       }
       if (pickedSkill !== targetSkillId) {
         reason =
-          `${notes.join('；')}，已先换成基础考点【${pickedSkill}】热身；` +
+          `${lockedNote}${notes.join('；')}，已先换成基础考点【${pickedSkill}】热身；` +
           `跟着带路学完再回来，或直接点该考点专项练习`;
         targetSkillId = pickedSkill;
       }

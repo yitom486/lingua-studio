@@ -77,12 +77,13 @@ describe('Adaptive Quiz Tools (M4)', () => {
       }
     });
 
-    it('难度门：NOVICE 画像弱项 tara 超纲 → 降级基础考点；自选 tara 不拦', async () => {
+    it('难度门：NOVICE 超纲弱项降级（无讲义的不锁，只看档位）；自选不拦', async () => {
+      // 使役态：INTERMEDIATE 起、无讲义 → NOVICE 只看档位降级
       await repo.saveSkillMetric('user_test', {
-        id: 'jp.grammar.conditional_tara',
+        id: 'jp.grammar.causative_active',
         dimension: 'GRAMMAR',
-        name: '假定形「～たら」',
-        proficiency: 0.45,
+        name: '使役态',
+        proficiency: 0.4,
         totalAttempts: 5,
         correctAttempts: 2,
         consecutiveErrors: 3,
@@ -109,15 +110,39 @@ describe('Adaptive Quiz Tools (M4)', () => {
         {
           targetLanguage: 'ja',
           targetLevel: 'JLPT N5',
-          weaknessSkillId: 'jp.grammar.conditional_tara',
+          weaknessSkillId: 'jp.grammar.causative_active',
           count: 1,
         },
         { userId: 'user_test', sessionId: 'sess_test' }
       );
       expect(isOk(explicit)).toBe(true);
       if (isOk(explicit)) {
-        expect(explicit.value.targetSkillId).toBe('jp.grammar.conditional_tara');
+        expect(explicit.value.targetSkillId).toBe('jp.grammar.causative_active');
         expect(explicit.value.questions.length).toBe(1);
+      }
+    });
+
+    it('讲义锁：锁定的画像弱项被跳过并注记，不直接推题', async () => {
+      await repo.saveSkillMetric('user_test2', {
+        id: 'jp.grammar.conditional_tara',
+        dimension: 'GRAMMAR',
+        name: '假定形「～たら」',
+        proficiency: 0.45,
+        totalAttempts: 5,
+        correctAttempts: 2,
+        consecutiveErrors: 3,
+        status: 'WEAKNESS',
+      });
+      await repo.setTrackLevel('user_test2', 'ja', 'BEGINNER');
+      // tara 讲义未学完（档位够），系统代选必须跳过
+      const res = await generateTool.execute(
+        { targetLanguage: 'ja', targetLevel: 'JLPT N4', count: 1 },
+        { userId: 'user_test2', sessionId: 'sess_test' }
+      );
+      expect(isOk(res)).toBe(true);
+      if (isOk(res)) {
+        expect(res.value.targetSkillId).not.toBe('jp.grammar.conditional_tara');
+        expect(res.value.adaptationReason).toContain('讲义还没学完');
       }
     });
   });
