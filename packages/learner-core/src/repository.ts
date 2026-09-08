@@ -1,4 +1,5 @@
 import type { Result, BusinessError } from '@study-studio/shared';
+import type { LearnerLevel } from '@study-studio/protocol';
 import type {
   SkillMetric,
   LearnerProfileSnapshot,
@@ -36,6 +37,14 @@ export interface LearnerRepository {
   getProfileSnapshot(userId: string, langOverride?: string): Promise<Result<LearnerProfileSnapshot, BusinessError>>;
   getLearnerProfile(userId: string): Promise<Result<LearnerProfile, BusinessError>>;
   updateLearnerProfile(userId: string, input: Partial<LearnerProfile>): Promise<Result<LearnerProfile, BusinessError>>;
+  /**
+   * 档位信息（可选能力：组卷难度门消费；缺实现时调用方用前端等级标签兜底）。
+   * DrizzleLearnerRepository 已实现（委托 learning-progress 域）。
+   */
+  getLevelInfo?(
+    userId: string,
+    language: string
+  ): Promise<Result<{ level: LearnerLevel; hint: string }, BusinessError>>;
 
   // 每日任务打卡与足迹
   getDailyTaskProgress(userId: string, date?: string): Promise<Result<DailyTaskProgress, BusinessError>>;

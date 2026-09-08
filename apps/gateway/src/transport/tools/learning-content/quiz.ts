@@ -1,6 +1,13 @@
 import type { ToolExecutionContext } from '@study-studio/tool-core';
 import type { GeneratedQuestion } from '@study-studio/protocol';
 import { err, generateId, isOk, ok, type Result, BusinessError } from '@study-studio/shared';
+import {
+  filterQuestionsByLevel,
+  isSkillAllowedForLevel,
+  NOVICE_SAFE_SKILL,
+  resolveGateLevel,
+  tierCapForLevel,
+} from '@study-studio/learner-core';
 import { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import type { LearningContentInput, LearningContentOutput } from '../learning-content-tool.js';
 import {
@@ -24,7 +31,22 @@ export async function handleQuizAction(
   const count = input.count ?? 1;
   const difficulty = input.difficulty ?? 2;
   const skillId = input.skillIds?.[0];
-  const targetSkill = skillId || defaultQuizSkill(language);
+  // 难度门：用户点名要的 skillIds 是明确意图，不拦；系统默认的一律过门。
+  // 档位读不到按 NOVICE 从简（宁 shallow 勿劝退；DB 真坏了后面 loadTemplates 会正常报错）。
+  let gateLevel = resolveGateLevel(null, null);
+  try {
+    const levelRes = await repo.getLevelInfo(context.userId, language);
+    if (isOk(levelRes)) gateLevel = levelRes.value.level;
+  } catch {
+    /* 保持 NOVICE 缺省 */
+  }
+  let targetSkill = skillId || defaultQuizSkill(language);
+  let gateNote = '';
+  if (!skillId && !isSkillAllowedForLevel(targetSkill, gateLevel)) {
+    targetSkill = NOVICE_SAFE_SKILL[language];
+    gateNote = `（系统默认考点对当前档位超纲，已降级为基础考点 ${targetSkill}）`;
+  }
+  const effectiveDifficulty = !skillId ? Math.min(difficulty, tierCapForLevel(gateLevel)) : difficulty;
   const templates = await loadTemplates(repo, {
     action: 'generate_quiz',
     language,
@@ -47,17 +69,29 @@ export async function handleQuizAction(
       testedSkillId: targetSkill.includes('particle')
         ? targetSkill
         : q.testedSkillId || targetSkill,
-      difficultyTier: difficulty,
+      difficultyTier: effectiveDifficulty,
     };
   });
+  // 模板行自带 tier 可能超标（如 tara 模板 tier3）：系统路径再滤一遍，用户点名的不动。
+  const gated = !skillId
+    ? filterQuestionsByLevel(questions, gateLevel, (q) => ({
+        skillId: q.testedSkillId,
+        tier: q.difficultyTier,
+      }))
+    : questions;
+  if (gated.length === 0) {
+    return err(
+      new BusinessError('E_CONTENT_EMPTY', MSG.emptyQuiz(language, targetSkill), 'TOOL_EXECUTION')
+    );
+  }
 
   return maybeCollect(
     repo,
     context,
     input,
     language,
-    questions,
-    MSG.quizSummary(questions.length, targetSkill)
+    gated,
+    `${MSG.quizSummary(gated.length, targetSkill)}${gateNote}`
   );
 }
 

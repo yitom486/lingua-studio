@@ -117,6 +117,8 @@ describe('practice assembly by block spec (P5-E4)', () => {
   });
 
   it('prefers requested difficulty first and relaxes only when scarce', async () => {
+    // 装配 mechanics 用例：档位显式 ADVANCED，难度门不介入（门另有单测）。
+    await repo.setTrackLevel(userId, 'en', 'ADVANCED');
     await seed('CHOICE', 'q_easy_1', 2);
     await seed('CHOICE', 'q_hard_1', 5);
     await seed('CHOICE', 'q_hard_2', 5);
@@ -194,6 +196,8 @@ describe('practice assembly by block spec (P5-E4)', () => {
   });
 
   it('tops up TRANSLATION blocks via template generation when pool lacks the type', async () => {
+    // 装配 mechanics 用例：档位显式 ADVANCED，难度门不介入（门另有单测）。
+    await repo.setTrackLevel(userId, 'en', 'ADVANCED');
     // 池中只有客观题，没有 TRANSLATION 行
     await seed('CHOICE', 'q_mc_only_1');
     const tool = new LearningContentTool(repo);
@@ -444,5 +448,79 @@ describe('translation assembly from studied sentence cards（句子练习门）'
       String(it.question.id).startsWith('sentence_')
     );
     expect(fromSentences.length).toBeGreaterThan(0);
+  });
+
+  it('难度门：NOVICE 不见 tara（记 LEVEL_GATE），BEGINNER 可见', async () => {
+    await repo.setTrackLevel(userId, 'ja', 'NOVICE');
+    await repo.saveQuestion({
+      id: 'q_tara_gate',
+      userId,
+      type: 'FILL_BLANK',
+      category: 'test',
+      prompt: '降る → 假定形',
+      content: '降ったら',
+      correctAnswer: '降ったら',
+      explanation: 'x',
+      testedSkillId: 'jp.grammar.conditional_tara',
+      difficulty: 3,
+      language: 'ja',
+    });
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'ja',
+      blocks: [{ id: 'blk_gate', kind: 'QUIZ', count: 1, gradingMode: 'AUTO_IMMEDIATE' }],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(0);
+    expect(asm.value.skippedBlocks).toEqual([
+      { blockId: 'blk_gate', kind: 'QUIZ', reason: 'LEVEL_GATE' },
+    ]);
+
+    // 升档后同一道题可见（门随档位开合）
+    await repo.setTrackLevel(userId, 'ja', 'BEGINNER');
+    const run2 = await repo.startPracticePlanRun(userId, {
+      language: 'ja',
+      blocks: [{ id: 'blk_gate2', kind: 'QUIZ', count: 1, gradingMode: 'AUTO_IMMEDIATE' }],
+    });
+    expect(isOk(run2)).toBe(true);
+    if (!isOk(run2)) return;
+    const asm2 = await assemblePracticeRun(repo, userId, run2.value.id);
+    expect(isOk(asm2)).toBe(true);
+    if (!isOk(asm2)) return;
+    expect(asm2.value.totalItems).toBe(1);
+    expect(asm2.value.skippedBlocks).toEqual([]);
+  });
+
+  it('难度门：定级考 run 豁免（往上探不设限）', async () => {
+    await repo.setTrackLevel(userId, 'en', 'NOVICE');
+    await repo.saveQuestion({
+      id: 'q_subj_gate',
+      userId,
+      type: 'CHOICE',
+      category: 'test',
+      prompt: 'suggest that he ( )',
+      content: 'go',
+      correctAnswer: 'go',
+      explanation: 'x',
+      testedSkillId: 'en.grammar.subjunctive',
+      difficulty: 3,
+      language: 'en',
+    });
+    const examRes = await repo.startPlacementExam(userId, 'en', 'BEGINNER');
+    expect(isOk(examRes)).toBe(true);
+    if (!isOk(examRes)) return;
+    const asm = await assemblePracticeRun(repo, userId, examRes.value.runId);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    const items = await repo.getPracticeRunItems(userId, examRes.value.runId);
+    expect(isOk(items)).toBe(true);
+    if (!isOk(items)) return;
+    // 豁免：超纲题照常装配（定级考就是用来探上限的）
+    expect(
+      items.value.some((it) => String(it.question.testedSkillId) === 'en.grammar.subjunctive')
+    ).toBe(true);
   });
 });

@@ -3,6 +3,7 @@ export * from './card-templates.js';
 export * from './pitch-graph.js';
 export * from './daily-plan.js';
 export * from './level.js';
+export * from './skill-gate.js';
 export * from './practice-plan.js';
 export * from './profile.js';
 export * from './fsrs.js';

@@ -1,5 +1,6 @@
 import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
-import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun } from '@study-studio/protocol';
+import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun, LearnerLevel } from '@study-studio/protocol';
+import { filterQuestionsByLevel } from '@study-studio/learner-core';
 import type { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import type { PersistableQuestion } from '../persistence/questions.js';
 import type { LearningContentInput, LearningContentOutput } from '../../../transport/tools/learning-content-tool.js';
@@ -207,6 +208,29 @@ export async function assemblePracticeRun(
   const usedQuestionIds = new Set<string>();
   let totalItems = 0;
 
+  // 难度门（教学-first）：定级考豁免（使命就是往上探）；自家卡
+  // （VOCAB/TRANSLATION 均来自用户已讲透资产）豁免；池 / 模板 / 兜底 / 阅读一律过门。
+  // 档位读不到不过门（fail-open，不挡装配）。
+  let gateLevel: LearnerLevel | null = null;
+  if (!repo.isPlacementRun(runId)) {
+    try {
+      const levelRes = await repo.getLevelInfo(userId, run.language);
+      if (isOk(levelRes)) gateLevel = levelRes.value.level;
+    } catch {
+      gateLevel = null;
+    }
+  }
+  let gatedOutTotal = 0;
+  const applyGate = (qs: GeneratedQuestion[]): GeneratedQuestion[] => {
+    if (!gateLevel) return qs;
+    const kept = filterQuestionsByLevel(qs, gateLevel, (q) => ({
+      skillId: q.testedSkillId,
+      tier: q.difficultyTier,
+    }));
+    gatedOutTotal += qs.length - kept.length;
+    return kept;
+  };
+
   for (const block of run.blocks) {
     const candidates: GeneratedQuestion[] = [];
     const pushFresh = (list: GeneratedQuestion[]) => {
@@ -234,9 +258,9 @@ export async function assemblePracticeRun(
       pushFresh(buildVocabQuestionsFromCards(cards, block.count, run.language));
     }
 
-    // 1b) READING 块：从最近阅读套题装配（篇目随题携带）
+    // 1b) READING 块：从最近阅读套题装配（篇目随题携带；超纲篇目不过门）
     if (block.kind === 'READING') {
-      pushFresh(await buildReadingQuestions(repo, userId, block, run.language));
+      pushFresh(applyGate(await buildReadingQuestions(repo, userId, block, run.language)));
     }
 
     // 1c) TRANSLATION 块：优先吃讲透句子卡；不够再走池/模板链（不断旧行为）。
@@ -267,7 +291,7 @@ export async function assemblePracticeRun(
           if (relaxedPool.length > pool.length) pool = relaxedPool;
         }
       }
-      pushFresh(pool.map(mapPoolQuestion));
+      pushFresh(applyGate(pool.map(mapPoolQuestion)));
     }
 
     // 3) 模板驱动生成补齐（不调 LLM；模板缺失自动跳过）
@@ -278,19 +302,23 @@ export async function assemblePracticeRun(
       );
       if (isOk(genRes)) {
         const first = genRes.value.perBlock?.[0];
-        pushFresh(first?.questions ?? []);
+        pushFresh(applyGate(first?.questions ?? []));
       }
     }
 
-    // 4) 同语种任意题兜底
+    // 4) 同语种任意题兜底（同样过门：兜底不是法外之地）
     if (candidates.length < block.count) {
       const anyRes = await repo.getQuestions(userId, block.count * 4 + 8, run.language);
-      if (isOk(anyRes)) pushFresh((anyRes.value ?? []).map(mapPoolQuestion));
+      if (isOk(anyRes)) pushFresh(applyGate((anyRes.value ?? []).map(mapPoolQuestion)));
     }
 
     const selected = candidates.slice(0, block.count);
     if (selected.length === 0) {
-      skippedBlocks.push({ blockId: block.id, kind: block.kind });
+      skippedBlocks.push({
+        blockId: block.id,
+        kind: block.kind,
+        ...(gateLevel && gatedOutTotal > 0 ? { reason: 'LEVEL_GATE' as const } : {}),
+      });
       continue;
     }
     for (const q of selected) usedQuestionIds.add(q.id);

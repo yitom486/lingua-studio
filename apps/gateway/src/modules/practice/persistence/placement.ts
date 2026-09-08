@@ -76,6 +76,21 @@ function narrowLevel(raw: unknown): LearnerLevel | null {
     : null;
 }
 
+/**
+ * 是否定级考 run（难度门豁免判定：定级考的使命就是往上探，不设上限）。
+ * 查不到表/行一律返回 false（不拦正常装配）。
+ */
+export function isPlacementRunId(deps: RepoDeps, runId: string): boolean {
+  try {
+    const row = deps.sqlite
+      .query('SELECT id AS id FROM placement_exams WHERE run_id = ? LIMIT 1')
+      .get(runId) as { id: string } | null;
+    return row !== null;
+  } catch {
+    return false;
+  }
+}
+
 async function currentLevelOf(
   deps: RepoDeps,
   userId: string,

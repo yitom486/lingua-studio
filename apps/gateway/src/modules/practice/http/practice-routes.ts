@@ -2,6 +2,7 @@
 import { validator } from 'hono/validator';
 import { isOk, BusinessError, generateId } from '@study-studio/shared';
 import type { PracticeBlockSpec } from '@study-studio/protocol';
+import { filterQuestionsByLevel } from '@study-studio/learner-core';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import { assemblePracticeRun } from '../application/practice-assembly.js';
 import { gradeObjectiveAnswer } from '../application/practice-grading.js';
@@ -422,7 +423,23 @@ export function createPracticeRoutes(deps: GatewayDeps) {
     // 优先从 SQLite quiz_questions 获取持久化的题目列表
     const existingRes = await deps.repo.getQuestions(userId, undefined, lang);
     if (isOk(existingRes) && existingRes.value.length > 0) {
-      return c.json(existingRes.value);
+      // 展示侧难度门：超纲题不列（档位读不到则 fail-open 全列，不挡展示）。
+      let gated = existingRes.value;
+      try {
+        const levelRes = await deps.repo.getLevelInfo?.(userId, lang ?? '');
+        if (levelRes && isOk(levelRes)) {
+          gated = filterQuestionsByLevel(existingRes.value, levelRes.value.level, (q) => ({
+            skillId:
+              (typeof q.testedSkillId === 'string' && q.testedSkillId) ||
+              (typeof q.testedSkill === 'string' && q.testedSkill) ||
+              null,
+            tier: typeof q.difficulty === 'number' ? q.difficulty : null,
+          }));
+        }
+      } catch {
+        gated = existingRes.value;
+      }
+      return c.json(gated);
     }
     const profileRes = await deps.repo.getLearnerProfile(userId);
     const targetLanguage = lang || (isOk(profileRes) ? profileRes.value.targetLanguage : 'ja');

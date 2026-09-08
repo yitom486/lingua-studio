@@ -18,6 +18,12 @@ import {
   isOk,
 } from '@study-studio/shared';
 import type { LearnerRepository } from '@study-studio/learner-core';
+import {
+  filterQuestionsByLevel,
+  isSkillAllowedForLevel,
+  NOVICE_SAFE_SKILL,
+  resolveGateLevel,
+} from '@study-studio/learner-core';
 
 export const GenerateAdaptiveQuizInputSchema = z.object({
   targetLanguage: z.enum(['ja', 'en', 'ko']),
@@ -125,7 +131,22 @@ export class GenerateAdaptiveQuizTool
     context: ToolExecutionContext
   ): Promise<Result<GenerateAdaptiveQuizOutput, BusinessError>> {
     try {
-      let targetSkillId = input.weaknessSkillId;
+      // 难度门：档位 SSOT（画像）优先，input.targetLevel 兜底；读不到按 NOVICE 从简。
+      // 用户自选的 weaknessSkillId 是明确意图，不拦；只拦系统代选的。
+      const explicitSkill = (input.weaknessSkillId ?? '').trim() || undefined;
+      let gateLevel = resolveGateLevel(null, input.targetLevel);
+      try {
+        const levelRes = await this.learnerRepo.getLevelInfo?.(
+          context.userId,
+          input.targetLanguage
+        );
+        if (levelRes && isOk(levelRes)) {
+          gateLevel = resolveGateLevel(levelRes.value.level, input.targetLevel);
+        }
+      } catch {
+        // 档位读失败不断出题主路径（fail-open，用标签兜底值）。
+      }
+      let targetSkillId = explicitSkill;
       let reason = '用户指定专项练习';
 
       // 如果未指定薄弱项，从学习者画像数据库提取首要弱项
@@ -148,8 +169,38 @@ export class GenerateAdaptiveQuizTool
         reason = '系统针对高频混淆考点推荐靶向自测';
       }
 
+      // 系统代选的考点超纲 → 降级到本轨道安全默认（用户自选的不动）。
+      if (!explicitSkill && !isSkillAllowedForLevel(targetSkillId, gateLevel)) {
+        const track = input.targetLanguage === 'ko' ? 'ko' : input.targetLanguage === 'en' ? 'en' : 'ja';
+        const safe = NOVICE_SAFE_SKILL[track];
+        reason =
+          `【${targetSkillId}】对当前档位超纲，已先换成基础考点【${safe}】热身；` +
+          `跟着带路学完再回来，或直接点该考点专项练习`;
+        targetSkillId = safe;
+      }
+
       const bankEntry = ADAPTIVE_QUESTION_BANK[targetSkillId] ?? ADAPTIVE_QUESTION_BANK['DEFAULT']!;
-      const selected = bankEntry.questions.slice(0, input.count);
+      // 用户自选：整题照出（明确意图，不过门）；系统代选：题库行同样过门
+      // （防 bank 内某题 tier 超标），空了回退 DEFAULT 再滤，仍空不断链。
+      let selected = (explicitSkill
+        ? bankEntry.questions
+        : filterQuestionsByLevel(
+            bankEntry.questions,
+            gateLevel,
+            (q) => ({ skillId: q.testedSkillId, tier: q.difficultyTier })
+          )
+      ).slice(0, input.count);
+      if (selected.length === 0 && targetSkillId !== 'DEFAULT') {
+        const fallback = ADAPTIVE_QUESTION_BANK['DEFAULT']!;
+        targetSkillId = fallback.questions[0]?.testedSkillId ?? targetSkillId;
+        reason += '（基础题库暂缺，已用综合热身题代替）';
+        selected = filterQuestionsByLevel(
+          fallback.questions,
+          gateLevel,
+          (q) => ({ skillId: q.testedSkillId, tier: q.difficultyTier })
+        ).slice(0, input.count);
+        if (selected.length === 0) selected = bankEntry.questions.slice(0, input.count);
+      }
 
       const generatedQuestions: GeneratedQuestion[] = selected.map((q) => {
         const raw = {

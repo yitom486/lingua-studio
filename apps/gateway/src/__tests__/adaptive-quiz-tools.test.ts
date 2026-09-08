@@ -73,6 +73,48 @@ describe('Adaptive Quiz Tools (M4)', () => {
         expect(res.value.questions[0]?.correctAnswer).toBe('高かったら');
       }
     });
+
+    it('难度门：NOVICE 画像弱项 tara 超纲 → 降级基础考点；自选 tara 不拦', async () => {
+      await repo.saveSkillMetric('user_test', {
+        id: 'jp.grammar.conditional_tara',
+        dimension: 'GRAMMAR',
+        name: '假定形「～たら」',
+        proficiency: 0.45,
+        totalAttempts: 5,
+        correctAttempts: 2,
+        consecutiveErrors: 3,
+        status: 'WEAKNESS',
+      });
+      await repo.setTrackLevel('user_test', 'ja', 'NOVICE');
+
+      // 系统代选：弱项超纲 → 降级 ni_vs_de
+      const gated = await generateTool.execute(
+        { targetLanguage: 'ja', targetLevel: 'JLPT N5', count: 1 },
+        { userId: 'user_test', sessionId: 'sess_test' }
+      );
+      expect(isOk(gated)).toBe(true);
+      if (isOk(gated)) {
+        expect(gated.value.targetSkillId).toBe('jp.particle.ni_vs_de');
+        expect(gated.value.adaptationReason).toContain('超纲');
+        expect(gated.value.questions.length).toBe(1);
+      }
+
+      // 用户自选：明确意图，不拦
+      const explicit = await generateTool.execute(
+        {
+          targetLanguage: 'ja',
+          targetLevel: 'JLPT N5',
+          weaknessSkillId: 'jp.grammar.conditional_tara',
+          count: 1,
+        },
+        { userId: 'user_test', sessionId: 'sess_test' }
+      );
+      expect(isOk(explicit)).toBe(true);
+      if (isOk(explicit)) {
+        expect(explicit.value.targetSkillId).toBe('jp.grammar.conditional_tara');
+        expect(explicit.value.questions.length).toBe(1);
+      }
+    });
   });
 
   describe('GradeSubjectiveQuizTool', () => {
@@ -133,8 +175,7 @@ describe('Adaptive Quiz Tools (M4)', () => {
       }
     });
 
-    it('should diagnose tense mismatch with mother tongue interference analysis', async () => {
-      const res = await gradeTool.execute(
+    it('should diagnose tense mismatch with mother tongue interference analysis', async () => {      const res = await gradeTool.execute(
         {
           questionId: 'q_trans_03',
           prompt: '翻译：昨天买了新书。',

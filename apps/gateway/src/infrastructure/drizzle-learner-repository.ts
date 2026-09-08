@@ -80,11 +80,13 @@ import {
 import {
   maybeEvaluateLevel as maybeEvaluateLevelDomain,
   getLevelInfo as getLevelInfoDomain,
+  setTrackLevel as setTrackLevelDomain,
   type LevelChange,
 } from '../modules/learning-progress/persistence/level.js';
 import {
   startPlacementExam as startPlacementExamDomain,
   finishPlacementExam as finishPlacementExamDomain,
+  isPlacementRunId as isPlacementRunIdDomain,
   type PlacementExam,
   type PlacementFinishResult,
 } from '../modules/practice/persistence/placement.js';
@@ -415,6 +417,15 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     return getLevelInfoDomain(this.deps, userId, language);
   }
 
+  /** 按轨道写档。实现已下沉 learning-progress 域，此处仅委托。 */
+  public async setTrackLevel(
+    userId: string,
+    track: TrackLanguage,
+    level: LearnerLevel
+  ): Promise<Result<LearnerLevel, BusinessError>> {
+    return setTrackLevelDomain(this.deps, userId, track, level);
+  }
+
   /** 定级考开考（跳级通道）。实现已下沉 practice 域，此处仅委托。 */
   public async startPlacementExam(
     userId: string,
@@ -430,6 +441,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     examId: string
   ): Promise<Result<PlacementFinishResult, BusinessError>> {
     return finishPlacementExamDomain(this.deps, userId, examId);
+  }
+
+  /** 是否定级考 run（装配难度门豁免判定；同步查询，查不到返回 false）。 */
+  public isPlacementRun(runId: string): boolean {
+    return isPlacementRunIdDomain(this.deps, runId);
   }
 
   /** 保存阅读位置（每用户每文档一条 upsert）。实现已下沉 library 域，此处仅委托。 */
