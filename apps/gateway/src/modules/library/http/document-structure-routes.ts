@@ -7,7 +7,7 @@ import {
   classifyStructure,
   type AllowedSkill,
 } from '../application/pdf-import/structure-classify.js';
-import type { HeadingCandidate } from '@study-studio/protocol';
+import { HeadingCandidateSchema, type HeadingCandidate } from '@study-studio/protocol';
 
 /**
  * 文档结构分类（mini 分流观测）：
@@ -28,16 +28,13 @@ export function createDocumentStructureRoutes(deps: GatewayDeps) {
             effort?: unknown;
           } | null;
           const rawHeadings = Array.isArray(body?.headings) ? body.headings : [];
+          // 信任边界收窄：版式特征随 zod 契约一起验，多余键剥离、非法条目丢弃
           const headings: HeadingCandidate[] = rawHeadings
-            .filter(
-              (h): h is { page: unknown; text: unknown } =>
-                !!h && typeof h === 'object'
-            )
-            .map((h) => ({
-              page: typeof h.page === 'number' ? h.page : 0,
-              text: typeof h.text === 'string' ? h.text : '',
-            }))
-            .filter((h) => h.text.trim() && Number.isInteger(h.page) && h.page > 0)
+            .flatMap((h) => {
+              const parsed = HeadingCandidateSchema.safeParse(h);
+              return parsed.success ? [parsed.data] : [];
+            })
+            .filter((h) => h.text.trim())
             .slice(0, 200);
           if (headings.length === 0) {
             return formatBusinessErrorResponse(

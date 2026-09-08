@@ -10,6 +10,21 @@ export type HeadingKind = z.infer<typeof HeadingKindSchema>;
 export const HeadingCandidateSchema = z.object({
   page: z.number().int().positive(),
   text: z.string().min(1).max(80),
+  /** markdown 标题级别（# 数量；解析层给了才有） */
+  level: z.number().int().min(1).max(6).optional(),
+  /** 以下为版式特征（解析层给了才有；只描述观测，不做判定） */
+  /** 相对正文字号比（1.5 = 大 50%）；<=0 或缺失视为未知 */
+  relSize: z.number().positive().max(10).optional(),
+  /** 是否加粗（含下划线等强调，一律只记观测） */
+  bold: z.boolean().optional(),
+  /** 是否水平居中 */
+  centered: z.boolean().optional(),
+  /** 是否独立成行（上下皆为空白） */
+  standalone: z.boolean().optional(),
+  /** 是否带编号（第N課/①/1./Lesson 3 等） */
+  hasNumbering: z.boolean().optional(),
+  /** 标签化 PDF 的结构角色（H1..H6/P；无标签文档为空） */
+  structRole: z.string().max(16).optional(),
 });
 export type HeadingCandidate = z.infer<typeof HeadingCandidateSchema>;
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
+  featureTags,
   groundClassifications,
   parseStructureJson,
 } from '../application/pdf-import/structure-classify.js';
@@ -67,6 +68,13 @@ describe('structure classify grounding', () => {
   it('parseStructureJson 花括号切片与非法回 null', () => {
     expect(parseStructureJson('前面废话 {"items": []} 后面废话')).toEqual({ items: [] });
     expect(parseStructureJson('no json here')).toBeNull();
+  });
+
+  it('featureTags 只描述观测，无特征返回空串', () => {
+    expect(featureTags({ page: 1, text: 'x' })).toBe('');
+    expect(
+      featureTags({ page: 5, text: '第3課', relSize: 1.8, bold: true, centered: true, standalone: true, hasNumbering: true, structRole: 'H1' })
+    ).toBe('｜大1.8倍·粗·居中·独立行·编号·H1');
   });
 
   it('StructureClassSchema 拒绝非法 kind 与超长文本', () => {

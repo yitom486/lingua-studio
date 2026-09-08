@@ -25,6 +25,32 @@ import { extractTarGz, extractZip, type ArchiveEntry } from './archive.js';
 export interface PdfInspectorLike {
   processPdf(pdf: Uint8Array, pages?: number[]): PdfClassifyResult;
   processPdfWithOcr(pdf: Uint8Array, options?: { pageNumbers?: number[] }): Promise<PdfOcrResult>;
+  /**
+   * 可选：逐条文本+版式（pdf-inspector `extractTextWithPositions`）。
+   * 老版本/阉割实现没有此方法时调用方降级为纯正则候选，不得抛。
+   */
+  extractTextWithPositions?: (pdf: Uint8Array, pages?: number[]) => LayoutTextItemLike[];
+  /** 可选：标签化 PDF 结构角色（`extractStructureElements`，H1..H6/P 等）。 */
+  extractStructureElements?: (pdf: Uint8Array, pages?: number[]) => LayoutStructRoleLike[];
+}
+
+/** 版式条目最小形状（只取判标题需要的字段，不绑 SDK 类型）。 */
+export interface LayoutTextItemLike {
+  text: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  isBold: boolean;
+  mcid?: number;
+}
+
+export interface LayoutStructRoleLike {
+  page: number;
+  mcid: number;
+  role: string;
 }
 
 export interface PdfClassifyResult {

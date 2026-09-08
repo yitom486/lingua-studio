@@ -3,6 +3,7 @@ import { parseTextbookAST, type DocumentItem, type TextbookAST } from '@study-st
 import { ensurePdfRuntime, type PdfInspectorLike } from './pdf-runtime.js';
 import { markdownToAst } from './markdown-to-ast.js';
 import { extractHeadingsFromMarkdown, extractTocEntries, type PageHeading, type TocEntry } from './extract-headings.js';
+import { collectLayoutCandidates, mergeHeadingCandidates } from './layout-headings.js';
 
 /**
  * PDF 导入编排：校验 → 按需运行时 → 分类（文字直提 / 扫描 OCR）→ AST → 入库。
@@ -141,7 +142,7 @@ export async function mapPdfPages(
     inspector = runtime.inspector;
     const ocr = await inspector.processPdfWithOcr(input.bytes, { pageNumbers: window });
     const perPage = Array.isArray(ocr.pages) ? ocr.pages : [];
-    const headings: PageHeading[] = [];
+    let headings: PageHeading[] = [];
     let combined = '';
     if (perPage.length > 0) {
       for (const pg of perPage) {
@@ -153,6 +154,11 @@ export async function mapPdfPages(
       combined = typeof ocr.markdown === 'string' ? ocr.markdown : '';
       headings.push(...extractHeadingsFromMarkdown(combined, window[0] ?? 1));
     }
+    // 版式候选（有接口才有；失败静默降级，正则结果不受影响）
+    headings = mergeHeadingCandidates(
+      headings,
+      collectLayoutCandidates(inspector, input.bytes, window)
+    );
     return ok({
       classification: {
         pdfType,

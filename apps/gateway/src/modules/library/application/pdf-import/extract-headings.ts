@@ -8,6 +8,13 @@ export interface PageHeading {
   page: number;
   level: number;
   text: string;
+  /** 版式特征（layout-headings 补上；只有观测，没有时缺席） */
+  relSize?: number;
+  bold?: boolean;
+  centered?: boolean;
+  standalone?: boolean;
+  hasNumbering?: boolean;
+  structRole?: string;
 }
 
 export interface TocEntry {

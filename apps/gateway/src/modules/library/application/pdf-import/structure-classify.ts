@@ -107,6 +107,7 @@ export function groundClassifications(
 export const STRUCTURE_CLASSIFY_SYSTEM_PROMPT = [
   '你是教材目录结构分类器。输入是候选标题行（OCR/规则抽取，可能含噪）。',
   '对每一行只做判选：lesson（课标题）/ section（节/小节）/ toc（目录行本身）/ noise（正文误入）。',
+  '每行末尾【】内是版式观测信号（大N倍=相对字号，粗=加粗，居中，独立行，编号，H1-H6=标签角色），只作参考，不在信号里找课序号。',
   'lessonNo：课标题尽量给出课序号原文（如“3”“三”）；给不出为空。',
   'skillId：仅当标题明显对应允许技能之一才填，否则为空；绝不猜测、绝不编新 id。',
   '只返回 JSON：{"items": [{"text": "原文逐字", "kind": "...", "lessonNo": null, "skillId": null}]}。',
@@ -119,6 +120,20 @@ export interface ClassifyStructureInput {
   /** 模型 id（空=网关默认）；effort 由前端按模型能力显式传入 */
   model?: string | undefined;
   effort?: string | undefined;
+}
+
+/** 版式特征 → 紧凑标签（无特征返回空串；只描述观测）。 */
+export function featureTags(c: HeadingCandidate): string {
+  const tags: string[] = [];
+  if (typeof c.relSize === 'number' && Number.isFinite(c.relSize)) {
+    tags.push(`大${Math.round(c.relSize * 100) / 100}倍`);
+  }
+  if (c.bold === true) tags.push('粗');
+  if (c.centered === true) tags.push('居中');
+  if (c.standalone === true) tags.push('独立行');
+  if (c.hasNumbering === true) tags.push('编号');
+  if (typeof c.structRole === 'string' && c.structRole) tags.push(c.structRole);
+  return tags.length > 0 ? `｜${tags.join('·')}` : '';
 }
 
 /**
@@ -145,7 +160,7 @@ export async function classifyStructure(
     ...listKnownSkillIds(),
   ]);
   const skillLines = input.allowedSkills.map((s) => `- ${s.id}：${s.title}`).join('\n');
-  const numbered = candidates.map((c, i) => `【${i + 1}｜p${c.page}】${c.text}`).join('\n');
+  const numbered = candidates.map((c, i) => `【${i + 1}｜p${c.page}${featureTags(c)}】${c.text}`).join('\n');
   const message =
     `允许技能（只能从中选）：\n${skillLines || '（无）'}\n\n` +
     `候选标题：\n${numbered}\n\n只返回 JSON。`;

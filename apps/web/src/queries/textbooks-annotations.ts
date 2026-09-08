@@ -565,6 +565,13 @@ export interface PdfPageHeading {
   page: number;
   level: number;
   text: string;
+  /** 版式特征（map-pdf 有解析信号时才带；透传给分类用） */
+  relSize?: number;
+  bold?: boolean;
+  centered?: boolean;
+  standalone?: boolean;
+  hasNumbering?: boolean;
+  structRole?: string;
 }
 
 export interface PdfTocEntry {
@@ -684,7 +691,16 @@ export function useAnnotationToCardMutation(userId = DEFAULT_USER_ID) {
   });
 }
 
-export type StructureHeading = { page: number; text: string };
+export type StructureHeading = {
+  page: number;
+  text: string;
+  relSize?: number;
+  bold?: boolean;
+  centered?: boolean;
+  standalone?: boolean;
+  hasNumbering?: boolean;
+  structRole?: string;
+};
 export type StructureClassKind = 'lesson' | 'section' | 'toc' | 'noise';
 export interface StructureClassItem {
   text: string;

@@ -221,7 +221,16 @@ export function TextbookImporterModal({
     const headings = (mapPdf.data?.headings ?? [])
       .filter((h) => h.text.trim())
       .slice(0, 200)
-      .map((h) => ({ page: h.page, text: h.text }));
+      .map((h) => ({
+        page: h.page,
+        text: h.text,
+        ...(h.relSize !== undefined ? { relSize: h.relSize } : {}),
+        ...(h.bold !== undefined ? { bold: h.bold } : {}),
+        ...(h.centered !== undefined ? { centered: h.centered } : {}),
+        ...(h.standalone !== undefined ? { standalone: h.standalone } : {}),
+        ...(h.hasNumbering !== undefined ? { hasNumbering: h.hasNumbering } : {}),
+        ...(h.structRole !== undefined ? { structRole: h.structRole } : {}),
+      }));
     if (headings.length === 0) {
       setParseError('先点结构预览扫出标题，再做 AI 分类');
       return;
@@ -634,7 +643,30 @@ export function TextbookImporterModal({
                       className="w-full flex items-center justify-between gap-2 px-2 py-1 rounded-lg hover:bg-amber-500/10 text-left cursor-pointer"
                       title={`从第 ${h.page} 页开始导（默认连导 15 页，可改）`}
                     >
-                      <span className="truncate">{h.text}</span>
+                      <span className="truncate">
+                        {h.text}
+                        {(h.bold === true ||
+                          h.centered === true ||
+                          h.standalone === true ||
+                          h.hasNumbering === true ||
+                          h.structRole ||
+                          h.relSize !== undefined) && (
+                          <span
+                            className="ml-1.5 text-stone-400"
+                            title={[
+                              h.relSize !== undefined ? `字号约正文 ${h.relSize} 倍` : '',
+                              h.bold === true ? '加粗' : '',
+                              h.centered === true ? '居中' : '',
+                              h.standalone === true ? '独立行' : '',
+                              h.hasNumbering === true ? '带编号' : '',
+                              h.structRole ? `标签:${h.structRole}` : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          >
+                          ◈
+                        </span>
+                      )}</span>
                       <span className="shrink-0 font-mono text-stone-400">p{h.page}</span>
                     </button>
                   ))}
