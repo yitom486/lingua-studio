@@ -1,6 +1,6 @@
 import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
 import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun, LearnerLevel } from '@study-studio/protocol';
-import { filterQuestionsByLevel } from '@study-studio/learner-core';
+import { isLessonLocked, isQuestionAllowed, resolveStudyGate } from '@study-studio/learner-core';
 import type { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import type { PersistableQuestion } from '../persistence/questions.js';
 import type { LearningContentInput, LearningContentOutput } from '../../../transport/tools/learning-content-tool.js';
@@ -208,27 +208,35 @@ export async function assemblePracticeRun(
   const usedQuestionIds = new Set<string>();
   let totalItems = 0;
 
-  // 难度门（教学-first）：定级考豁免（使命就是往上探）；自家卡
-  // （VOCAB/TRANSLATION 均来自用户已讲透资产）豁免；池 / 模板 / 兜底 / 阅读一律过门。
-  // 档位读不到不过门（fail-open，不挡装配）。
+  // 出题门（教学-first）：定级考豁免（使命就是往上探）；自家卡
+  // （VOCAB/TRANSLATION 均来自用户已讲透资产）豁免；池 / 模板 / 兜底 / 阅读一律过门
+  // （档位 + 讲义锁）。快照读不到不过门（fail-open，不挡装配）。
   let gateLevel: LearnerLevel | null = null;
+  let gateCompleted = new Set<string>();
+  let gateLessons = new Set<string>();
   if (!repo.isPlacementRun(runId)) {
-    try {
-      const levelRes = await repo.getLevelInfo(userId, run.language);
-      if (isOk(levelRes)) gateLevel = levelRes.value.level;
-    } catch {
-      gateLevel = null;
-    }
+    const gate = await resolveStudyGate(repo, userId, run.language, null);
+    // 定级考已在分支外豁免；快照降级（空讲义集）即纯档位门，行为不变。
+    gateLevel = gate.level;
+    gateCompleted = gate.completed;
+    gateLessons = gate.lessons;
   }
-  let gatedOutTotal = 0;
+  const gateView = () => ({ completed: gateCompleted, lessons: gateLessons });
+  let gatedOutLevel = 0;
+  let gatedOutLesson = 0;
   const applyGate = (qs: GeneratedQuestion[]): GeneratedQuestion[] => {
-    if (!gateLevel) return qs;
-    const kept = filterQuestionsByLevel(qs, gateLevel, (q) => ({
-      skillId: q.testedSkillId,
-      tier: q.difficultyTier,
-    }));
-    gatedOutTotal += qs.length - kept.length;
-    return kept;
+    const lv = gateLevel;
+    if (!lv) return qs;
+    const view = gateView();
+    return qs.filter((q) => {
+      if (isLessonLocked(q.testedSkillId, view)) {
+        gatedOutLesson += 1;
+        return false;
+      }
+      const keep = isQuestionAllowed(q.testedSkillId, q.difficultyTier, lv, view);
+      if (!keep) gatedOutLevel += 1;
+      return keep;
+    });
   };
 
   for (const block of run.blocks) {
@@ -317,7 +325,12 @@ export async function assemblePracticeRun(
       skippedBlocks.push({
         blockId: block.id,
         kind: block.kind,
-        ...(gateLevel && gatedOutTotal > 0 ? { reason: 'LEVEL_GATE' as const } : {}),
+        // 指路优先级：讲义锁（去学讲义）> 档位门（先跟带路升级）。
+        ...(gateLevel && gatedOutLesson > 0
+          ? { reason: 'NEED_LESSON' as const }
+          : gateLevel && gatedOutLevel > 0
+            ? { reason: 'LEVEL_GATE' as const }
+            : {}),
       });
       continue;
     }

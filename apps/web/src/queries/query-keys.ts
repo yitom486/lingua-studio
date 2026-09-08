@@ -30,6 +30,7 @@ export const QUERY_KEYS = {
   ACTIVITY_HISTORY: ['learner', 'activityHistory'] as const,
   PRACTICE_TEMPLATES: ['learner', 'practiceTemplates'] as const,
   PRACTICE_RUN: ['learner', 'practiceRun'] as const,
+  LESSONS: ['curriculum', 'lessons'] as const,
 };
 
 /**

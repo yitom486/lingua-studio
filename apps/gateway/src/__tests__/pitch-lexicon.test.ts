@@ -65,7 +65,10 @@ describe('pitch lexicon coach', () => {
     const hit = await app.request('/api/dictionary/ja?q=%E9%9B%A8');
     expect(hit.status).toBe(200);
     const hitBody = await hit.json();
-    expect(hitBody.entries).toHaveLength(1);
+    const hitEntries = hitBody.entries as Array<{ headword?: string; sourceLabel?: string }>;
+    // N5 核心词与课程声调种子并存（不同 source，互不覆盖；排序仍声调种子优先）
+    expect(hitEntries.some((e) => e.headword === '雨')).toBe(true);
+    expect(hitEntries.length).toBeGreaterThanOrEqual(2);
     expect(hitBody.externalLookup).toBeUndefined();
 
     const miss = await app.request('/api/dictionary/ja?q=%E7%81%AB%E6%98%9F%E8%AA%9E');

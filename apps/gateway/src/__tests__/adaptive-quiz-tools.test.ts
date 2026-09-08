@@ -55,6 +55,8 @@ describe('Adaptive Quiz Tools (M4)', () => {
         consecutiveErrors: 3,
         status: 'WEAKNESS',
       });
+      // 先讲后测：tara 讲义已学完，弱项靶向才放行（未学完走降级，另有单测）。
+      await repo.completeLesson('user_test', 'jp.grammar.conditional_tara');
 
       const res = await generateTool.execute(
         {
@@ -86,6 +88,8 @@ describe('Adaptive Quiz Tools (M4)', () => {
         status: 'WEAKNESS',
       });
       await repo.setTrackLevel('user_test', 'ja', 'NOVICE');
+      // 降级目标 ni_vs_de 的讲义先学完：本用例测“档位降级”，讲义锁另测。
+      await repo.completeLesson('user_test', 'jp.particle.ni_vs_de');
 
       // 系统代选：弱项超纲 → 降级 ni_vs_de
       const gated = await generateTool.execute(

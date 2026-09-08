@@ -1,5 +1,6 @@
 import type { Result, BusinessError } from '@study-studio/shared';
 import type { LearnerLevel } from '@study-studio/protocol';
+import type { StudyGateSnapshot } from './skill-gate.js';
 import type {
   SkillMetric,
   LearnerProfileSnapshot,
@@ -45,6 +46,14 @@ export interface LearnerRepository {
     userId: string,
     language: string
   ): Promise<Result<{ level: LearnerLevel; hint: string }, BusinessError>>;
+  /**
+   * 出题门快照（可选能力：档位 + 已学完 + 本轨道有讲义，一次取齐）。
+   * DrizzleLearnerRepository 已实现；缺实现时调用方降级为纯档位门。
+   */
+  getStudyGate?(
+    userId: string,
+    language: string
+  ): Promise<Result<StudyGateSnapshot, BusinessError>>;
 
   // 每日任务打卡与足迹
   getDailyTaskProgress(userId: string, date?: string): Promise<Result<DailyTaskProgress, BusinessError>>;

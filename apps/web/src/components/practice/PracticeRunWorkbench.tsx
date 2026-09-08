@@ -5,6 +5,7 @@ import { Button } from '../ui/button.js';
 import { Badge } from '../ui/badge.js';
 import { PracticeRunner, type PracticeRunnerItem } from './PracticeRunner.js';
 import { useStudySessionStore } from '../../stores/useStudySessionStore.js';
+import { useLessonStore } from '../../stores/useLessonStore.js';
 import { usePracticeRunSummaryQuery } from '../../queries/useLearnerQueries.js';
 import {
   useAssemblePracticeRunMutation,
@@ -46,6 +47,11 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
           } else if (skipped.some((b) => b.reason === 'NEED_STUDY')) {
             // M2 学习门：新词没讲透，一个都不给，先去讲透。
             toast.warning('有新词还没讲透：先去生词闪卡把它们学透，再回来练', { duration: 6000 });
+          } else if (skipped.some((b) => b.reason === 'NEED_LESSON')) {
+            // 先讲后测：讲义没学完，一个都不给，先去学讲义（弹窗可直接开）。
+            toast.warning('这类题的讲义还没学完：点「去学语法讲义」，学完自动解锁', {
+              duration: 6000,
+            });
           } else {
             toast.warning(`已装配题目，但 ${skipped.length} 个练习块暂无可用题被跳过`);
           }
@@ -101,6 +107,9 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
   if (items.length === 0) {
     const assembleFailed = assemble.isError;
     const needStudy = (assemble.data?.skippedBlocks ?? []).some((b) => b.reason === 'NEED_STUDY');
+    const needLesson = (assemble.data?.skippedBlocks ?? []).some(
+      (b) => b.reason === 'NEED_LESSON'
+    );
     return (
       <div className="flex flex-col items-center gap-3 py-12 text-slate-500">
         <Sparkles className="h-6 w-6" />
@@ -109,7 +118,9 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
             ? `题目装配失败：${(assemble.error as Error).message}`
             : needStudy
               ? '新词还没讲透，一个都没放进练习池。先去生词闪卡把它们学透再回来。'
-              : '该运行暂无可用题目（可能练习块暂无可用题）。'}
+              : needLesson
+                ? '这类题的讲义还没学完：先花 2 分钟学完讲义，学完自动解锁，再回来练。'
+                : '该运行暂无可用题目（可能练习块暂无可用题）。'}
         </span>
         <div className="flex gap-2">
           {needStudy ? (
@@ -121,6 +132,15 @@ export function PracticeRunWorkbench({ runId, userId, language, onCompleted, onE
               }}
             >
               去生词闪卡讲透 →
+            </Button>
+          ) : needLesson ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                useLessonStore.getState().openLesson(null);
+              }}
+            >
+              去学语法讲义 →
             </Button>
           ) : (
             <Button

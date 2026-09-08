@@ -69,12 +69,16 @@ describe('starter word pack (out-of-box vocabulary)', () => {
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.kanaWords?.length).toBeGreaterThan(0);
-    // 新库同池还有 pitch 基准词：不断言全部来自开箱包，只断言开箱词可被抽中且全体合法
-    expect(res.value.kanaWords?.some((w) => w.entryId.startsWith('starter_ja_'))).toBe(true);
+    // 全体合法（假名读音 + 有释义）；N5 包加入后随机抽样不再保证首屏必含开箱词，
+    // “开箱词在池中”改由下面确定性断言覆盖（随机种子不可控，不做概率断言）。
     for (const w of res.value.kanaWords ?? []) {
       expect(w.kana).toMatch(/^[\u3040-\u30FFー・\s]+$/);
       expect(w.meanings.length).toBeGreaterThan(0);
     }
+    const pool = await repo.sampleLocalDictionaryEntries('ja', 500);
+    expect(isOk(pool)).toBe(true);
+    if (!isOk(pool)) return;
+    expect(pool.value.some((e) => e.id.startsWith('starter_ja_'))).toBe(true);
   });
 
   it('powers hangul word drills without any installed package', async () => {

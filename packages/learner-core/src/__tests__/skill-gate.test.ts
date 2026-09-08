@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'bun:test';
 import {
   filterQuestionsByLevel,
+  isLessonLocked,
+  isQuestionAllowed,
   isQuestionAllowedForLevel,
   isSkillAllowedForLevel,
   minLevelForSkill,
   NOVICE_SAFE_SKILL,
   parseLevelLabel,
   resolveGateLevel,
+  resolveStudyGate,
   tierCapForLevel,
 } from '../skill-gate.js';
 
@@ -82,5 +85,47 @@ describe('skill-gate（组卷难度门）', () => {
     expect(NOVICE_SAFE_SKILL.ja).toBe('jp.particle.ni_vs_de');
     expect(NOVICE_SAFE_SKILL.ko).toContain('ko.');
     expect(NOVICE_SAFE_SKILL.en).toContain('en.');
+  });
+
+  it('讲义锁：有讲义未学完锁定，无讲义永不锁，学完解锁', () => {
+    const gate = {
+      completed: new Set<string>(),
+      lessons: new Set(['jp.particle.ni_vs_de', 'jp.grammar.conditional_tara']),
+    };
+    expect(isLessonLocked('jp.particle.ni_vs_de', gate)).toBe(true);
+    expect(isLessonLocked('jp.grammar.causative_active', gate)).toBe(false);
+    expect(isLessonLocked(null, gate)).toBe(false);
+    gate.completed.add('jp.particle.ni_vs_de');
+    expect(isLessonLocked('jp.particle.ni_vs_de', gate)).toBe(false);
+    // 完整判定：档位够但锁着 → 不出（tara 此时仍未学完）
+    expect(isQuestionAllowed('jp.grammar.conditional_tara', 3, 'BEGINNER', gate)).toBe(false);
+    gate.completed.add('jp.grammar.conditional_tara');
+    expect(isQuestionAllowed('jp.grammar.conditional_tara', 3, 'BEGINNER', gate)).toBe(true);
+  });
+
+  it('门快照解析：有快照全量生效，无快照降级纯档位门', async () => {
+    const full = await resolveStudyGate(
+      {
+        getStudyGate: async () => ({
+          ok: true as const,
+          value: {
+            level: 'NOVICE' as const,
+            completedSkills: ['jp.particle.ni_vs_de'],
+            lessonSkills: ['jp.particle.ni_vs_de', 'jp.grammar.conditional_tara'],
+          },
+        }),
+      },
+      'u1',
+      'ja',
+      null
+    );
+    expect(full.level).toBe('NOVICE');
+    expect(isLessonLocked('jp.grammar.conditional_tara', full)).toBe(true);
+    expect(isLessonLocked('jp.particle.ni_vs_de', full)).toBe(false);
+
+    const fallback = await resolveStudyGate({}, 'u1', 'ja', 'JLPT N3');
+    expect(fallback.level).toBe('INTERMEDIATE');
+    expect(fallback.lessons.size).toBe(0);
+    expect(isLessonLocked('jp.grammar.conditional_tara', fallback)).toBe(false);
   });
 });

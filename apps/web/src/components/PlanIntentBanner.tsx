@@ -1,6 +1,8 @@
 import React from 'react';
-import { CalendarCheck, X } from 'lucide-react';
+import { CalendarCheck, X, BookOpen } from 'lucide-react';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { useLessonStore } from '../stores/useLessonStore.js';
+import { useLessonsQuery } from '../queries/lessons.js';
 import { Button } from './ui/button.js';
 
 const KIND_HINT: Record<string, string> = {
@@ -16,7 +18,14 @@ const KIND_HINT: Record<string, string> = {
 export function PlanIntentBanner() {
   const planIntent = useStudySessionStore((s) => s.planIntent);
   const setPlanIntent = useStudySessionStore((s) => s.setPlanIntent);
+  const openLesson = useLessonStore((s) => s.openLesson);
+  const { data: lessons = [] } = useLessonsQuery();
   if (!planIntent) return null;
+  // 先讲后测：计划 GRAMMAR 步若有配套讲义且未学完，入口先指讲义（学完自动解锁题）。
+  const lessonForIntent =
+    planIntent.kind === 'GRAMMAR' && planIntent.skillId
+      ? lessons.find((l) => l.skillId === planIntent.skillId && !l.completed)
+      : undefined;
 
   return (
     <div
@@ -29,9 +38,22 @@ export function PlanIntentBanner() {
           今日计划 · {planIntent.title}
         </p>
         <p className="mt-0.5 text-[11px] text-amber-900/80 dark:text-amber-100/80">
-          {KIND_HINT[planIntent.kind] ?? '完成后可回到今日学习查看进度。'}
+          {lessonForIntent
+            ? `「${lessonForIntent.title}」还没学：先花 2 分钟学完讲义，再做靶向练习。`
+            : (KIND_HINT[planIntent.kind] ?? '完成后可回到今日学习查看进度。')}
         </p>
       </div>
+      {lessonForIntent && (
+        <Button
+          type="button"
+          size="sm"
+          className="shrink-0 gap-1 text-xs"
+          onClick={() => openLesson(lessonForIntent.skillId)}
+        >
+          <BookOpen className="h-3.5 w-3.5" />
+          先学讲义
+        </Button>
+      )}
       <Button
         type="button"
         variant="ghost"

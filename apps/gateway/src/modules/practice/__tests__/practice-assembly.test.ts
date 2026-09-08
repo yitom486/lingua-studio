@@ -452,6 +452,8 @@ describe('translation assembly from studied sentence cards（句子练习门）'
 
   it('难度门：NOVICE 不见 tara（记 LEVEL_GATE），BEGINNER 可见', async () => {
     await repo.setTrackLevel(userId, 'ja', 'NOVICE');
+    // 讲义先学完：本用例只测档位门，讲义锁另有单测。
+    await repo.completeLesson(userId, 'jp.grammar.conditional_tara');
     await repo.saveQuestion({
       id: 'q_tara_gate',
       userId,
@@ -522,5 +524,50 @@ describe('translation assembly from studied sentence cards（句子练习门）'
     expect(
       items.value.some((it) => String(it.question.testedSkillId) === 'en.grammar.subjunctive')
     ).toBe(true);
+  });
+
+  it('讲义锁：有讲义未学完 → 记 NEED_LESSON；学完即解锁', async () => {
+    await repo.setTrackLevel(userId, 'ja', 'BEGINNER');
+    await repo.saveQuestion({
+      id: 'q_tara_lock',
+      userId,
+      type: 'FILL_BLANK',
+      category: 'test',
+      prompt: '降る → 假定形',
+      content: '降ったら',
+      correctAnswer: '降ったら',
+      explanation: 'x',
+      testedSkillId: 'jp.grammar.conditional_tara',
+      difficulty: 3,
+      language: 'ja',
+    });
+    const runRes = await repo.startPracticePlanRun(userId, {
+      language: 'ja',
+      blocks: [{ id: 'blk_lock', kind: 'QUIZ', count: 1, gradingMode: 'AUTO_IMMEDIATE' }],
+    });
+    expect(isOk(runRes)).toBe(true);
+    if (!isOk(runRes)) return;
+    // 未学讲义：档位够（BEGINNER）也被锁，指路讲义
+    const asm = await assemblePracticeRun(repo, userId, runRes.value.id);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    expect(asm.value.totalItems).toBe(0);
+    expect(asm.value.skippedBlocks).toEqual([
+      { blockId: 'blk_lock', kind: 'QUIZ', reason: 'NEED_LESSON' },
+    ]);
+
+    // 学完讲义：同一道题放行
+    await repo.completeLesson(userId, 'jp.grammar.conditional_tara');
+    const run2 = await repo.startPracticePlanRun(userId, {
+      language: 'ja',
+      blocks: [{ id: 'blk_lock2', kind: 'QUIZ', count: 1, gradingMode: 'AUTO_IMMEDIATE' }],
+    });
+    expect(isOk(run2)).toBe(true);
+    if (!isOk(run2)) return;
+    const asm2 = await assemblePracticeRun(repo, userId, run2.value.id);
+    expect(isOk(asm2)).toBe(true);
+    if (!isOk(asm2)) return;
+    expect(asm2.value.totalItems).toBe(1);
+    expect(asm2.value.skippedBlocks).toEqual([]);
   });
 });

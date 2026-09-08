@@ -20,9 +20,11 @@ import {
 import type { LearnerRepository } from '@study-studio/learner-core';
 import {
   filterQuestionsByLevel,
+  isLessonLocked,
+  isQuestionAllowed,
   isSkillAllowedForLevel,
   NOVICE_SAFE_SKILL,
-  resolveGateLevel,
+  resolveStudyGate,
 } from '@study-studio/learner-core';
 
 export const GenerateAdaptiveQuizInputSchema = z.object({
@@ -131,21 +133,18 @@ export class GenerateAdaptiveQuizTool
     context: ToolExecutionContext
   ): Promise<Result<GenerateAdaptiveQuizOutput, BusinessError>> {
     try {
-      // 难度门：档位 SSOT（画像）优先，input.targetLevel 兜底；读不到按 NOVICE 从简。
-      // 用户自选的 weaknessSkillId 是明确意图，不拦；只拦系统代选的。
+      // 出题门：档位 + 讲义锁一次取齐；读不到降级为纯档位门（旧行为）。
+      // 用户自选的 weaknessSkillId 是明确意图，全豁免；只拦系统代选的。
       const explicitSkill = (input.weaknessSkillId ?? '').trim() || undefined;
-      let gateLevel = resolveGateLevel(null, input.targetLevel);
-      try {
-        const levelRes = await this.learnerRepo.getLevelInfo?.(
-          context.userId,
-          input.targetLanguage
-        );
-        if (levelRes && isOk(levelRes)) {
-          gateLevel = resolveGateLevel(levelRes.value.level, input.targetLevel);
-        }
-      } catch {
-        // 档位读失败不断出题主路径（fail-open，用标签兜底值）。
-      }
+      const track =
+        input.targetLanguage === 'ko' ? 'ko' : input.targetLanguage === 'en' ? 'en' : 'ja';
+      const gate = await resolveStudyGate(
+        this.learnerRepo,
+        context.userId,
+        input.targetLanguage,
+        input.targetLevel
+      );
+      const gateLevel = gate.level;
       let targetSkillId = explicitSkill;
       let reason = '用户指定专项练习';
 
@@ -169,38 +168,72 @@ export class GenerateAdaptiveQuizTool
         reason = '系统针对高频混淆考点推荐靶向自测';
       }
 
-      // 系统代选的考点超纲 → 降级到本轨道安全默认（用户自选的不动）。
-      if (!explicitSkill && !isSkillAllowedForLevel(targetSkillId, gateLevel)) {
-        const track = input.targetLanguage === 'ko' ? 'ko' : input.targetLanguage === 'en' ? 'en' : 'ja';
-        const safe = NOVICE_SAFE_SKILL[track];
-        reason =
-          `【${targetSkillId}】对当前档位超纲，已先换成基础考点【${safe}】热身；` +
-          `跟着带路学完再回来，或直接点该考点专项练习`;
-        targetSkillId = safe;
+      // 用户自选：整题照出（明确意图，档位门与讲义锁全豁免）。
+      if (explicitSkill) {
+        const bankEntry =
+          ADAPTIVE_QUESTION_BANK[targetSkillId] ?? ADAPTIVE_QUESTION_BANK['DEFAULT']!;
+        const selected = bankEntry.questions.slice(0, input.count);
+        const generatedQuestions: GeneratedQuestion[] = selected.map((q) => {
+          const raw = { ...q, id: generateId('q_ai') };
+          return GeneratedQuestionSchema.parse(raw);
+        });
+        return ok({
+          targetSkillId,
+          targetSkillName: bankEntry.skillName,
+          adaptationReason: reason,
+          questions: generatedQuestions,
+        });
       }
 
-      const bankEntry = ADAPTIVE_QUESTION_BANK[targetSkillId] ?? ADAPTIVE_QUESTION_BANK['DEFAULT']!;
-      // 用户自选：整题照出（明确意图，不过门）；系统代选：题库行同样过门
-      // （防 bank 内某题 tier 超标），空了回退 DEFAULT 再滤，仍空不断链。
-      let selected = (explicitSkill
-        ? bankEntry.questions
-        : filterQuestionsByLevel(
-            bankEntry.questions,
-            gateLevel,
-            (q) => ({ skillId: q.testedSkillId, tier: q.difficultyTier })
-          )
-      ).slice(0, input.count);
-      if (selected.length === 0 && targetSkillId !== 'DEFAULT') {
-        const fallback = ADAPTIVE_QUESTION_BANK['DEFAULT']!;
-        targetSkillId = fallback.questions[0]?.testedSkillId ?? targetSkillId;
-        reason += '（基础题库暂缺，已用综合热身题代替）';
-        selected = filterQuestionsByLevel(
-          fallback.questions,
-          gateLevel,
-          (q) => ({ skillId: q.testedSkillId, tier: q.difficultyTier })
-        ).slice(0, input.count);
-        if (selected.length === 0) selected = bankEntry.questions.slice(0, input.count);
+      // 系统代选：按 [画像弱项/默认 → 本轨道安全默认] 顺序，取第一个
+      // “档位够 + 讲义已学完（或无讲义）+ 题库有货”的考点；全灭不断链（空题 + 指路讲义）。
+      const ordered = [targetSkillId, NOVICE_SAFE_SKILL[track]].filter(
+        (s, i, arr) => arr.indexOf(s) === i
+      );
+      let pickedSkill: string | null = null;
+      let pickedRows: Array<(typeof ADAPTIVE_QUESTION_BANK)['DEFAULT']['questions'][number]> = [];
+      const notes: string[] = [];
+      for (const skill of ordered) {
+        if (!isSkillAllowedForLevel(skill, gateLevel)) {
+          notes.push(`【${skill}】对当前档位超纲`);
+          continue;
+        }
+        if (isLessonLocked(skill, gate)) {
+          notes.push(`【${skill}】讲义还没学完`);
+          continue;
+        }
+        const entry = ADAPTIVE_QUESTION_BANK[skill] ?? ADAPTIVE_QUESTION_BANK['DEFAULT']!;
+        const rows = filterQuestionsByLevel(entry.questions, gateLevel, (q) => ({
+          skillId: q.testedSkillId,
+          tier: q.difficultyTier,
+        }));
+        if (rows.length === 0) continue;
+        pickedSkill = skill;
+        pickedRows = rows;
+        break;
       }
+      if (!pickedSkill) {
+        const firstLocked = ordered.find((s) => isLessonLocked(s, gate)) ?? ordered[0]!;
+        return ok({
+          targetSkillId: firstLocked,
+          targetSkillName: '先学讲义',
+          adaptationReason:
+            `${notes.join('；') || '暂无合适考点'}。先去语法讲义学完【${firstLocked}】再来，` +
+            `学完自动解锁这类题；也可以直接点该考点专项练习`,
+          questions: [],
+        });
+      }
+      if (pickedSkill !== targetSkillId) {
+        reason =
+          `${notes.join('；')}，已先换成基础考点【${pickedSkill}】热身；` +
+          `跟着带路学完再回来，或直接点该考点专项练习`;
+        targetSkillId = pickedSkill;
+      }
+      const bankEntry = ADAPTIVE_QUESTION_BANK[targetSkillId] ?? ADAPTIVE_QUESTION_BANK['DEFAULT']!;
+      // 题库行再过一次完整门（技能 + tier + 讲义锁），保证出口干净。
+      const selected = pickedRows
+        .filter((q) => isQuestionAllowed(q.testedSkillId, q.difficultyTier, gateLevel, gate))
+        .slice(0, input.count);
 
       const generatedQuestions: GeneratedQuestion[] = selected.map((q) => {
         const raw = {

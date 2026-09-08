@@ -123,7 +123,22 @@ describe('Gateway WebSocket Server E2E', () => {
     const quizReply = await quizPromise;
     expect(payloadField(quizReply, 'persistedToDb')).toBe(true);
 
-    // 4. 发送 quiz.generate 自适应出题
+    // 4. 先讲后测：新用户系统出题先被讲义锁拦 → 学完讲义 → 再出题放行
+    const lockRes = await fetch(`http://localhost:${TEST_PORT}/api/lessons/${testUserId}?lang=ja`);
+    expect(lockRes.status).toBe(200);
+    const lockList = (await lockRes.json()) as Array<{ skillId: string; completed: boolean }>;
+    expect(lockList.some((l) => l.skillId === 'jp.particle.ni_vs_de')).toBe(true);
+    const completeRes = await fetch(
+      `http://localhost:${TEST_PORT}/api/lessons/${testUserId}/complete`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skillId: 'jp.particle.ni_vs_de' }),
+      }
+    );
+    expect(completeRes.status).toBe(200);
+
+    // 5. 发送 quiz.generate 自适应出题
     const genEnvelope: WsEnvelope = {
       version: '1.0',
       id: generateId('msg'),
@@ -149,7 +164,7 @@ describe('Gateway WebSocket Server E2E', () => {
     expect((payloadField(genReply, 'questions') as unknown[])?.length).toBe(1);
     expect(payloadField(genReply, 'targetSkillId')).toBeDefined();
 
-    // 5. 发送 quiz.grade_subjective 主观题多维深度批改
+    // 6. 发送 quiz.grade_subjective 主观题多维深度批改
     const gradeEnvelope: WsEnvelope = {
       version: '1.0',
       id: generateId('msg'),
@@ -179,7 +194,7 @@ describe('Gateway WebSocket Server E2E', () => {
 
     ws.send(JSON.stringify(gradeEnvelope));
     const gradeReply = await gradePromise;
-    // 6. 测试 CLIENT_PROFILE_GET & CLIENT_PROFILE_UPDATE
+    // 7. 测试 CLIENT_PROFILE_GET & CLIENT_PROFILE_UPDATE
     const profileGetEnvelope: WsEnvelope = {
       version: '1.0',
       id: generateId('msg'),
@@ -204,7 +219,7 @@ describe('Gateway WebSocket Server E2E', () => {
     const profileGetReply = await profileGetPromise;
     expect(payloadField(profileGetReply, 'studyGoal')).toBe('JLPT_N2');
 
-    // 7. 测试更新 profile
+    // 8. 测试更新 profile
     const profileUpdateEnvelope: WsEnvelope = {
       version: '1.0',
       id: generateId('msg'),
@@ -236,7 +251,7 @@ describe('Gateway WebSocket Server E2E', () => {
     expect(payloadField(profileUpdateReply, 'studyGoal')).toBe('JLPT_N1');
     expect(payloadField(profileUpdateReply, 'dailyGoalQuizzes')).toBe(6);
 
-    // 8. 测试 HTTP 每日打卡端点
+    // 9. 测试 HTTP 每日打卡端点
     const taskHttpRes = await fetch(`http://localhost:${TEST_PORT}/api/task/progress/${testUserId}`);
     expect(taskHttpRes.status).toBe(200);
     const taskBody = await taskHttpRes.json();

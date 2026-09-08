@@ -19,6 +19,13 @@ import {
   STARTER_SOURCE_LABEL,
   STARTER_WORD_SEEDS,
 } from './seeds/starter-words-seed.js';
+import { LESSON_SEEDS } from './seeds/lesson-seed.js';
+import {
+  N5_LICENSE,
+  N5_SOURCE_ID,
+  N5_SOURCE_LABEL,
+  N5_WORD_SEEDS,
+} from './seeds/n5-words-seed.js';
 import { TEXTBOOK_BOOKS } from './seeds/textbook-seed.js';
 
 /**
@@ -618,5 +625,82 @@ export function seedInitialData(sqlite: Database): void {
       }
     } catch (e) {
       console.warn('[initSchema] Failed to auto-seed starter words:', e);
+    }
+
+    // 8c. 语法讲义（先讲后测）：课程公共资产，按 skillId 补齐；
+    // 正文更新时按种子覆盖——讲义是课程资产非用户资产，老库升级也能进。
+    try {
+      const upsertLesson = sqlite.prepare(`
+        INSERT INTO curriculum_lessons (id, language, min_level, title, summary, body_json, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          language = excluded.language,
+          min_level = excluded.min_level,
+          title = excluded.title,
+          summary = excluded.summary,
+          body_json = excluded.body_json,
+          sort_order = excluded.sort_order
+      `);
+      for (const l of LESSON_SEEDS) {
+        upsertLesson.run(
+          l.skillId,
+          l.language,
+          l.minLevel,
+          l.title,
+          l.summary,
+          JSON.stringify({ sections: l.sections, examples: l.examples, pitfall: l.pitfall }),
+          l.sortOrder
+        );
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed curriculum lessons:', e);
+    }
+
+    // 8d. 日语 N5 核心 100 词（自撰释义，汉字表记+标准读音）。INSERT OR IGNORE 按 id 补齐，
+    // 与 starter 包（纯假名）/JMdict 并存，source 独立可开关。
+    try {
+      const now2 = new Date().toISOString();
+      sqlite
+        .prepare(
+          `INSERT OR IGNORE INTO dictionary_sources (
+            id, language, provider, version, source_url, license_name, license_url, attribution, entry_count, imported_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          `${N5_SOURCE_ID}-ja`,
+          'ja',
+          'Lingua Studio',
+          'v1',
+          'https://study-studio.local/curriculum/n5-words',
+          N5_LICENSE,
+          'https://study-studio.local/licenses',
+          'Lingua Studio N5 core vocabulary with original Chinese glosses.',
+          N5_WORD_SEEDS.length,
+          now2
+        );
+      const insertN5 = sqlite.prepare(`
+        INSERT OR IGNORE INTO local_dictionary_entries (
+          id, language, headword, reading, romanization, meanings_json,
+          pronunciation_json, part_of_speech, source_id, source_label, license_note, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const w of N5_WORD_SEEDS) {
+        insertN5.run(
+          w.id,
+          w.language,
+          w.headword,
+          w.reading ?? null,
+          null,
+          JSON.stringify(w.meanings),
+          null,
+          w.partOfSpeech ?? null,
+          N5_SOURCE_ID,
+          N5_SOURCE_LABEL,
+          N5_LICENSE,
+          now2
+        );
+      }
+    } catch (e) {
+      console.warn('[initSchema] Failed to auto-seed N5 words:', e);
     }
 }

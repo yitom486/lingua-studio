@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { isOk, type Result, type BusinessError } from '@study-studio/shared';
+import { isOk, ok, err, type Result, type BusinessError } from '@study-studio/shared';
 import type {
   LearnerRepository,
   QuizAttemptRecord,
@@ -101,6 +101,14 @@ import {
   resetCardFormat as resetCardFormatDomain,
   type SaveCardFormatInput,
 } from '../modules/flashcards/persistence/card-formats.js';
+import {
+  listLessons as listLessonsDomain,
+  completeLesson as completeLessonDomain,
+  listCompletedLessonSkills as listCompletedLessonSkillsDomain,
+  listLessonSkills as listLessonSkillsDomain,
+  type Lesson,
+} from '../modules/curriculum/persistence/lessons.js';
+import type { StudyGateSnapshot } from '@study-studio/learner-core';
 import {
   previewCard as previewCardDomain,
   type PreviewCardRequest,
@@ -424,6 +432,40 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     level: LearnerLevel
   ): Promise<Result<LearnerLevel, BusinessError>> {
     return setTrackLevelDomain(this.deps, userId, track, level);
+  }
+
+  /** 讲义列表（含学完态）。实现已下沉 curriculum 域，此处仅委托。 */
+  public async listLessons(userId: string, language: string): Promise<Result<Lesson[], BusinessError>> {
+    return listLessonsDomain(this.deps, userId, language);
+  }
+
+  /** 讲义学完打卡（幂等）。实现已下沉 curriculum 域，此处仅委托。 */
+  public async completeLesson(
+    userId: string,
+    skillId: string
+  ): Promise<Result<{ skillId: string; completedAt: string }, BusinessError>> {
+    return completeLessonDomain(this.deps, userId, skillId);
+  }
+
+  /**
+   * 出题门快照（档位 + 已学完技能 + 本轨道有讲义技能；一次取齐，四个出题口复用）。
+   * 档位读不到整体 err（调用方 fail-open，不过门）。
+   */
+  public async getStudyGate(
+    userId: string,
+    language: string
+  ): Promise<Result<StudyGateSnapshot, BusinessError>> {
+    const levelRes = await getLevelInfoDomain(this.deps, userId, language);
+    if (!isOk(levelRes)) return err(levelRes.error);
+    const completedRes = await listCompletedLessonSkillsDomain(this.deps, userId);
+    if (!isOk(completedRes)) return err(completedRes.error);
+    const lessonsRes = await listLessonSkillsDomain(this.deps, language);
+    if (!isOk(lessonsRes)) return err(lessonsRes.error);
+    return ok({
+      level: levelRes.value.level,
+      completedSkills: completedRes.value,
+      lessonSkills: lessonsRes.value,
+    });
   }
 
   /** 定级考开考（跳级通道）。实现已下沉 practice 域，此处仅委托。 */

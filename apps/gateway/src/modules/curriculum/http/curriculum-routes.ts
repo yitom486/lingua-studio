@@ -358,5 +358,32 @@ export function createCurriculumRoutes(deps: GatewayDeps) {
       }
     }
   )
+  // 语法讲义（先讲后测）：列表（含学完态）+ 学完打卡（幂等）。
+  .get('/api/lessons/:userId', async (c) => {
+    try {
+      const res = await deps.repo.listLessons(c.req.param('userId'), c.req.query('lang') ?? '');
+      if (isOk(res)) return c.json(res.value);
+      return formatBusinessErrorResponse(c, res.error);
+    } catch (e) {
+      return formatBusinessErrorResponse(c, e, 'listLessons');
+    }
+  })
+  .post(
+    '/api/lessons/:userId/complete',
+    validator('json', (value) => value as Record<string, unknown>),
+    async (c) => {
+      try {
+        const body = c.req.valid('json');
+        const res = await deps.repo.completeLesson(
+          c.req.param('userId'),
+          String(body.skillId || '')
+        );
+        if (isOk(res)) return c.json(res.value);
+        return formatBusinessErrorResponse(c, res.error);
+      } catch (e) {
+        return formatBusinessErrorResponse(c, e, 'completeLesson');
+      }
+    }
+  )
 ;
 }

@@ -1,4 +1,5 @@
 import type { LearnerLevel } from '@study-studio/protocol';
+import { isOk, type Result, type BusinessError } from '@study-studio/shared';
 
 /**
  * 组卷难度门（教学-first hotfix，见学习闭环“先讲后测”定位）。
@@ -147,4 +148,79 @@ export function resolveGateLevel(
 ): LearnerLevel {
   if (known && (GATE_LEVEL_ORDER as string[]).includes(known)) return known;
   return parseLevelLabel(fallbackLabel) ?? 'NOVICE';
+}
+
+/** 出题门快照（网关一次取齐：档位 + 已学完 + 本轨道有讲义）。 */
+export interface StudyGateSnapshot {
+  level: LearnerLevel;
+  completedSkills: string[];
+  lessonSkills: string[];
+}
+
+/** 门数据源（LearnerRepository 可选能力；缺实现时调用方降级为纯档位门）。 */
+export interface StudyGateSource {
+  getStudyGate?: (
+    userId: string,
+    language: string
+  ) => Promise<Result<StudyGateSnapshot, BusinessError>>;
+}
+
+export interface ResolvedStudyGate {
+  level: LearnerLevel;
+  completed: Set<string>;
+  lessons: Set<string>;
+}
+
+/**
+ * 门快照解析（各出题口统一入口）：
+ * 快照拿到 → 档位 + 讲义锁全量生效；拿不到 → 档位标签兜底、讲义锁 fail-open（旧行为）。
+ */
+export async function resolveStudyGate(
+  source: StudyGateSource,
+  userId: string,
+  language: string,
+  fallbackLabel: unknown
+): Promise<ResolvedStudyGate> {
+  const open = (level: LearnerLevel): ResolvedStudyGate => ({
+    level,
+    completed: new Set(),
+    lessons: new Set(),
+  });
+  try {
+    const res = await source.getStudyGate?.(userId, language);
+    if (!res) return open(resolveGateLevel(null, fallbackLabel));
+    if (isOk(res)) {
+      return {
+        level: resolveGateLevel(res.value.level, fallbackLabel),
+        completed: new Set(res.value.completedSkills),
+        lessons: new Set(res.value.lessonSkills),
+      };
+    }
+    return open(resolveGateLevel(null, fallbackLabel));
+  } catch {
+    return open(resolveGateLevel(null, fallbackLabel));
+  }
+}
+
+/**
+ * 讲义锁（先讲后测）：本轨道有讲义且未学完 → 系统代选不出该技能的题。
+ * 无讲义的技能永远不锁（不断新内容活路）；用户自选/课内小测/定级考/自家卡由调用方豁免。
+ */
+export function isLessonLocked(
+  skillId: string | null | undefined,
+  gate: Pick<ResolvedStudyGate, 'completed' | 'lessons'>
+): boolean {
+  if (!skillId) return false;
+  return gate.lessons.has(skillId) && !gate.completed.has(skillId);
+}
+
+/** 单题完整判定（档位门 + 讲义锁同时过）。 */
+export function isQuestionAllowed(
+  skillId: string | null | undefined,
+  tier: number | null | undefined,
+  level: LearnerLevel,
+  gate: Pick<ResolvedStudyGate, 'completed' | 'lessons'>
+): boolean {
+  if (isLessonLocked(skillId, gate)) return false;
+  return isQuestionAllowedForLevel(skillId, tier, level);
 }
