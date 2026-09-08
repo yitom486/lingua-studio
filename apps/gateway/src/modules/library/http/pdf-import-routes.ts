@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { BusinessError, isOk } from '@study-studio/shared';
+import { BusinessError, isOk, logger } from '@study-studio/shared';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import { convertPdfToAst, appendPdfToDocument, mapPdfPages, MAX_PDF_BYTES } from '../application/pdf-import/pdf-import-service.js';
+import { tryParseTextbookAst } from '../persistence/textbook-shred.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
 import { readLocalPdfFile } from '../application/pdf-import/local-file.js';
 
@@ -107,6 +108,20 @@ export function createPdfImportRoutes(deps: GatewayDeps) {
           }
         );
         if (!isOk(res)) return formatBusinessErrorResponse(c, res.error);
+        // 接力追加写回即拆：重读 AST 全量 shred（全删全插天然幂等），失败只 warn
+        const reread = await deps.repo.getDocumentById(res.value.document.id);
+        if (isOk(reread) && reread.value?.astJson) {
+          const astRaw = tryParseTextbookAst(reread.value.astJson);
+          if (astRaw) {
+            const shredded = await deps.repo.shredDocument(res.value.document.id, astRaw);
+            if (!isOk(shredded)) {
+              logger.warn('[pdf-append] shred failed', {
+                code: shredded.error.code,
+                documentId: res.value.document.id,
+              });
+            }
+          }
+        }
         return c.json({
           documentId: res.value.document.id,
           addedLessons: res.value.addedLessons,

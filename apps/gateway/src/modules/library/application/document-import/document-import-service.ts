@@ -7,6 +7,7 @@ import {
   translateToBusinessError,
   generateId,
   nowIso,
+  logger,
 } from '@study-studio/shared';
 import type { DocumentItem, TextbookAST } from '@study-studio/protocol';
 import { markdownToAst } from '../pdf-import/markdown-to-ast.js';
@@ -27,6 +28,7 @@ import {
   updateImportTask,
   type ImportTask,
 } from '../../persistence/import-tasks.js';
+import { shredDocument } from '../../persistence/textbook-shred.js';
 import type { RepoDeps } from '../../../../infrastructure/persistence/repo-context.js';
 
 /**
@@ -224,6 +226,16 @@ export async function importDocument(
       updatedAt: now,
     });
     if (!isOk(saved)) throw saved.error;
+    // 落库即拆：AST 主路径已存；shred 失败只 warn（下次 enrich/重导回填），不推翻导入
+    const shredded = shredDocument(deps, saved.value.id, book);
+    if (!shredded.ok) {
+      logger.warn('[document-import] shred failed', {
+        code: shredded.error.code,
+        documentId: saved.value.id,
+      });
+    } else {
+      logger.info('[document-import] shredded', { documentId: saved.value.id, ...shredded.value });
+    }
     const lessons = book.lessons.length;
     const done = await updateImportTask(deps, task.id, {
       status: 'done',

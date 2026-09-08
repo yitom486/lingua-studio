@@ -33,6 +33,7 @@ import type {
   PracticeBlockSpec,
   PracticeRunStatus,
   LearnerLevel,
+  TextbookAST,
 } from '@study-studio/protocol';
 
 // P0-1 拆分：语种 / 词典 / 通用工具已下沉 domains；本地 import 供剩余方法使用，
@@ -126,6 +127,10 @@ import {
   getDocumentStructure as getDocumentStructureDomain,
   type SavedDocumentStructure,
 } from '../modules/library/persistence/document-structure.js';
+import {
+  shredDocument as shredDocumentDomain,
+  type ShredStats,
+} from '../modules/library/persistence/textbook-shred.js';
 import type { StudyGateSnapshot } from '@study-studio/learner-core';
 import {
   previewCard as previewCardDomain,
@@ -516,6 +521,17 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     documentId: string
   ): Promise<Result<SavedDocumentStructure | null, BusinessError>> {
     return getDocumentStructureDomain(this.deps, userId, documentId);
+  }
+
+  /**
+   * 教材 shred（AST 大绳拆关系行 + FTS + 精确映射，同事务全删全插）。
+   * AST 落库为主路径；调用方失败只 warn，不推翻已存课文。实现已下沉 library 域。
+   */
+  public async shredDocument(
+    documentId: string,
+    book: TextbookAST
+  ): Promise<Result<ShredStats, BusinessError>> {
+    return shredDocumentDomain(this.deps, documentId, book);
   }
 
   /**

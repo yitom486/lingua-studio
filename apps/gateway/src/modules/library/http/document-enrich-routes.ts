@@ -74,6 +74,23 @@ export function createDocumentEnrichRoutes(deps: GatewayDeps) {
         updatedAt: now,
       });
       if (!isOk(saved)) return formatBusinessErrorResponse(c, saved.error);
+      // enrich 写回即拆：shred 与 AST 同源，失败只 warn（下次 enrich 回填），不推翻课文
+      const shredded = await deps.repo.shredDocument(saved.value.id, enriched.value.book);
+      let shredStats: { lessons: number; vocab: number; lines: number; mappedEntries: number; unmapped: number } | undefined;
+      if (isOk(shredded)) {
+        shredStats = {
+          lessons: shredded.value.lessons,
+          vocab: shredded.value.vocab,
+          lines: shredded.value.lines,
+          mappedEntries: shredded.value.mappedEntries,
+          unmapped: shredded.value.unmapped,
+        };
+      } else {
+        logger.warn('[document-enrich] shred failed', {
+          code: shredded.error.code,
+          documentId: saved.value.id,
+        });
+      }
       // 抽词→草稿：AST 落库为主路径；草稿提议失败只 warn，不推翻已存的课文。
       let draftsProposed = 0;
       let draftsError: string | undefined;
@@ -108,6 +125,7 @@ export function createDocumentEnrichRoutes(deps: GatewayDeps) {
         dropped: enriched.value.dropped,
         draftsProposed,
         ...(draftsError ? { draftsError } : {}),
+        ...(shredStats ? { shred: shredStats } : {}),
       });
     } catch (e) {
       return formatBusinessErrorResponse(c, e, 'enrichDocument');

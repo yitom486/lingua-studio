@@ -1,12 +1,13 @@
 ﻿import { Hono } from 'hono';
 import { validator } from 'hono/validator';
-import { isOk, BusinessError, generateId } from '@study-studio/shared';
+import { isOk, BusinessError, generateId, logger } from '@study-studio/shared';
 import {
   AnnotationKindSchema,
   DocumentSourceKindSchema,
 } from '@study-studio/protocol';
 import { formatBusinessErrorResponse } from '../../../errors/http-error-handler.js';
 import type { GatewayDeps } from '../../../transport/http/gateway-deps.js';
+import { tryParseTextbookAst } from '../persistence/textbook-shred.js';
 
 /** 文库域路由：文档与批注（G2 迁移，行为不变）。 */
 
@@ -136,8 +137,21 @@ export function createLibraryRoutes(deps: GatewayDeps) {
           updatedAt: now,
         };
         const res = await deps.repo.saveDocument(docItem);
-        if (isOk(res)) return c.json(res.value);
-        return formatBusinessErrorResponse(c, res.error);
+        if (!isOk(res)) return formatBusinessErrorResponse(c, res.error);
+        // 带 AST 的保存即拆（前端 PDF 确认导入主路）；坏 AST/失败只 warn，不推翻保存
+        if (docItem.astJson) {
+          const book = tryParseTextbookAst(docItem.astJson);
+          if (book) {
+            const shredded = await deps.repo.shredDocument(res.value.id, book);
+            if (!isOk(shredded)) {
+              logger.warn('[library-save] shred failed', {
+                code: shredded.error.code,
+                documentId: res.value.id,
+              });
+            }
+          }
+        }
+        return c.json(res.value);
       } catch (e) {
         return formatBusinessErrorResponse(c, e, 'saveDocument');
       }
