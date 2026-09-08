@@ -5,6 +5,7 @@ import { fireSuccessConfetti } from './magicui/index.js';
 import { sound } from '../utils/audio.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
+import type { PlacementFinishInfo } from '../queries/practice-plan.js';
 import {
   useLevelInfoQuery,
   type LevelInfo,
@@ -52,6 +53,62 @@ export function LevelCard() {
   const startExam = useStartPlacementMutation();
   const finishExam = useFinishPlacementMutation();
   const [exam, setExam] = useState<{ examId: string; runId: string; target: PlacementLevel } | null>(null);
+  const [result, setResult] = useState<PlacementFinishInfo | null>(null);
+
+  if (result) {
+    return (
+      <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <GraduationCap className="w-4 h-4 text-amber-600" />
+          <h3 className="text-sm font-bold">
+            {result.passed ? '考过了' : '差一点'} · 正确率 {Math.round(result.accuracy * 100)}%
+            （{result.graded} 道）
+          </h3>
+          <span className="flex-1" />
+          <Button size="sm" variant="ghost" onClick={() => setResult(null)}>
+            返回
+          </Button>
+        </div>
+        {(result.groups ?? []).length > 0 && (
+          <div className="space-y-1.5">
+            {(result.groups ?? []).map((g) => (
+              <div
+                key={g.key}
+                className="flex items-center justify-between gap-2 rounded-xl border border-stone-200 dark:border-stone-700 px-3 py-2 text-xs"
+              >
+                <span className="text-stone-700 dark:text-stone-200">
+                  {g.label}：{g.correct}/{g.graded}（线 {g.minCorrect}）
+                </span>
+                {g.thin ? (
+                  <Badge variant="amber" className="text-[10px]">
+                    题量不足·仅供参考
+                  </Badge>
+                ) : g.met ? (
+                  <Badge variant="emerald" className="text-[10px]">
+                    达标
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive" className="text-[10px]">
+                    未达标
+                  </Badge>
+                )}
+              </div>
+            ))}
+            {(result.uncoveredGroups ?? []).length > 0 && (
+              <p className="text-[11px] text-stone-400">
+                部分考点题库不足未覆盖，本次不计入判定（待题库扩充）。
+              </p>
+            )}
+          </div>
+        )}
+        <p className="text-[11px] text-stone-500">
+          {result.passed
+            ? `已定为${LEVEL_LABELS[result.level]}。`
+            : '没通过可以重考（新卷重组；题库浅时可能遇到重复题）。'}
+        </p>
+      </section>
+    );
+  }
 
   if (exam) {
     return (
@@ -75,9 +132,10 @@ export function LevelCard() {
                       toast.success(`考过了：已定为${LEVEL_LABELS[r.level]}（正确率 ${Math.round(r.accuracy * 100)}%）`);
                     } else {
                       sound.playMistake();
-                      toast.error(`差一点：正确率 ${Math.round(r.accuracy * 100)}%，可重考`);
+                      toast.error(`差一点：正确率 ${Math.round(r.accuracy * 100)}%，看分项再补`);
                     }
                     setExam(null);
+                    setResult(r);
                   },
                   onError: (e) => {
                     sound.playMistake();

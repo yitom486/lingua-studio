@@ -711,6 +711,16 @@ const SCHEMA_MIGRATIONS: SchemaMigration[] = [
       );
     `,
   },
+  {
+    // v13：阶段测评蓝图版本 + 分项成绩（蓝图v1：技能组/题数/答对线/机动题）。
+    version: 13,
+    name: 'placement-blueprint',
+    sql: `
+      ALTER TABLE placement_exams ADD COLUMN blueprint_version TEXT;
+      ALTER TABLE placement_exams ADD COLUMN blueprint_json TEXT;
+      ALTER TABLE placement_exams ADD COLUMN subscores_json TEXT;
+    `,
+  },
 ];
 
 export function runMigrations(sqlite: Database): { applied: number[] } {

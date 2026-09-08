@@ -1,6 +1,7 @@
-import { ok, err, isOk, type Result, BusinessError } from '@study-studio/shared';
+import { ok, err, isOk, type Result, BusinessError, generateId } from '@study-studio/shared';
 import type { Flashcard, GeneratedQuestion, PracticeBlockSpec, PracticePlanRun, LearnerLevel } from '@study-studio/protocol';
 import { isLessonLocked, isQuestionAllowed, resolveStudyGate } from '@study-studio/learner-core';
+import type { AssessmentBlueprint } from '@study-studio/learner-core';
 import type { DrizzleLearnerRepository } from '../../../infrastructure/drizzle-learner-repository.js';
 import type { PersistableQuestion } from '../persistence/questions.js';
 import type { LearningContentInput, LearningContentOutput } from '../../../transport/tools/learning-content-tool.js';
@@ -189,6 +190,131 @@ export function buildTranslationQuestionsFromCards(
   return out;
 }
 
+/** 内容去重键（跨来源同一道题去重；考试防重复刷分，练习防重复体验）。 */
+function questionContentKey(q: { content?: unknown; correctAnswer?: unknown }): string {
+  return `${String(q.content ?? '')}||${String(q.correctAnswer ?? '')}`;
+}
+
+/**
+ * 定级考蓝图组卷：按组从池（skillIds 精选）+ 模板（逐技能）取数，内容去重。
+ * 取不满的组自然 thin（判分时报告，判线不强制）；绝不拿重复题凑数判升级。
+ * 定级考豁免档位/讲义门（使命就是往上探），但沿用跨块去重。
+ */
+async function collectBlueprintItems(
+  repo: DrizzleLearnerRepository,
+  userId: string,
+  language: 'en' | 'ja' | 'ko',
+  blueprint: AssessmentBlueprint,
+  need: number,
+  seenIds: Set<string>,
+  seenContent: Set<string>
+): Promise<GeneratedQuestion[]> {
+  const out: GeneratedQuestion[] = [];
+  // 注意：seenIds/seenContent 只读不写（注册归 pushFresh 统一做，避免双重注册吞题）。
+  const localContent = new Set<string>();
+  const dup = (q: GeneratedQuestion): boolean =>
+    seenIds.has(q.id) ||
+    seenContent.has(questionContentKey(q)) ||
+    localContent.has(questionContentKey(q));
+  for (const group of blueprint.groups) {
+    if (out.length >= need) break;
+    const groupPicks: GeneratedQuestion[] = [];
+    // 池：按组技能精选
+    try {
+      const poolRes = await repo.getQuestions(userId, group.items * 4 + 8, language, {
+        skillIds: group.skillIds,
+      });
+      if (isOk(poolRes)) {
+        for (const q of (poolRes.value ?? []).map(mapPoolQuestion)) {
+          if (dup(q)) continue;
+          if (groupPicks.some((g) => questionContentKey(g) === questionContentKey(q))) continue;
+          groupPicks.push(q);
+          if (groupPicks.length >= group.items) break;
+        }
+      }
+    } catch {
+      // 池失败走模板，不挡整组
+    }
+    // 模板：逐技能取 generate_quiz 行（审校现货）
+    if (groupPicks.length < group.items) {
+      for (const skill of group.skillIds) {
+        if (groupPicks.length >= group.items) break;
+        try {
+          const tpls = await repo.listContentTemplates({
+            action: 'generate_quiz',
+            language,
+            skillId: skill,
+          });
+          if (!isOk(tpls)) continue;
+          for (const row of tpls.value ?? []) {
+            const raw = (row.payload ?? {}) as { question?: Record<string, unknown> };
+            const base = raw.question;
+            if (!base || typeof base !== 'object') continue;
+            const q = {
+              ...(base as Record<string, unknown>),
+              id: generateId('q_bp'),
+              testedSkillId:
+                typeof base.testedSkillId === 'string' && base.testedSkillId
+                  ? base.testedSkillId
+                  : skill,
+              difficultyTier:
+                typeof base.difficultyTier === 'number'
+                  ? base.difficultyTier
+                  : typeof row.difficulty === 'number'
+                    ? row.difficulty
+                    : 3,
+            } as GeneratedQuestion;
+            if (dup(q)) continue;
+            if (groupPicks.some((g) => questionContentKey(g) === questionContentKey(q))) continue;
+            groupPicks.push(q);
+            if (groupPicks.length >= group.items) break;
+          }
+        } catch {
+          // 单技能模板失败不挡整组
+        }
+      }
+    }
+    for (const q of groupPicks) {
+      out.push(q);
+      localContent.add(questionContentKey(q));
+      if (out.length >= need) break;
+    }
+  }
+  // 机动题：同语种审校模板优先（组外技能也行），内容去重；仍不够由旧链兜底。
+  if (out.length < need) {
+    try {
+      const tpls = await repo.listContentTemplates({ action: 'generate_quiz', language });
+      if (isOk(tpls)) {
+        for (const row of tpls.value ?? []) {
+          if (out.length >= need) break;
+          const raw = (row.payload ?? {}) as { question?: Record<string, unknown> };
+          const base = raw.question;
+          if (!base || typeof base !== 'object') continue;
+          const skill = typeof base.testedSkillId === 'string' ? base.testedSkillId : '';
+          const q = {
+            ...(base as Record<string, unknown>),
+            id: generateId('q_bp'),
+            ...(skill ? {} : { testedSkillId: 'review' }),
+            difficultyTier:
+              typeof base.difficultyTier === 'number'
+                ? base.difficultyTier
+                : typeof row.difficulty === 'number'
+                  ? row.difficulty
+                  : 3,
+          } as GeneratedQuestion;
+          if (dup(q)) continue;
+          if (out.some((g) => questionContentKey(g) === questionContentKey(q))) continue;
+          out.push(q);
+          localContent.add(questionContentKey(q));
+        }
+      }
+    } catch {
+      // 模板失败由旧链兜底
+    }
+  }
+  return out;
+}
+
 export async function assemblePracticeRun(
   repo: DrizzleLearnerRepository,
   userId: string,
@@ -206,7 +332,11 @@ export async function assemblePracticeRun(
   const skippedBlocks: Array<{ blockId: string; kind: string; reason?: string }> = [];
   // 同一 run 内跨块去重：同一道题不重复装入
   const usedQuestionIds = new Set<string>();
+  const usedContentKeys = new Set<string>();
   let totalItems = 0;
+  // 定级考：读冻结蓝图（组卷与判分认同一版；无蓝图老卷走旧链）。
+  const placementExam = repo.isPlacementRun(runId) ? await repo.getPlacementByRunId(runId) : null;
+  const examBlueprint = placementExam?.blueprint;
 
   // 出题门（教学-first）：定级考豁免（使命就是往上探）；自家卡
   // （VOCAB/TRANSLATION 均来自用户已讲透资产）豁免；池 / 模板 / 兜底 / 阅读一律过门
@@ -241,9 +371,18 @@ export async function assemblePracticeRun(
 
   for (const block of run.blocks) {
     const candidates: GeneratedQuestion[] = [];
+    // 定级考严格去重（内容相同算同一道，防重复刷分；空 content 的阅读题只按 id 去重）。
+    const strictDedupe = examBlueprint != null;
     const pushFresh = (list: GeneratedQuestion[]) => {
       for (const q of list) {
-        if (!usedQuestionIds.has(q.id)) candidates.push(q);
+        if (usedQuestionIds.has(q.id)) continue;
+        const hasContent = String(q.content ?? '').trim().length > 0;
+        if (strictDedupe && hasContent) {
+          const key = questionContentKey(q);
+          if (usedContentKeys.has(key)) continue;
+          usedContentKeys.add(key);
+        }
+        candidates.push(q);
       }
     };
 
@@ -280,6 +419,20 @@ export async function assemblePracticeRun(
       pushFresh(buildTranslationQuestionsFromCards(studied, block.count, run.language));
     }
 
+    // 2a) 定级考蓝图组卷优先（按组取数；不够的组判分时标 thin）
+    if (examBlueprint && candidates.length < block.count) {
+      const picks = await collectBlueprintItems(
+        repo,
+        userId,
+        run.language,
+        examBlueprint,
+        block.count - candidates.length,
+        usedQuestionIds,
+        usedContentKeys
+      );
+      pushFresh(picks);
+    }
+
     // 2) 题型（+难度）池精选
     if (candidates.length < block.count) {
       const wantedTypes = acceptedDbTypesForBlock(block);
@@ -287,8 +440,7 @@ export async function assemblePracticeRun(
       const typedRes = await repo.getQuestions(userId, fetchLimit, run.language, {
         types: wantedTypes,
         difficulty: block.difficulty,
-      });
-      let pool = isOk(typedRes) ? (typedRes.value ?? []) : [];
+      });      let pool = isOk(typedRes) ? (typedRes.value ?? []) : [];
       // 难度过严 → 放宽难度，保留题型
       if (pool.length < block.count && typeof block.difficulty === 'number') {
         const relaxedRes = await repo.getQuestions(userId, fetchLimit, run.language, {

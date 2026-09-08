@@ -87,6 +87,7 @@ import {
   startPlacementExam as startPlacementExamDomain,
   finishPlacementExam as finishPlacementExamDomain,
   isPlacementRunId as isPlacementRunIdDomain,
+  getPlacementByRunId as getPlacementByRunIdDomain,
   type PlacementExam,
   type PlacementFinishResult,
 } from '../modules/practice/persistence/placement.js';
@@ -524,6 +525,11 @@ export class DrizzleLearnerRepository implements LearnerRepository {
   /** 是否定级考 run（装配难度门豁免判定；同步查询，查不到返回 false）。 */
   public isPlacementRun(runId: string): boolean {
     return isPlacementRunIdDomain(this.deps, runId);
+  }
+
+  /** 按 run 取考试（含冻结蓝图；查不到返回 null）。 */
+  public async getPlacementByRunId(runId: string): Promise<PlacementExam | null> {
+    return getPlacementByRunIdDomain(this.deps, runId);
   }
 
   /** 保存阅读位置（每用户每文档一条 upsert）。实现已下沉 library 域，此处仅委托。 */

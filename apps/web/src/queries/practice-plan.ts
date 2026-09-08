@@ -456,6 +456,19 @@ export interface PlacementFinishInfo {
   accuracy: number;
   graded: number;
   level: PlacementLevel;
+  blueprintVersion?: string;
+  groups?: Array<{
+    key: string;
+    label: string;
+    items: number;
+    distinct: number;
+    graded: number;
+    correct: number;
+    minCorrect: number;
+    thin: boolean;
+    met: boolean;
+  }>;
+  uncoveredGroups?: string[];
 }
 
 function placementError(payload: unknown, fallback: string): Error {
@@ -512,6 +525,13 @@ export function useFinishPlacementMutation(userId = DEFAULT_USER_ID) {
         accuracy: body.accuracy,
         graded: typeof body.graded === 'number' ? body.graded : 0,
         level: body.level ?? 'NOVICE',
+        ...(typeof body.blueprintVersion === 'string' ? { blueprintVersion: body.blueprintVersion } : {}),
+        ...(Array.isArray(body.groups)
+          ? { groups: body.groups as NonNullable<PlacementFinishInfo['groups']> }
+          : {}),
+        ...(Array.isArray(body.uncoveredGroups)
+          ? { uncoveredGroups: (body.uncoveredGroups as unknown[]).map((g) => String(g)) }
+          : {}),
       };
     },
     onSuccess: () => {

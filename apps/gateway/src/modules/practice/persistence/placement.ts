@@ -23,8 +23,15 @@ import {
   finalizePracticePlanRun,
   listPracticeItemAttempts,
   getPracticePlanRun,
+  getPracticeRunItems,
 } from './practice-plan.js';
 import { LEVEL_THRESHOLDS } from '@study-studio/learner-core';
+import {
+  blueprintFor,
+  attributeGroup,
+  type AssessmentBlueprint,
+  type GroupSubscore,
+} from '@study-studio/learner-core';
 
 const LEVEL_SET: LearnerLevel[] = ['NOVICE', 'BEGINNER', 'INTERMEDIATE', 'ADVANCED'];
 const EXAM_MIN_GRADED = LEVEL_THRESHOLDS.examVocabQuestions;
@@ -39,6 +46,10 @@ export interface PlacementExam {
   accuracy?: number | undefined;
   createdAt: string;
   completedAt?: string | undefined;
+  /** 测评蓝图（开考时冻结版本 + 分组；无蓝图的老卷为空） */
+  blueprint?: AssessmentBlueprint | undefined;
+  /** 分项成绩（交卷后写入；覆盖不足的组只报告不判线） */
+  subscores?: GroupSubscore[] | undefined;
 }
 
 interface PlacementExamRow {
@@ -51,6 +62,32 @@ interface PlacementExamRow {
   accuracy: number | null;
   created_at: string;
   completed_at: string | null;
+  blueprint_version: string | null;
+  blueprint_json: string | null;
+  subscores_json: string | null;
+}
+
+function parseBlueprint(row: PlacementExamRow): AssessmentBlueprint | undefined {
+  if (!row.blueprint_json) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(row.blueprint_json);
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const b = parsed as { groups?: unknown; totalItems?: unknown };
+    if (!Array.isArray(b.groups) || typeof b.totalItems !== 'number') return undefined;
+    return parsed as AssessmentBlueprint;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseSubscores(row: PlacementExamRow): GroupSubscore[] | undefined {
+  if (!row.subscores_json) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(row.subscores_json);
+    return Array.isArray(parsed) ? (parsed as GroupSubscore[]) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function toPlacementExam(row: PlacementExamRow): PlacementExam {
@@ -67,6 +104,10 @@ function toPlacementExam(row: PlacementExamRow): PlacementExam {
   };
   if (row.accuracy !== null) exam.accuracy = row.accuracy;
   if (row.completed_at) exam.completedAt = row.completed_at;
+  const blueprint = parseBlueprint(row);
+  if (blueprint) exam.blueprint = blueprint;
+  const subscores = parseSubscores(row);
+  if (subscores) exam.subscores = subscores;
   return exam;
 }
 
@@ -103,7 +144,8 @@ async function currentLevelOf(
       and(eq(learnerLanguageProfiles.userId, userId), eq(learnerLanguageProfiles.language, track))
     )
     .limit(1);
-  return narrowLevel(rows[0]?.learnerLevel) ?? 'BEGINNER';
+  // 无档位行按 NOVICE 计（与画像缺省一致；新人可直接考初级卷）。
+  return narrowLevel(rows[0]?.learnerLevel) ?? 'NOVICE';
 }
 
 /**
@@ -162,18 +204,31 @@ export async function startPlacementExam(
     ];
     const runRes = await startPracticePlanRun(deps, userId, { language: track, blocks });
     if (!isOk(runRes)) return err(runRes.error);
+    // 蓝图冻结：开考时把版本 + 分组写入考试行（组卷与判分都认这一版）。
+    const blueprint = blueprintFor(track, targetLevel);
     const id = generateId('pexam');
     const now = nowIso();
     deps.sqlite
       .query(
         `INSERT INTO placement_exams
-           (id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL)`
+           (id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at,
+            blueprint_version, blueprint_json, subscores_json)
+         VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, ?, ?, NULL)`
       )
-      .run(id, userId, track, targetLevel, runRes.value.id, now);
+      .run(
+        id,
+        userId,
+        track,
+        targetLevel,
+        runRes.value.id,
+        now,
+        blueprint ? blueprint.version : null,
+        blueprint ? JSON.stringify(blueprint) : null
+      );
     const row = deps.sqlite
       .query(
-        `SELECT id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at
+        `SELECT id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at,
+                blueprint_version, blueprint_json, subscores_json
          FROM placement_exams WHERE id = ?`
       )
       .get(id) as PlacementExamRow;
@@ -194,6 +249,33 @@ export interface PlacementFinishResult {
   accuracy: number;
   graded: number;
   level: LearnerLevel;
+  /** 蓝图版本（无蓝图的老卷为空串） */
+  blueprintVersion: string;
+  /** 分项成绩（无蓝图时为空数组，只看总分） */
+  groups: GroupSubscore[];
+  /** 未覆盖到的组 key（题池不够，判线时跳过、仅报告） */
+  uncoveredGroups: string[];
+}
+
+/**
+ * 按 run 查考试（装配链蓝图组卷用；查不到返回 null，不抛）。
+ */
+export async function getPlacementByRunId(
+  deps: RepoDeps,
+  runId: string
+): Promise<PlacementExam | null> {
+  try {
+    const row = deps.sqlite
+      .query(
+        `SELECT id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at,
+                blueprint_version, blueprint_json, subscores_json
+         FROM placement_exams WHERE run_id = ? LIMIT 1`
+      )
+      .get(runId) as PlacementExamRow | null;
+    return row ? toPlacementExam(row) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -209,7 +291,8 @@ export async function finishPlacementExam(
   try {
     const row = deps.sqlite
       .query(
-        `SELECT id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at
+        `SELECT id, user_id, language, target_level, run_id, status, accuracy, created_at, completed_at,
+                blueprint_version, blueprint_json, subscores_json
          FROM placement_exams WHERE id = ? AND user_id = ?`
       )
       .get(examId, userId) as PlacementExamRow | null;
@@ -238,11 +321,57 @@ export async function finishPlacementExam(
     }
     const finRes = await finalizePracticePlanRun(deps, userId, exam.runId);
     if (!isOk(finRes)) return err(finRes.error);
-    const correct = graded.filter((a) => {
-      const g = a.gradingResult as { isCorrect?: unknown } | undefined;
-      return g?.isCorrect === true;
-    }).length;
+    const correctOf = (g: unknown): boolean =>
+      (g as { isCorrect?: unknown } | undefined)?.isCorrect === true;
+    const correct = graded.filter((a) => correctOf(a.gradingResult)).length;
     const accuracy = graded.length > 0 ? correct / graded.length : 0;
+
+    // 分项成绩：attempt(itemId) → run 题目 testedSkillId → 蓝图组。
+    // 组去重题 < 应考题判 thin（判线不强制，仅报告）；0 题组判 uncovered。
+    const blueprint = exam.blueprint;
+    const groups: GroupSubscore[] = [];
+    const uncoveredGroups: string[] = [];
+    if (blueprint) {
+      const itemsRes = await getPracticeRunItems(deps, userId, exam.runId);
+      const skillByItem = new Map<string, string>();
+      if (isOk(itemsRes)) {
+        for (const it of itemsRes.value) {
+          const skill = String(it.question?.testedSkillId ?? '');
+          if (skill) skillByItem.set(it.itemId, skill);
+        }
+      }
+      const seenContent = new Map<string, Set<string>>();
+      for (const it of (isOk(itemsRes) ? itemsRes.value : [])) {
+        const skill = String(it.question?.testedSkillId ?? '');
+        const group = attributeGroup(blueprint, skill);
+        if (!group) continue;
+        const set = seenContent.get(group.key) ?? new Set<string>();
+        set.add(`${String(it.question?.content ?? '')}||${String(it.question?.correctAnswer ?? '')}`);
+        seenContent.set(group.key, set);
+      }
+      for (const group of blueprint.groups) {
+        const distinct = seenContent.get(group.key)?.size ?? 0;
+        const inGroup = graded.filter((a) => {
+          const skill = skillByItem.get(a.itemId);
+          return attributeGroup(blueprint, skill)?.key === group.key;
+        });
+        const hit = inGroup.filter((a) => correctOf(a.gradingResult)).length;
+        const thin = distinct < group.items;
+        if (distinct === 0) uncoveredGroups.push(group.key);
+        const met = !thin && inGroup.length > 0 && hit >= group.minCorrect;
+        groups.push({
+          key: group.key,
+          label: group.label,
+          items: group.items,
+          distinct,
+          graded: inGroup.length,
+          correct: hit,
+          minCorrect: group.minCorrect,
+          thin,
+          met,
+        });
+      }
+    }
 
     let alphabetOk = true;
     if (exam.language !== 'en') {
@@ -256,11 +385,23 @@ export async function finishPlacementExam(
         attempts >= LEVEL_THRESHOLDS.examAlphabetQuestions &&
         (attempts === 0 ? false : hits / attempts >= LEVEL_THRESHOLDS.examPass);
     }
-    const passed = accuracy >= LEVEL_THRESHOLDS.examPass && alphabetOk;
+    // 通过规则：总分线 + 覆盖充足的组全达线 + 字母线（ja/ko）。
+    // thin/未覆盖组只报告不判线（题池浅时不冤枉考生）；无蓝图老卷只看总分。
+    const groupsOk =
+      groups.length === 0 || groups.every((g) => g.thin || g.graded === 0 || g.met);
+    const passed = accuracy >= LEVEL_THRESHOLDS.examPass && groupsOk && alphabetOk;
     const now = nowIso();
     deps.sqlite
-      .query(`UPDATE placement_exams SET status = ?, accuracy = ?, completed_at = ? WHERE id = ?`)
-      .run(passed ? 'passed' : 'failed', accuracy, now, examId);
+      .query(
+        `UPDATE placement_exams SET status = ?, accuracy = ?, completed_at = ?, subscores_json = ? WHERE id = ?`
+      )
+      .run(
+        passed ? 'passed' : 'failed',
+        accuracy,
+        now,
+        groups.length > 0 ? JSON.stringify(groups) : null,
+        examId
+      );
     let level = await currentLevelOf(deps, userId, exam.language);
     if (passed) {
       const written = await setTrackLevel(deps, userId, exam.language, exam.targetLevel);
@@ -271,7 +412,15 @@ export async function finishPlacementExam(
       }
 
     }
-    return ok({ passed, accuracy, graded: graded.length, level });
+    return ok({
+      passed,
+      accuracy,
+      graded: graded.length,
+      level,
+      blueprintVersion: blueprint ? blueprint.version : '',
+      groups,
+      uncoveredGroups,
+    });
   } catch (error) {
     return err(
       translateToBusinessError(error, {
