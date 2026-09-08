@@ -40,6 +40,8 @@ export interface StudyCardItem {
   dueAt?: string;
   /** 讲透时间（M2 学习门；缺省=没讲透，不进练习池 NEW 块） */
   studiedAt?: string;
+  /** 词典来源条目 id（词典收藏卡才有；卡面点词弹窗凭此精确回查） */
+  sourceEntryId?: string;
 }
 
 export interface MistakeNotebookItem {

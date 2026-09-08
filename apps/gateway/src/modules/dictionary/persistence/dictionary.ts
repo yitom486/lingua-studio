@@ -15,7 +15,7 @@ import { localDictionaryEntries, flashcards, dictionarySearchHistory, dictionary
 import type { RepoDeps } from '../../../infrastructure/persistence/repo-context.js';
 import type { TrackLanguage } from '../../../infrastructure/persistence/language.js';
 import { normalizeTrackLanguage } from '../../../infrastructure/persistence/language.js';
-import { recordTermExposure } from './encountered-terms.js';
+import { recordTermExposure, buildTermKey } from './encountered-terms.js';
 
 /**
  * 词典域（由 DrizzleLearnerRepository 搬迁而来，行为不变）。
@@ -561,11 +561,32 @@ export async function collectDictionaryEntry(
           audioUrl: existing.audioUrl ?? undefined,
           tags: JSON.parse(existing.tags) as string[],
           fsrs: JSON.parse(existing.fsrs),
+          ...(existing.sourceEntryId ? { sourceEntryId: existing.sourceEntryId } : {}),
         },
       };
     } else {
       const meanings = JSON.parse(entry.meaningsJson) as string[];
       const reading = entry.reading ?? entry.romanization ?? undefined;
+      // 建卡注入（卡片吃词典）：缓存命中的 AI 例句跟卡走（无缓存不硬凑，讲透卡按需生成）；
+      // tags 位序固定 [类别, 词性, 例句日, 例句中, 来源]，空位填 '' 占位——
+      // 旧收藏卡曾把 sourceLabel 落在 [2] 被前端误渲染为例句，本次一并纠正。
+      let exampleJp = '';
+      let exampleZh = '';
+      try {
+        const termKey = buildTermKey(entry.headword, reading ?? '');
+        const cached = deps.sqlite
+          .query(
+            `SELECT sentence AS sentence, translation AS translation FROM term_examples
+             WHERE language = ? AND term_key = ? ORDER BY rowid LIMIT 1`
+          )
+          .get(entry.language, termKey) as { sentence: string; translation: string } | null;
+        if (cached) {
+          exampleJp = cached.sentence;
+          exampleZh = cached.translation;
+        }
+      } catch {
+        // 例句是 enrichment，失败不挡建卡。
+      }
       const now = nowIso();
       const card: Flashcard = {
         id: generateId('card_dict'),
@@ -574,7 +595,7 @@ export async function collectDictionaryEntry(
         front: entry.headword,
         back: meanings.join('；'),
         phonetic: reading,
-        tags: ['词典生词', entry.partOfSpeech ?? '词汇', entry.sourceLabel],
+        tags: ['词典生词', entry.partOfSpeech ?? '词汇', exampleJp, exampleZh, `词典：${entry.sourceLabel}`],
         fsrs: {
           stability: 1,
           difficulty: 5,
@@ -583,6 +604,7 @@ export async function collectDictionaryEntry(
           dueAt: now,
           state: 'NEW',
         },
+        sourceEntryId: entry.id,
       };
       await deps.db.insert(flashcards).values({
         id: card.id,

@@ -82,6 +82,7 @@ export function useCardsQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
                   : {}),
                 ...(rowStr(fsrs, 'dueAt') ? { dueAt: rowStr(fsrs, 'dueAt') } : {}),
                 ...(rowStr(c, 'studiedAt') ? { studiedAt: rowStr(c, 'studiedAt') } : {}),
+                ...(rowStr(c, 'sourceEntryId') ? { sourceEntryId: rowStr(c, 'sourceEntryId') } : {}),
               };
             });
           }

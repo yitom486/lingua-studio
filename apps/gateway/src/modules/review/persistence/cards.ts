@@ -103,6 +103,7 @@ export async function getDueCards(
         fsrs: JSON.parse(r.fsrs),
       };
       if (r.studiedAt) card.studiedAt = r.studiedAt;
+      if (r.sourceEntryId) card.sourceEntryId = r.sourceEntryId;
       return card;
     });
 

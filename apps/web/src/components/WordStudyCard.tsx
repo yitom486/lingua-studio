@@ -1,10 +1,12 @@
-import { BookPlus, Check, Sparkles, Volume2 } from 'lucide-react';
+import { BookPlus, BookOpen, Check, Sparkles, Volume2 } from 'lucide-react';
+import React, { useState } from 'react';
 import { toast } from 'sonner';
 import { sound, speechStudio, type SupportedLanguage } from '../utils/audio.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useTermExamplesQuery } from '../queries/useLearnerQueries.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
+import { DictionaryEntryDialog } from './DictionaryEntryDialog.js';
 
 export interface StudyEntry {
   id: string;
@@ -44,6 +46,8 @@ export function WordStudyCard({
   onStudyComplete: (entryId: string) => void;
 }) {
   const openTutor = useStudySessionStore((s) => s.openTutor);
+  // 卡面点词弹窗（本文件自包含挂载，不占导航）
+  const [dictOpen, setDictOpen] = useState(false);
   // 例句：网关缓存优先，未命中且已连模型则生成（失败静默隐藏，问 AI 兜底）
   const examples = useTermExamplesQuery(language, entry.headword, {
     ...(entry.reading ? { reading: entry.reading } : {}),
@@ -91,6 +95,20 @@ export function WordStudyCard({
           朗读
         </Button>
         {entry.partOfSpeech && <Badge variant="outline">{entry.partOfSpeech}</Badge>}
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="gap-1.5"
+          onClick={() => {
+            sound.playClick();
+            setDictOpen(true);
+          }}
+          title="看完整词典条目（多来源对照）"
+        >
+          <BookOpen className="h-3.5 w-3.5" />
+          查词典
+        </Button>
       </div>
       <ol className="space-y-1.5">
         {entry.meanings.map((m, i) => (
@@ -156,6 +174,12 @@ export function WordStudyCard({
         </Button>
         <span className="text-[11px] text-stone-400">只收不标的不进练习池——别裸考。</span>
       </div>
+      <DictionaryEntryDialog
+        open={dictOpen}
+        onClose={() => setDictOpen(false)}
+        language={language}
+        query={entry.headword}
+      />
     </div>
   );
 }

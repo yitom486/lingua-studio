@@ -24,6 +24,8 @@ type DictionaryLookupPanelProps = {
   language: 'en' | 'ja' | 'ko';
   title: string;
   helper: string;
+  /** 卡面点词等嵌入场景的预填查询（对话框每次打开带不同词时同步）。 */
+  initialQuery?: string;
 };
 
 /** pronunciation.pitch 安全抽取（label + positions；结构不对返回 null，不抛）。 */
@@ -92,9 +94,17 @@ function groupEntriesBySource(entries: LookupEntry[]): Array<{ source: string; e
  * 可嵌入任意学习工作台的词典入口。它只组合 Query 与领域 Mutation，
  * 不拥有词典、FSRS 或每日统计的业务规则。
  */
-export function DictionaryLookupPanel({ language, title, helper }: DictionaryLookupPanelProps) {
-  const [input, setInput] = useState('');
-  const [query, setQuery] = useState('');
+export function DictionaryLookupPanel({ language, title, helper, initialQuery = '' }: DictionaryLookupPanelProps) {
+  const [input, setInput] = useState(initialQuery);
+  const [query, setQuery] = useState(initialQuery);
+  // 嵌入弹窗带词打开：initialQuery 变化即同步为新查询（面板常驻场景传空串，不干扰）。
+  useEffect(() => {
+    if (initialQuery) {
+      setInput(initialQuery);
+      setQuery(initialQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
   const lookup = useDictionaryLookupQuery(language, query);
   const collect = useCollectDictionaryEntryMutation();
   const markStudied = useMarkCardStudiedMutation();
