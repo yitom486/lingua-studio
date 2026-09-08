@@ -1,6 +1,6 @@
 {
   "name": "@study-studio/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Tauri v2 desktop container for Lingua Studio",
   "scripts": {

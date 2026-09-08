@@ -2,6 +2,15 @@
 
 All notable changes to Lingua Studio are documented here. Release notes are reused by the GitHub Release workflow.
 
+## [0.1.2] - 2026-09-08
+
+### Changed
+
+- fix(desktop): reliably launch packaged gateway
+- feat(shred): 教材拆行入库+四路写回即拆
+- feat(layout): 版式信号接入标题分类
+- feat(structure): mini模型标题分类分流+存档
+
 ## [0.1.1] - 2026-09-08
 
 ### Changed
