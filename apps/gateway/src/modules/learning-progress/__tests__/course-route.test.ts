@@ -26,12 +26,20 @@ describe('course route', () => {
     expect(byId.get('ja-u-kasa')?.status).toBe('locked');
   });
 
-  it('假名练对即计覆盖：5 元音干净 → 元音掌握写档，K 行放行', async () => {
+  it('假名覆盖要“干净且练过两次”：5 元音达标 → 掌握写档，K 行放行', async () => {
     for (const k of ['kana_a', 'kana_i', 'kana_u', 'kana_e', 'kana_o']) {
-      const r = await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
-      expect(isOk(r)).toBe(true);
+      // 答对 1 次不够（reps=1）：仍 available
+      await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
     }
-    const res = await repo.getCourseRoute(userId, 'ja');
+    let res = await repo.getCourseRoute(userId, 'ja');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.units.find((u) => u.unit.id === 'ja-u-vowels')?.status).toBe('available');
+    // 各再答对 1 次（reps=2 且干净）：掌握
+    for (const k of ['kana_a', 'kana_i', 'kana_u', 'kana_e', 'kana_o']) {
+      await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
+    }
+    res = await repo.getCourseRoute(userId, 'ja');
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     const byId = new Map(res.value.units.map((u) => [u.unit.id, u]));
@@ -62,7 +70,27 @@ describe('course route', () => {
     expect(vowels.progress).toBe('1/5');
   });
 
-  it('生词/讲义证据联动：问候掌握开单词线', async () => {
+  it('近期错误只提示复习：资格保留 + needsReview', async () => {
+    for (const k of ['kana_a', 'kana_i', 'kana_u', 'kana_e', 'kana_o']) {
+      await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
+      await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
+    }
+    // 先求值一次落盘掌握
+    const first = await repo.getCourseRoute(userId, 'ja');
+    expect(isOk(first)).toBe(true);
+    if (!isOk(first)) return;
+    expect(first.value.units.find((u) => u.unit.id === 'ja-u-vowels')?.status).toBe('mastered');
+    // 刚犯错一次：资格仍在（库行），但标需复习
+    await repo.recordKanaPractice(userId, 'kana_a', false, 'HIRAGANA');
+    const res = await repo.getCourseRoute(userId, 'ja');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    const vowels = res.value.units.find((u) => u.unit.id === 'ja-u-vowels')!;
+    expect(vowels.status).toBe('mastered');
+    expect(vowels.needsReview).toBe(true);
+  });
+
+  it('生词要“讲透且复习两次”：光点学透不开掌握', async () => {
     for (const e of ['starter_ja_ohayou', 'n5_ja_arigatou', 'n5_ja_sumimasen']) {
       const c = await repo.collectDictionaryEntry(userId, e);
       expect(isOk(c)).toBe(true);
@@ -70,11 +98,28 @@ describe('course route', () => {
       const s = await repo.markCardStudied(userId, c.value.card.id);
       expect(isOk(s)).toBe(true);
     }
-    // 问候要元音前置：先把元音打通
+    // 问候要元音前置：先把元音打通（各 2 次干净）
     for (const k of ['kana_a', 'kana_i', 'kana_u', 'kana_e', 'kana_o']) {
       await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
+      await repo.recordKanaPractice(userId, k, true, 'HIRAGANA');
     }
-    const res = await repo.getCourseRoute(userId, 'ja');
+    let res = await repo.getCourseRoute(userId, 'ja');
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    // 只收+标讲透（reps=0）：问候仍 available
+    expect(res.value.units.find((u) => u.unit.id === 'ja-u-greet')?.status).toBe('available');
+    // 每张卡再复习两次 → 掌握，开单词线
+    const cards = await repo.getDueCards(userId, 50, { language: 'ja' });
+    expect(isOk(cards)).toBe(true);
+    if (!isOk(cards)) return;
+    for (const card of cards.value.filter((c) => c.studiedAt)) {
+      const saved = await repo.saveCard({
+        ...card,
+        fsrs: { ...card.fsrs, reps: 2 },
+      });
+      expect(isOk(saved)).toBe(true);
+    }
+    res = await repo.getCourseRoute(userId, 'ja');
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     const byId = new Map(res.value.units.map((u) => [u.unit.id, u]));

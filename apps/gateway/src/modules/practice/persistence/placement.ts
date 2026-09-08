@@ -29,6 +29,7 @@ import { LEVEL_THRESHOLDS } from '@study-studio/learner-core';
 import {
   blueprintFor,
   attributeGroup,
+  evaluateExamVerdict,
   type AssessmentBlueprint,
   type GroupSubscore,
 } from '@study-studio/learner-core';
@@ -255,6 +256,10 @@ export interface PlacementFinishResult {
   groups: GroupSubscore[];
   /** 未覆盖到的组 key（题池不够，判线时跳过、仅报告） */
   uncoveredGroups: string[];
+  /** 未通过原因（总分/分项/题量/字母，逐条明说） */
+  failReasons: string[];
+  /** 整卷去重题数（机动题重复也可见；KO 等浅池必然偏低） */
+  distinctItems: number;
 }
 
 /**
@@ -295,8 +300,7 @@ export async function finishPlacementExam(
                 blueprint_version, blueprint_json, subscores_json
          FROM placement_exams WHERE id = ? AND user_id = ?`
       )
-      .get(examId, userId) as PlacementExamRow | null;
-    if (!row) {
+      .get(examId, userId) as PlacementExamRow | null;    if (!row) {
       return err(new BusinessError('E_NOT_FOUND', '定级考不存在', 'LEARNER_STATE'));
     }
     const exam = toPlacementExam(row);
@@ -331,6 +335,7 @@ export async function finishPlacementExam(
     const blueprint = exam.blueprint;
     const groups: GroupSubscore[] = [];
     const uncoveredGroups: string[] = [];
+    let distinctItems = 0;
     if (blueprint) {
       const itemsRes = await getPracticeRunItems(deps, userId, exam.runId);
       const skillByItem = new Map<string, string>();
@@ -341,7 +346,9 @@ export async function finishPlacementExam(
         }
       }
       const seenContent = new Map<string, Set<string>>();
+      const seenAll = new Set<string>();
       for (const it of (isOk(itemsRes) ? itemsRes.value : [])) {
+        seenAll.add(`${String(it.question?.content ?? '')}||${String(it.question?.correctAnswer ?? '')}`);
         const skill = String(it.question?.testedSkillId ?? '');
         const group = attributeGroup(blueprint, skill);
         if (!group) continue;
@@ -349,6 +356,7 @@ export async function finishPlacementExam(
         set.add(`${String(it.question?.content ?? '')}||${String(it.question?.correctAnswer ?? '')}`);
         seenContent.set(group.key, set);
       }
+      distinctItems = seenAll.size;
       for (const group of blueprint.groups) {
         const distinct = seenContent.get(group.key)?.size ?? 0;
         const inGroup = graded.filter((a) => {
@@ -386,10 +394,14 @@ export async function finishPlacementExam(
         (attempts === 0 ? false : hits / attempts >= LEVEL_THRESHOLDS.examPass);
     }
     // 通过规则：总分线 + 覆盖充足的组全达线 + 字母线（ja/ko）。
-    // thin/未覆盖组只报告不判线（题池浅时不冤枉考生）；无蓝图老卷只看总分。
-    const groupsOk =
-      groups.length === 0 || groups.every((g) => g.thin || g.graded === 0 || g.met);
-    const passed = accuracy >= LEVEL_THRESHOLDS.examPass && groupsOk && alphabetOk;
+    // 题量不足/未覆盖的组直接阻断晋级（证据不足），不得跳过缩小分母。
+    const verdict = evaluateExamVerdict(
+      accuracy,
+      blueprint ? blueprint.overallPass : LEVEL_THRESHOLDS.examPass,
+      groups,
+      alphabetOk
+    );
+    const passed = verdict.passed;
     const now = nowIso();
     deps.sqlite
       .query(
@@ -420,6 +432,8 @@ export async function finishPlacementExam(
       blueprintVersion: blueprint ? blueprint.version : '',
       groups,
       uncoveredGroups,
+      failReasons: verdict.failReasons,
+      distinctItems,
     });
   } catch (error) {
     return err(

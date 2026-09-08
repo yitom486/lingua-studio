@@ -62,7 +62,11 @@ export function LevelCard() {
           <GraduationCap className="w-4 h-4 text-amber-600" />
           <h3 className="text-sm font-bold">
             {result.passed ? '考过了' : '差一点'} · 正确率 {Math.round(result.accuracy * 100)}%
-            （{result.graded} 道）
+            （{result.graded} 道
+            {typeof result.distinctItems === 'number' && result.distinctItems < result.graded
+              ? `，去重 ${result.distinctItems} 道`
+              : ''}
+            ）
           </h3>
           <span className="flex-1" />
           <Button size="sm" variant="ghost" onClick={() => setResult(null)}>
@@ -104,7 +108,9 @@ export function LevelCard() {
         <p className="text-[11px] text-stone-500">
           {result.passed
             ? `已定为${LEVEL_LABELS[result.level]}。`
-            : '没通过可以重考（新卷重组；题库浅时可能遇到重复题）。'}
+            : result.failReasons?.length
+              ? result.failReasons.join('；')
+              : '没通过可以重考（新卷重组；题库浅时可能遇到重复题）。'}
         </p>
       </section>
     );

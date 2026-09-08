@@ -13,6 +13,8 @@ const EMPTY: UnitEvidence = {
   lessonsDone: [],
   wordsStudied: [],
   examsPassed: [],
+  kanaStale: [],
+  staleSkills: [],
 };
 
 describe('course-units（课程单元与解锁）', () => {
@@ -74,21 +76,46 @@ describe('course-units（课程单元与解锁）', () => {
     expect(byId.get('ja-u-words1')?.status).toBe('available');
   });
 
+  it('讲义学完只开门：无做题证据不开掌握；学完+做对才掌握', () => {
+    const chain = [
+      'ja-u-vowels', 'ja-u-kasa', 'ja-u-tana', 'ja-u-hm', 'ja-u-ryw', 'ja-u-dakuten',
+      'ja-u-greet', 'ja-u-words1', 'ja-u-words2',
+    ];
+    // 只学完讲义：nide 仍 available（进度指去做题）
+    const studiedOnly: UnitEvidence = {
+      ...EMPTY,
+      lessonsDone: ['jp.particle.ni_vs_de'],
+    };
+    const r1 = resolveCourseRoute('ja', studiedOnly, new Set(chain));
+    expect(r1.find((r) => r.unit.id === 'ja-u-lesson-nide')?.status).toBe('available');
+    // 学完 + 3 题 2 对：掌握
+    const proven: UnitEvidence = {
+      ...EMPTY,
+      lessonsDone: ['jp.particle.ni_vs_de'],
+      quizBySkill: { 'jp.particle.ni_vs_de': { attempts: 3, correct: 2 } },
+    };
+    const r2 = resolveCourseRoute('ja', proven, new Set(chain));
+    expect(r2.find((r) => r.unit.id === 'ja-u-lesson-nide')?.status).toBe('mastered');
+  });
+
   it('讲义/测评/做题证据口径（深链级联）', () => {
     const chain = [
       'ja-u-vowels', 'ja-u-kasa', 'ja-u-tana', 'ja-u-hm', 'ja-u-ryw', 'ja-u-dakuten',
       'ja-u-greet', 'ja-u-words1', 'ja-u-lesson-nide', 'ja-u-words2',
     ];
     const evidence: UnitEvidence = {
-      kanaOk: [],
-      quizBySkill: { 'jp.sentence.review': { attempts: 4, correct: 3 } },
+      ...EMPTY,
+      quizBySkill: {
+        'jp.sentence.review': { attempts: 4, correct: 3 },
+        'jp.particle.ni_vs_de': { attempts: 3, correct: 3 },
+      },
       lessonsDone: ['jp.particle.ni_vs_de'],
       wordsStudied: [],
       examsPassed: ['BEGINNER'],
     };
     const route = resolveCourseRoute('ja', evidence, new Set(chain));
     const byId = new Map(route.map((r) => [r.unit.id, r]));
-    // 前置链全齐 + 各自证据（讲义已学/考试已过）→ 级联掌握，tara 开放
+    // nide 学完+做对 → 掌握；exam0 前置齐+考过 → 掌握；tara 开放
     expect(byId.get('ja-u-lesson-nide')?.status).toBe('mastered');
     expect(byId.get('ja-u-exam0')?.status).toBe('mastered');
     expect(byId.get('ja-u-lesson-tara')?.status).toBe('available');
@@ -125,5 +152,29 @@ describe('course-units（课程单元与解锁）', () => {
       expect(kinds.has(u.activity.planKind)).toBe(true);
       expect(u.title.length).toBeGreaterThan(0);
     }
+  });
+
+  it('复习信号与资格分开：掌握保留，近期错误只提示复习', () => {
+    const evidence: UnitEvidence = {
+      ...EMPTY,
+      kanaOk: ['kana_a', 'kana_i', 'kana_u', 'kana_e', 'kana_o'],
+      kanaStale: ['kana_a'],
+      quizBySkill: { 'jp.particle.ni_vs_de': { attempts: 5, correct: 4 } },
+      lessonsDone: ['jp.particle.ni_vs_de'],
+      staleSkills: ['jp.particle.ni_vs_de'],
+    };
+    const route = resolveCourseRoute(
+      'ja',
+      evidence,
+      new Set(['ja-u-vowels', 'ja-u-greet', 'ja-u-words1', 'ja-u-lesson-nide'])
+    );
+    const byId = new Map(route.map((r) => [r.unit.id, r]));
+    // 资格保留
+    expect(byId.get('ja-u-vowels')?.status).toBe('mastered');
+    expect(byId.get('ja-u-lesson-nide')?.status).toBe('mastered');
+    // 但标出需复习（与资格分开显示）
+    expect(byId.get('ja-u-vowels')?.needsReview).toBe(true);
+    expect(byId.get('ja-u-lesson-nide')?.needsReview).toBe(true);
+    expect(byId.get('ja-u-kasa')?.needsReview).toBe(false);
   });
 });

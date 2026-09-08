@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import { isOk } from '@study-studio/shared';
 import { DrizzleLearnerRepository } from '../infrastructure/drizzle-learner-repository.js';
+import { assemblePracticeRun } from '../modules/practice/application/practice-assembly.js';
 
 const UID = 'level_user_01';
 
@@ -110,7 +111,7 @@ describe('placement exam（跳级通道）', () => {
     }
   });
 
-  it('通过：字母达标+卷面≥80%→写档；可重考（挂了能再开）', async () => {
+  it('通过：字母达标+蓝图分项全达线→写档；可重考（挂了能再开）', async () => {
     await setLevel(repo, 'ja', 'NOVICE');
     await kanaGood(repo, 15);
     const started = await repo.startPlacementExam(UID, 'ja', 'BEGINNER');
@@ -125,29 +126,28 @@ describe('placement exam（跳级通道）', () => {
     if (!isOk(incomplete)) expect(incomplete.error.code).toBe('E_EXAM_INCOMPLETE');
     const stillOpen = await repo.getPracticePlanRun(UID, started.value.runId);
     expect(isOk(stillOpen) && stillOpen.value?.status).not.toBe('COMPLETED');
-    // 20 道全对（直接落 graded 尝试，绕开 runner UI）
-    for (let i = 0; i < 20; i++) {
-      repo
-        .getRawDb()
-        .prepare(
-          `INSERT INTO practice_item_attempts
-             (id, run_id, block_id, item_id, status, user_answer, grading_result_json, time_spent_ms, submitted_at, graded_at)
-           VALUES (?, ?, 'b1', ?, 'GRADED', 'x', ?, 1000, ?, ?)`
-        )
-        .run(
-          `lv_att_${i}`,
-          started.value.runId,
-          `lv_item_${i}`,
-          JSON.stringify({ isCorrect: true, score: 1, testedSkillId: 'jp.vocab.review' }),
-          new Date().toISOString(),
-          new Date().toISOString()
-        );
+    // 真组卷（蓝图按组取数）+ 20 道全对经正常提交口
+    const asm = await assemblePracticeRun(repo, UID, started.value.runId);
+    expect(isOk(asm)).toBe(true);
+    if (!isOk(asm)) return;
+    const items = await repo.getPracticeRunItems(UID, started.value.runId);
+    expect(isOk(items)).toBe(true);
+    if (!isOk(items)) return;
+    expect(items.value.length).toBe(20);
+    for (const it of items.value) {
+      const s = await repo.submitPracticeItem(UID, started.value.runId, it.itemId, 'a', {
+        isCorrect: true,
+        score: 1,
+      });
+      expect(isOk(s)).toBe(true);
     }
     const finished = await repo.finishPlacementExam(UID, started.value.exam.id);
     expect(isOk(finished)).toBe(true);
     if (!isOk(finished)) return;
     expect(finished.value.passed).toBe(true);
     expect(finished.value.level).toBe('BEGINNER');
+    expect(finished.value.groups.length).toBe(3);
+    expect(finished.value.failReasons).toEqual([]);
     expect(await levelOf(repo)).toBe('BEGINNER');
   });
 
@@ -156,22 +156,15 @@ describe('placement exam（跳级通道）', () => {
     await kanaGood(repo, 15);
     const started = await repo.startPlacementExam(UID, 'ja', 'BEGINNER');
     if (!isOk(started)) return;
-    for (let i = 0; i < 20; i++) {
-      repo
-        .getRawDb()
-        .prepare(
-          `INSERT INTO practice_item_attempts
-             (id, run_id, block_id, item_id, status, user_answer, grading_result_json, time_spent_ms, submitted_at, graded_at)
-           VALUES (?, ?, 'b1', ?, 'GRADED', 'x', ?, 1000, ?, ?)`
-        )
-        .run(
-          `lv_attf_${i}`,
-          started.value.runId,
-          `lv_itemf_${i}`,
-          JSON.stringify({ isCorrect: i < 2, score: i < 2 ? 1 : 0, testedSkillId: 'jp.vocab.review' }),
-          new Date().toISOString(),
-          new Date().toISOString()
-        );
+    const asm = await assemblePracticeRun(repo, UID, started.value.runId);
+    if (!isOk(asm)) return;
+    const items = await repo.getPracticeRunItems(UID, started.value.runId);
+    if (!isOk(items)) return;
+    for (const it of items.value) {
+      await repo.submitPracticeItem(UID, started.value.runId, it.itemId, 'x', {
+        isCorrect: false,
+        score: 0,
+      });
     }
     const finished = await repo.finishPlacementExam(UID, started.value.exam.id);
     expect(isOk(finished)).toBe(true);
@@ -188,22 +181,15 @@ describe('placement exam（跳级通道）', () => {
     await kanaGood(repo, 15);
     const started = await repo.startPlacementExam(UID, 'ja', 'BEGINNER');
     if (!isOk(started)) return;
-    for (let i = 0; i < 20; i++) {
-      repo
-        .getRawDb()
-        .prepare(
-          `INSERT INTO practice_item_attempts
-             (id, run_id, block_id, item_id, status, user_answer, grading_result_json, time_spent_ms, submitted_at, graded_at)
-           VALUES (?, ?, 'b1', ?, 'GRADED', 'x', ?, 1000, ?, ?)`
-        )
-        .run(
-          `lv_atte_${i}`,
-          started.value.runId,
-          `lv_iteme_${i}`,
-          JSON.stringify({ isCorrect: true, score: 1, testedSkillId: 'jp.vocab.review' }),
-          new Date().toISOString(),
-          new Date().toISOString()
-        );
+    const asm = await assemblePracticeRun(repo, UID, started.value.runId);
+    if (!isOk(asm)) return;
+    const items = await repo.getPracticeRunItems(UID, started.value.runId);
+    if (!isOk(items)) return;
+    for (const it of items.value) {
+      await repo.submitPracticeItem(UID, started.value.runId, it.itemId, 'a', {
+        isCorrect: true,
+        score: 1,
+      });
     }
     const finished = await repo.finishPlacementExam(UID, started.value.exam.id);
     expect(isOk(finished)).toBe(true);

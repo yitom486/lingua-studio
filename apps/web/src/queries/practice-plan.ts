@@ -469,6 +469,8 @@ export interface PlacementFinishInfo {
     met: boolean;
   }>;
   uncoveredGroups?: string[];
+  failReasons?: string[];
+  distinctItems?: number;
 }
 
 function placementError(payload: unknown, fallback: string): Error {
@@ -531,6 +533,12 @@ export function useFinishPlacementMutation(userId = DEFAULT_USER_ID) {
           : {}),
         ...(Array.isArray(body.uncoveredGroups)
           ? { uncoveredGroups: (body.uncoveredGroups as unknown[]).map((g) => String(g)) }
+          : {}),
+        ...(Array.isArray(body.failReasons)
+          ? { failReasons: (body.failReasons as unknown[]).map((g) => String(g)) }
+          : {}),
+        ...(typeof body.distinctItems === 'number'
+          ? { distinctItems: body.distinctItems }
           : {}),
       };
     },

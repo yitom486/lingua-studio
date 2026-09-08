@@ -198,3 +198,39 @@ export interface GroupSubscore {
   thin: boolean;
   met: boolean;
 }
+
+export interface ExamVerdict {
+  passed: boolean;
+  failReasons: string[];
+}
+
+/**
+ * 晋级判定（纯函数）：总分线 + 覆盖充足的组全达线 + 字母线，缺一不可。
+ * 语义铁律：任一必需分项题量不足（thin/未覆盖）→ 证据不足，不可晋级，
+ * 不得跳过该项缩小分母重算通过率。
+ */
+export function evaluateExamVerdict(
+  accuracy: number,
+  overallPass: number,
+  groups: GroupSubscore[],
+  alphabetOk: boolean
+): ExamVerdict {
+  const failReasons: string[] = [];
+  const pct = Math.round(accuracy * 100);
+  if (!(accuracy >= overallPass)) {
+    failReasons.push(`总正确率 ${pct}% 未达 ${Math.round(overallPass * 100)}% 线`);
+  }
+  for (const g of groups) {
+    if (g.distinct === 0) {
+      failReasons.push(`${g.label}无有效题目，证据不足，暂不可晋级`);
+    } else if (g.thin) {
+      failReasons.push(`${g.label}题量不足（${g.distinct}/${g.items}），证据不足，暂不可晋级`);
+    } else if (!g.met) {
+      failReasons.push(`${g.label}未达标（${g.correct}/${g.graded}，线 ${g.minCorrect}）`);
+    }
+  }
+  if (!alphabetOk) {
+    failReasons.push('字母基础未达标（量或正确率不够）');
+  }
+  return { passed: failReasons.length === 0, failReasons };
+}

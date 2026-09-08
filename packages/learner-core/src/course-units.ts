@@ -18,15 +18,18 @@ export const COURSE_STAGES = [
 
 export type CourseUnitKind = 'kana' | 'words' | 'lesson' | 'quiz' | 'exam';
 
-/** 掌握证据规则（网关按现有表组装证据，纯函数只做判定）。 */
+/** 掌握证据规则（网关按现有表组装证据，纯函数只做判定）。
+ * 语义铁律：点击学完/收藏/浏览/活动次数不能直接产生 mastered；
+ * “学过”只开解锁（讲义锁），“掌握”必须有对应作答证据。
+ */
 export type UnitEvidenceRule =
-  /** 假名覆盖：kanaIds 中有干净作答记录（consecutiveErrors===0）的个数达标 */
+  /** 假名覆盖：kanaIds 中“干净且练过两次以上”（errors==0 且 reps≥2）的个数达标 */
   | { type: 'kana-coverage'; kanaIds: string[]; minOk: number }
   /** 专项做题：该技能累计尝试与正确率达标（无提示/有提示不区分，按题计） */
   | { type: 'quiz-skill'; skillId: string; minAttempts: number; minAccuracy: number }
-  /** 讲义学完（学完≠掌握，掌握看该技能后续做题；本规则只开“学过”这道门） */
-  | { type: 'lesson-done'; skillId: string }
-  /** 生词学透：指定词表分组（或显式词 id）中 studied 达标 */
+  /** 讲义学透：先学完讲义（开练习），再在对应技能上做出尝试与正确率 */
+  | { type: 'lesson-plus-quiz'; skillId: string; minAttempts: number; minAccuracy: number }
+  /** 生词学透：指定词表分组（或显式词 id）中“复习过两次以上”的卡达标（光点学透不算） */
   | { type: 'words-studied'; group?: string | undefined; take?: number | undefined; entryIds?: string[] | undefined; minStudied: number }
   /** 阶段测评通过（定级考） */
   | { type: 'exam-pass'; targetLevel: string };
@@ -64,6 +67,10 @@ export interface UnitEvidence {
   wordsStudied: string[];
   /** 已通过的测评目标档 */
   examsPassed: string[];
+  /** 近期有错误的假名 id（复习信号，不降级） */
+  kanaStale: string[];
+  /** 近期连错的技能 id（复习信号，不降级） */
+  staleSkills: string[];
 }
 
 export type UnitStatus = 'locked' | 'available' | 'mastered';
@@ -71,8 +78,10 @@ export type UnitStatus = 'locked' | 'available' | 'mastered';
 export interface UnitRouteItem {
   unit: CourseUnit;
   status: UnitStatus;
-  /** 进度说明（如 3/5；掌握显示“已掌握”） */
+  /** 进度说明（如 3/5；掌握显示“已掌握/已达标”） */
   progress: string;
+  /** 已掌握但近期有错误：资格保留，提示复习（与资格分开显示） */
+  needsReview: boolean;
 }
 
 const V = ['kana_a', 'kana_i', 'kana_u', 'kana_e', 'kana_o'];
@@ -164,9 +173,9 @@ export const COURSE_UNITS: CourseUnit[] = [
   },
   {
     id: 'ja-u-lesson-nide', track: 'ja', stage: 0, order: 35, kind: 'lesson',
-    title: '讲义：で・に', summary: '学完“场所助词”讲义，解锁相关练习。',
+    title: '讲义：で・に', summary: '学完“场所助词”讲义，再做出 3 道相关题，解锁后续。',
     requires: ['ja-u-words1'],
-    evidence: { type: 'lesson-done', skillId: 'jp.particle.ni_vs_de' },
+    evidence: { type: 'lesson-plus-quiz', skillId: 'jp.particle.ni_vs_de', minAttempts: 3, minAccuracy: 0.6 },
     activity: { planKind: 'GRAMMAR', navigateTo: 'QUIZ', skillId: 'jp.particle.ni_vs_de', skillName: '场所助词で・に', targetCount: 1 },
   },
   {
@@ -185,23 +194,23 @@ export const COURSE_UNITS: CourseUnit[] = [
   },
   {
     id: 'ja-u-lesson-tara', track: 'ja', stage: 1, order: 10, kind: 'lesson',
-    title: '讲义：たら条件形', summary: 'N4 第一个条件形，学完解锁变形练习。',
+    title: '讲义：たら条件形', summary: 'N4 第一个条件形：学完讲义再做出变形题。',
     requires: ['ja-u-exam0'],
-    evidence: { type: 'lesson-done', skillId: 'jp.grammar.conditional_tara' },
+    evidence: { type: 'lesson-plus-quiz', skillId: 'jp.grammar.conditional_tara', minAttempts: 3, minAccuracy: 0.6 },
     activity: { planKind: 'GRAMMAR', navigateTo: 'QUIZ', skillId: 'jp.grammar.conditional_tara', skillName: '假定条件たら', targetCount: 1 },
   },
   {
     id: 'ja-u-lesson-kara', track: 'ja', stage: 1, order: 20, kind: 'lesson',
-    title: '讲义：原因から', summary: '“因为…所以…”，学完解锁相关练习。',
+    title: '讲义：原因から', summary: '“因为…所以…”：学完讲义再做出相关题。',
     requires: ['ja-u-exam0'],
-    evidence: { type: 'lesson-done', skillId: 'jp.grammar.reason_kara' },
+    evidence: { type: 'lesson-plus-quiz', skillId: 'jp.grammar.reason_kara', minAttempts: 3, minAccuracy: 0.6 },
     activity: { planKind: 'GRAMMAR', navigateTo: 'QUIZ', skillId: 'jp.grammar.reason_kara', skillName: '原因から', targetCount: 1 },
   },
   {
     id: 'ja-u-keigo', track: 'ja', stage: 1, order: 30, kind: 'lesson',
-    title: '讲义：自我介绍', summary: '三句话介绍自己，学完解锁相关练习。',
+    title: '讲义：自我介绍', summary: '三句话介绍自己：学完讲义再做出相关题。',
     requires: ['ja-u-exam0'],
-    evidence: { type: 'lesson-done', skillId: 'jp.keigo.self_introduction' },
+    evidence: { type: 'lesson-plus-quiz', skillId: 'jp.keigo.self_introduction', minAttempts: 3, minAccuracy: 0.6 },
     activity: { planKind: 'GRAMMAR', navigateTo: 'QUIZ', skillId: 'jp.keigo.self_introduction', skillName: '自我介绍', targetCount: 1 },
   },
   {
@@ -251,9 +260,15 @@ function ruleProgress(
       const done = attempts >= rule.minAttempts && acc >= rule.minAccuracy;
       return { done, text: `${attempts} 题${attempts > 0 ? ` · ${Math.round(acc * 100)}%` : ''}` };
     }
-    case 'lesson-done': {
-      const done = evidence.lessonsDone.includes(rule.skillId);
-      return { done, text: done ? '已学完' : '未学' };
+    case 'lesson-plus-quiz': {
+      if (!evidence.lessonsDone.includes(rule.skillId)) {
+        return { done: false, text: '讲义未学' };
+      }
+      const s = evidence.quizBySkill[rule.skillId];
+      const attempts = s?.attempts ?? 0;
+      const acc = attempts > 0 ? (s?.correct ?? 0) / attempts : 0;
+      const done = attempts >= rule.minAttempts && acc >= rule.minAccuracy;
+      return { done, text: done ? '已学透' : `已学·测验 ${attempts}/${rule.minAttempts} 题` };
     }
     case 'words-studied': {
       const pool = rule.entryIds ?? wordPool ?? [];
@@ -297,14 +312,30 @@ export function resolveCourseRoute(
   }
   return units.map((unit) => {
     if (masteredNow.has(unit.id)) {
-      return { unit, status: 'mastered' as const, progress: mastered.has(unit.id) ? '已掌握' : '已达标' };
+      return {
+        unit,
+        status: 'mastered' as const,
+        progress: mastered.has(unit.id) ? '已掌握' : '已达标',
+        needsReview: unitNeedsReview(unit, evidence),
+      };
     }
     const missing = unit.requires.filter((r) => !masteredNow.has(r)).length;
     if (missing > 0) {
-      return { unit, status: 'locked' as const, progress: `前置 ${unit.requires.length - missing}/${unit.requires.length}` };
+      return { unit, status: 'locked' as const, progress: `前置 ${unit.requires.length - missing}/${unit.requires.length}`, needsReview: false };
     }
-    return { unit, status: 'available' as const, progress: unitProgressText(unit, evidence, resolvedWords) };
+    return { unit, status: 'available' as const, progress: unitProgressText(unit, evidence, resolvedWords), needsReview: false };
   });
+}
+
+/** 复习信号（资格保留，只提示复习）：本单元覆盖的假名/技能近期有错误。 */
+function unitNeedsReview(unit: CourseUnit, evidence: UnitEvidence): boolean {
+  if (unit.evidence.type === 'kana-coverage') {
+    return unit.evidence.kanaIds.some((k) => evidence.kanaStale.includes(k));
+  }
+  if (unit.evidence.type === 'quiz-skill' || unit.evidence.type === 'lesson-plus-quiz') {
+    return evidence.staleSkills.includes(unit.evidence.skillId);
+  }
+  return false;
 }
 
 function resolveWordPool(
