@@ -9,6 +9,7 @@ import {
   usePracticeItemsToCardsMutation,
 } from '../queries/useLearnerQueries.js';
 import { sound } from '../utils/audio.js';
+import { humanizeCollectionTitle } from '../utils/collection-titles.js';
 
 /**
  * 练习队列 → 勾选转入 FSRS（collect 入库 ≠ 自动建卡）
@@ -112,7 +113,7 @@ export function PracticeQueueToCardsPanel() {
                     : 'border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-100/80 dark:hover:bg-stone-800/60'
                 }`}
               >
-                {c.title}
+                {humanizeCollectionTitle(c.title)}
               </button>
             ))}
           </div>

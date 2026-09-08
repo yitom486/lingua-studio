@@ -503,6 +503,7 @@ export function useMarkCardStudiedMutation(userId = DEFAULT_USER_ID) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.WORDLISTS });
     },
     onError: (e) => {
       logger.debug('[useMarkCardStudiedMutation] failed', e);

@@ -437,6 +437,7 @@ export function useCollectDictionaryEntryMutation(userId = DEFAULT_USER_ID) {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CARDS });
       void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DAILY_PLAN });
       void queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.DICTIONARY, 'encountered'] });
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.WORDLISTS });
     },
   });
 }

@@ -10,8 +10,10 @@ import {
   usePushToAnkiMutation,
   useMarkCardStudiedMutation,
   useCardsQuery,
+  useLevelInfoQuery,
   type AnkiPushTts,
 } from '../queries/useLearnerQueries.js';
+import { useWordlistsQuery } from '../queries/wordlists.js';
 import { useTtsStore } from '../stores/useTtsStore.js';
 import { sound } from '../utils/audio.js';
 import { buildPitchGraphSvg } from '@study-studio/learner-core';
@@ -125,6 +127,11 @@ export function DictionaryLookupPanel({ language, title, helper, initialQuery = 
   }, [query, lookup.data]);
   const ankiStatus = useAnkiStatusQuery(true);
   const pushToAnki = usePushToAnkiMutation();
+  // 零基础单词表：入门/初级（或档位未知）才展示；中高级保持纯搜索面板。
+  const { data: levelInfo } = useLevelInfoQuery(undefined, language);
+  const showWordlist =
+    !levelInfo || levelInfo.level === 'NOVICE' || levelInfo.level === 'BEGINNER';
+  const wordlists = useWordlistsQuery(undefined, language);
   // TTS 凭证只存浏览器本地：推送时随请求携带、网关不落盘；未配置则音频留空。
   const customPluginUrl = useTtsStore((s) => s.customPluginUrl);
   const isCustomPluginEnabled = useTtsStore((s) => s.isCustomPluginEnabled);
@@ -262,6 +269,99 @@ export function DictionaryLookupPanel({ language, title, helper, initialQuery = 
               {h.query}
             </button>
           ))}
+        </div>
+      )}
+      {!query && showWordlist && (
+        <div className="mt-3 border-t border-stone-200 pt-3 dark:border-stone-800 space-y-3">
+          <p className="text-[11px] font-bold text-stone-500 dark:text-stone-400">
+            零基础单词表 · 按顺序点词展开学透（收进生词本即计入带路第 3 天）
+          </p>
+          {wordlists.isLoading && <p className="text-xs text-stone-500">单词表加载中…</p>}
+          {(wordlists.data ?? []).map((group) => {
+            const done = group.words.filter(
+              (w) => w.collected || collectedIds.includes(w.entryId)
+            ).length;
+            return (
+              <div key={group.id} className="space-y-1.5">
+                <p className="text-xs font-semibold text-stone-700 dark:text-stone-200">
+                  {group.title}
+                  <span className="ml-2 font-mono text-[10px] text-stone-400">
+                    {done}/{group.words.length} 已收
+                  </span>
+                </p>
+                <p className="text-[11px] text-stone-400">{group.subtitle}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {group.words.map((w) => {
+                    const isCollected = w.collected || collectedIds.includes(w.entryId);
+                    const expanded = studyId === w.entryId;
+                    return (
+                      <div key={w.entryId} className="sm:col-span-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sound.playClick();
+                            setStudyId(expanded ? null : w.entryId);
+                          }}
+                          className={`w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${
+                            expanded
+                              ? 'border-amber-500/60 bg-amber-500/10'
+                              : 'border-stone-200 hover:border-amber-500/50 dark:border-stone-700'
+                          }`}
+                          title="展开学透卡：发音/释义/例句/收藏一条龙"
+                        >
+                          <span className="min-w-0">
+                            <span className="font-serif text-sm font-bold text-stone-900 dark:text-stone-100">
+                              {w.headword}
+                            </span>
+                            {w.reading && (
+                              <span className="ml-2 font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                                {w.reading}
+                              </span>
+                            )}
+                            <span className="ml-2 text-[11px] text-stone-500">
+                              {(w.meanings[0] ?? '').slice(0, 12)}
+                            </span>
+                          </span>
+                          {w.studied ? (
+                            <Badge variant="emerald" className="text-[10px] shrink-0">
+                              已学透
+                            </Badge>
+                          ) : isCollected ? (
+                            <Badge variant="amber" className="text-[10px] shrink-0">
+                              已收
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-stone-400 shrink-0">学透它 →</span>
+                          )}
+                        </button>
+                        {expanded && (
+                          <WordStudyCard
+                            entry={{
+                              id: w.entryId,
+                              headword: w.headword,
+                              ...(w.reading ? { reading: w.reading } : {}),
+                              ...(w.partOfSpeech ? { partOfSpeech: w.partOfSpeech } : {}),
+                              meanings: w.meanings,
+                              sourceLabel: w.sourceLabel,
+                            }}
+                            language={language}
+                            collected={isCollected}
+                            collectPending={collect.isPending}
+                            studyPending={collect.isPending || markStudied.isPending}
+                            onCollect={collectEntry}
+                            onStudyComplete={studyCompleteEntry}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          {(wordlists.data ?? []).length === 0 && !wordlists.isLoading && (
+            <p className="text-xs text-stone-500">单词表暂不可用，直接用上方搜索查词即可。</p>
+          )}
         </div>
       )}
 

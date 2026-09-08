@@ -31,6 +31,7 @@ export const QUERY_KEYS = {
   PRACTICE_TEMPLATES: ['learner', 'practiceTemplates'] as const,
   PRACTICE_RUN: ['learner', 'practiceRun'] as const,
   LESSONS: ['curriculum', 'lessons'] as const,
+  WORDLISTS: ['learner', 'wordlists'] as const,
 };
 
 /**

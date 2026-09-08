@@ -112,6 +112,10 @@ import {
   getTextbookFocus as getTextbookFocusDomain,
   type TextbookFocus,
 } from '../modules/library/persistence/textbook-focus.js';
+import {
+  listWordlists as listWordlistsDomain,
+  type WordlistGroup,
+} from '../modules/dictionary/persistence/wordlists.js';
 import type { StudyGateSnapshot } from '@study-studio/learner-core';
 import {
   previewCard as previewCardDomain,
@@ -457,6 +461,14 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     language: string
   ): Promise<Result<TextbookFocus | null, BusinessError>> {
     return getTextbookFocusDomain(this.deps, userId, language);
+  }
+
+  /** 零基础单词表（含已收/已学透态）。实现已下沉 dictionary 域，此处仅委托。 */
+  public async listWordlists(
+    userId: string,
+    language: string
+  ): Promise<Result<WordlistGroup[], BusinessError>> {
+    return listWordlistsDomain(this.deps, userId, language);
   }
 
   /**

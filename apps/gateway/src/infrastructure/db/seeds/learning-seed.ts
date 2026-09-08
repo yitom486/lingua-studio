@@ -59,64 +59,67 @@ export interface SkillMetricSeed {
 }
 
 /**
- * 官方精选出厂 FSRS 示范卡片（克制保留 2 张初始待学范例，初始复习次数为 0）
+ * 官方精选出厂 FSRS 示范卡片（克制保留 2 张初始待学范例，初始复习次数为 0）。
+ * 零基础第一印象：必须 N5 起步（此前 約束/おかげで 为 N3，新人 Day-1 见到即劝退）。
+ * id 保持稳定（card_01/card_02），老用户存量卡不受影响。
  */
 export const INITIAL_CARD_SEEDS: CardSeed[] = [
   {
     id: 'card_01',
     type: 'VOCAB',
-    front: '約束',
-    phonetic: 'やくそく',
-    back: '约定、诺言、契约',
-    tags: ['JLPT N3', '核心词汇'],
-    exampleJp: '友達と京都に行く約束をしました。',
-    exampleHighlight: '約束',
-    exampleZh: '和朋友约定好了一起去京都。',
+    front: '食べる',
+    phonetic: 'たべる',
+    back: '吃',
+    tags: ['N5', '核心词汇'],
+    exampleJp: 'ごはんを食べます。',
+    exampleHighlight: '食べます',
+    exampleZh: '我吃饭。',
     stability: 1.0,
     reps: 0,
   },
   {
     id: 'card_02',
     type: 'GRAMMAR',
-    front: '～おかげで',
-    phonetic: 'okagede',
-    back: '多亏了… / 幸好… (积极正面结果)',
-    tags: ['N3 核心句型', '接续助词短语'],
-    exampleJp: '先生のおかげで、合格することができました。',
-    exampleHighlight: 'のおかげで',
-    exampleZh: '多亏了老师的教导，我才能顺利合格。',
+    front: '～は～です',
+    phonetic: '',
+    back: '判断句：A 是 B',
+    tags: ['N5', '基本句型'],
+    exampleJp: '私は学生です。',
+    exampleHighlight: 'は',
+    exampleZh: '我是学生。',
     stability: 1.0,
     reps: 0,
   },
 ];
 
 /**
- * 官方精选出厂英语 FSRS 示范卡片（六级/考研核心范例）
+ * 官方精选出厂英语 FSRS 示范卡片（入门可感范例；此前 ambiguity/subtle 为六级/考研词）。
+ * id 保持稳定（card_en_01/card_en_02），老用户存量卡不受影响。
  */
 export const INITIAL_EN_CARD_SEEDS: CardSeed[] = [
   {
     id: 'card_en_01',
     type: 'VOCAB',
-    front: 'ambiguity',
-    phonetic: '/ˌæmbɪˈɡjuːəti/',
-    back: 'n. 模棱两可、歧义、含糊不清',
-    tags: ['考研英语', '核心词汇'],
-    exampleJp: 'There is some ambiguity in the contract regarding the exact delivery deadline.',
-    exampleHighlight: 'ambiguity',
-    exampleZh: '合同中关于确切交货截止日期的条款存在一定歧义。',
+    front: 'water',
+    phonetic: '/ˈwɔːtər/',
+    back: 'n. 水',
+    tags: ['入门', '核心词汇'],
+    exampleJp: 'I drink water every day.',
+    exampleHighlight: 'water',
+    exampleZh: '我每天喝水。',
     stability: 1.0,
     reps: 0,
   },
   {
     id: 'card_en_02',
     type: 'VOCAB',
-    front: 'subtle',
-    phonetic: '/ˈsʌt(ə)l/',
-    back: 'adj. 微妙的、细微的、敏锐的',
-    tags: ['六级高频', '核心形容词'],
-    exampleJp: 'There are subtle differences between the two theories that only experts can identify.',
-    exampleHighlight: 'subtle',
-    exampleZh: '这两种理论之间存在只有专家才能识别的细微差异。',
+    front: 'happy',
+    phonetic: '/ˈhæpi/',
+    back: 'adj. 高兴的',
+    tags: ['入门', '核心形容词'],
+    exampleJp: 'The children are happy today.',
+    exampleHighlight: 'happy',
+    exampleZh: '孩子们今天很高兴。',
     stability: 1.0,
     reps: 0,
   },

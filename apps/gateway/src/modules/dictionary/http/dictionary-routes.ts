@@ -198,6 +198,12 @@ export function createDictionaryRoutes(deps: GatewayDeps) {
     if (isOk(result)) return c.json(result.value);
     return formatBusinessErrorResponse(c, result.error, 'collectDictionaryEntry');
   })
+  // 零基础单词表（开箱词包 + N5 核心，叠加用户已收/已学透态；空包返回空组，UI 显式空态）。
+  .get('/api/wordlists/:userId', async (c) => {
+    const res = await deps.repo.listWordlists(c.req.param('userId'), c.req.query('lang') || 'ja');
+    if (isOk(res)) return c.json(res.value);
+    return formatBusinessErrorResponse(c, res.error);
+  })
   // 相遇词列表（按最近相遇倒序；仪表盘热力与复习选题消费）。
   .get('/api/encountered-terms/:userId', async (c) => {
     const limitRaw = Number(c.req.query('limit') ?? 50);
