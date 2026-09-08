@@ -108,6 +108,10 @@ import {
   listLessonSkills as listLessonSkillsDomain,
   type Lesson,
 } from '../modules/curriculum/persistence/lessons.js';
+import {
+  getTextbookFocus as getTextbookFocusDomain,
+  type TextbookFocus,
+} from '../modules/library/persistence/textbook-focus.js';
 import type { StudyGateSnapshot } from '@study-studio/learner-core';
 import {
   previewCard as previewCardDomain,
@@ -445,6 +449,14 @@ export class DrizzleLearnerRepository implements LearnerRepository {
     skillId: string
   ): Promise<Result<{ skillId: string; completedAt: string }, BusinessError>> {
     return completeLessonDomain(this.deps, userId, skillId);
+  }
+
+  /** 教材焦点（最近读到的教材课次；无记录返回 null）。实现已下沉 library 域，此处仅委托。 */
+  public async getTextbookFocus(
+    userId: string,
+    language: string
+  ): Promise<Result<TextbookFocus | null, BusinessError>> {
+    return getTextbookFocusDomain(this.deps, userId, language);
   }
 
   /**

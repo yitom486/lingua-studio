@@ -45,6 +45,34 @@ describe('daily plan sequencing', () => {
     expect(steps[0]?.navigateTo).toBe('CARDS');
   });
 
+  it('教材焦点：READING 步点名跟读并进教材页；无焦点保持通用', () => {
+    const focused = buildDailyPlanStepTemplates({
+      track: 'ja',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+      alphabetReady: true,
+      textbookFocus: { bookTitle: '标日初上', lessonTitle: '第 3 課', lessonNumber: 3 },
+    });
+    const reading = focused.find((s) => s.kind === 'READING');
+    expect(reading?.title).toContain('标日初上');
+    expect(reading?.title).toContain('第3课');
+    expect(reading?.navigateTo).toBe('TEXTBOOK');
+
+    const generic = buildDailyPlanStepTemplates({
+      track: 'ja',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+      alphabetReady: true,
+    });
+    const reading2 = generic.find((s) => s.kind === 'READING');
+    expect(reading2?.title).toBe('精读一篇');
+    expect(reading2?.navigateTo).toBe('READING');
+  });
+
   it('overlays live stats without changing stored order', () => {
     const templates = buildDailyPlanStepTemplates({
       track: 'ja',

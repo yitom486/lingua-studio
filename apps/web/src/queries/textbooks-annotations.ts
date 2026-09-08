@@ -443,6 +443,58 @@ export interface AppendPdfResult {
   totalLessons: number;
 }
 
+export interface TextbookLessonQuizResult {
+  questions: Array<Record<string, unknown>>;
+  collectionId: string;
+  bookTitle: string;
+  lessonTitle: string;
+}
+
+/**
+ * 本课真出题：POST /api/textbook-quiz/:userId { documentId, lessonId, count }。
+ * 只消费本课 AST 已有语料（自带习题 → 生词 → 对话），无语料如实报错并指路 AI 抽生词；
+ * 题目同步收进练习队列（转卡防线不变），返回给调用方即时开练。
+ */
+export function useTextbookLessonQuizMutation(userId = DEFAULT_USER_ID) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (vars: {
+      documentId: string;
+      lessonId: string;
+      count?: number;
+    }): Promise<TextbookLessonQuizResult> => {
+      const res = await fetch(`${GATEWAY_BASE_URL}/api/textbook-quiz/${encodeURIComponent(userId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(vars),
+      });
+      const payload: unknown = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          typeof payload === 'object' && payload !== null && 'userMessage' in payload
+            ? String((payload as { userMessage: unknown }).userMessage)
+            : `本课出题失败（HTTP ${res.status}）`;
+        throw new Error(msg);
+      }
+      const p = (payload ?? {}) as Record<string, unknown>;
+      return {
+        questions: Array.isArray(p.questions)
+          ? (p.questions as Array<Record<string, unknown>>)
+          : [],
+        collectionId: typeof p.collectionId === 'string' ? p.collectionId : '',
+        bookTitle: typeof p.bookTitle === 'string' ? p.bookTitle : '',
+        lessonTitle: typeof p.lessonTitle === 'string' ? p.lessonTitle : '',
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PRACTICE_COLLECTIONS });
+    },
+    onError: (e) => {
+      logger.debug('[useTextbookLessonQuizMutation] quiz failed', e);
+    },
+  });
+}
+
 /**
  * 接力追加：新页段的课接在已有教材后面（大书分段导入）。
  * lessonNumber 由网关按现有最大值续排；课 id 取自新 AST（时间戳前缀不撞号）。

@@ -21,7 +21,8 @@ export type DailyPlanNavigateTarget =
   | 'MISTAKES'
   | 'PRACTICE_PLAN'
   | 'KANA'
-  | 'HANGUL';
+  | 'HANGUL'
+  | 'TEXTBOOK';
 
 /** P5-E3：练习计划 run 步骤的确定性 id（同一天多次读取/完成状态稳定） */
 export const PRACTICE_PLAN_STEP_ID = 'step_practice_plan';
@@ -63,6 +64,12 @@ export interface DailyPlanSignals {
   dueCardsCount: number;
   unresolvedMistakesCount: number;
   topWeakness?: { skillId: string; name: string } | undefined;
+  /**
+   * 教材焦点（投影仪装配，由网关 reading_positions 推导“学到哪课”）：
+   * 有焦点时 READING 步直接点名“精读《X》第 Y 课”，计划跟着教材走；
+   * 无焦点保持通用精读（零教材用户不受影响）。
+   */
+  textbookFocus?: { bookTitle: string; lessonTitle: string; lessonNumber: number } | undefined;
   /**
    * 字母门：五十音/谚文是否已过关（累计字母尝试≥15；en 恒 true）。
    * 未过关时只排字母跟读（+到期卡/错题），不推精读与自适应难题——
@@ -158,12 +165,16 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
   }
 
   if (!alphabetGate) {
+    const focus = signals.textbookFocus;
     steps.push({
       id: 'step_reading',
       kind: 'READING',
-      title: '精读一篇',
-      summary: '完成一篇阅读理解；划词可直接转入 FSRS 生词本。',
-      navigateTo: 'READING',
+      title: focus ? `精读《${focus.bookTitle}》第${focus.lessonNumber}课` : '精读一篇',
+      summary: focus
+        ? `继续读${focus.lessonTitle}：划词即转生词本；切到下一课后计划自动跟过去。`
+        : '完成一篇阅读理解；划词可直接转入 FSRS 生词本。',
+      // 有焦点进教材页（按阅读位置自动恢复到该课）；无焦点去通用阅读。
+      navigateTo: focus ? 'TEXTBOOK' : 'READING',
       targetCount: 1,
     });
 

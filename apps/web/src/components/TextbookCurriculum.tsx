@@ -29,10 +29,15 @@ import {
   useTextbooksQuery,
   useImportTextbookMutation,
   useEnrichLessonMutation,
+  useTextbookLessonQuizMutation,
+  usePrependQuestionMutation,
   useReadingPositionQuery,
   useSaveReadingPositionMutation,
   useRecordReadingExposuresMutation,
 } from '../queries/useLearnerQueries.js';
+import { useStudySessionStore } from '../stores/useStudySessionStore.js';
+import { toUiQuizType } from '@study-studio/protocol';
+import type { QuizQuestionItem } from '../models/learning.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/badge.js';
@@ -87,6 +92,68 @@ export function TextbookCurriculum({
     filteredBooks[0] ??
     booksList[0];
   const currentLesson = currentBook?.lessons.find((l) => l.id === selectedLessonId) ?? currentBook?.lessons[0];
+
+  // 本课真出题（自包含：mutation + 题库前插 + 切 QUIZ；App 传的旧假跳转仅作无 documentId 防御回退）。
+  const lessonQuiz = useTextbookLessonQuizMutation();
+  const prependQuestion = usePrependQuestionMutation();
+  const setActiveTab = useStudySessionStore((s) => s.setActiveTab);
+  const setQuestionIndex = useStudySessionStore((s) => s.setQuestionIndex);
+  const [quizzing, setQuizzing] = useState(false);
+
+  const toQuizItem = (raw: Record<string, unknown>, category: string): QuizQuestionItem => {
+    const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+    const rawOptions = Array.isArray(raw.options)
+      ? raw.options.map((text: unknown, i: number) => ({
+          key: String.fromCharCode(65 + i),
+          text: str(text),
+        }))
+      : undefined;
+    return {
+      id: str(raw.id),
+      type: toUiQuizType(str(raw.type) || 'MULTIPLE_CHOICE'),
+      category,
+      prompt: str(raw.prompt),
+      content: str(raw.content),
+      ...(rawOptions ? { options: rawOptions } : {}),
+      correctAnswer: str(raw.correctAnswer),
+      explanation: str(raw.explanation),
+      testedSkill: str(raw.testedSkillId),
+    };
+  };
+
+  const startRealLessonQuiz = async (
+    documentId: string | undefined,
+    lessonId: string,
+    lessonTitle: string
+  ) => {
+    if (!documentId) {
+      onStartLessonQuiz(lessonId, lessonTitle);
+      return;
+    }
+    sound.playClick();
+    setQuizzing(true);
+    try {
+      const r = await lessonQuiz.mutateAsync({ documentId, lessonId, count: 5 });
+      if (r.questions.length === 0) {
+        toast.error('本课暂无可用语料出题');
+        return;
+      }
+      const category = `教材专属 · 《${r.bookTitle}》${r.lessonTitle}`;
+      // 逐题前插：倒序插回后正序（首题即第 0 题）。
+      for (let i = r.questions.length - 1; i >= 0; i--) {
+        prependQuestion.mutate(toQuizItem(r.questions[i] ?? {}, category));
+      }
+      setQuestionIndex(0);
+      setActiveTab('QUIZ');
+      sound.playSuccess();
+      toast.success(`已按本课出 ${r.questions.length} 道题（已同步收进练习队列）`);
+    } catch (e) {
+      sound.playMistake();
+      toast.error(e instanceof Error ? e.message : '本课出题失败');
+    } finally {
+      setQuizzing(false);
+    }
+  };
 
   // 断点续读：书就位后，若有保存的课次且合法，切过去（每本书只恢复一次，不跟用户手动选择抢）。
   const { data: savedPosition } = useReadingPositionQuery(currentBook?.documentId);
@@ -417,12 +484,16 @@ export function TextbookCurriculum({
                 <ShimmerButton
                   onClick={() => {
                     sound.playClick();
-                    onStartLessonQuiz(currentLesson.id, currentLesson.title);
+                    void startRealLessonQuiz(
+                      currentBook?.documentId,
+                      currentLesson.id,
+                      currentLesson.title
+                    );
                   }}
                   className="px-4 py-2 text-xs font-semibold flex items-center gap-2 shadow-md shrink-0"
                 >
                   <Zap className="w-3.5 h-3.5" />
-                  <span>启动本课专属自测 (AI 出题)</span>
+                  <span>{quizzing ? '出题中…' : '启动本课专属自测 (按课文出题)'}</span>
                 </ShimmerButton>
               </div>
             </div>
@@ -467,7 +538,9 @@ export function TextbookCurriculum({
               book={currentBook}
               lesson={currentLesson}
               onAddCard={onAddCardFromTextbook}
-              onStartLessonQuiz={onStartLessonQuiz}
+              onStartLessonQuiz={(lessonId, lessonTitle) =>
+                void startRealLessonQuiz(currentBook?.documentId, lessonId, lessonTitle)
+              }
               onAskAiTutor={onAskAiTutor ?? (() => {})}
             />
           )}

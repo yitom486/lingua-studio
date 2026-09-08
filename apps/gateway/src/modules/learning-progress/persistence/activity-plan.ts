@@ -568,6 +568,18 @@ export async function hydrateDailyStudyPlan(
   if (!isOk(progressRes)) return progressRes;
 
   const topWeakness = snapshotRes.value.weaknesses[0];
+  // 教材焦点：最近读到的教材课次（计划 READING 步点名跟读；失败/无记录不挡计划）。
+  // 经 repo 外观调用（跨域走接口，不直引 library 域实现；接口缺实现时保持通用精读）。
+  let textbookFocus: { bookTitle: string; lessonTitle: string; lessonNumber: number } | undefined;
+  try {
+    const focusRes = await deps.repo.getTextbookFocus?.(userId, language);
+    if (focusRes && isOk(focusRes) && focusRes.value) {
+      const f = focusRes.value;
+      textbookFocus = { bookTitle: f.bookTitle, lessonTitle: f.lessonTitle, lessonNumber: f.lessonNumber };
+    }
+  } catch {
+    textbookFocus = undefined;
+  }
   const signals = {
     track: language,
     dailyGoalQuizzes: profile.dailyGoalQuizzes,
@@ -577,6 +589,7 @@ export async function hydrateDailyStudyPlan(
     // 字母门：五十音/谚文累计尝试<15 视为没认完，只排字母跟读，不推精读与难题。
     alphabetReady: alphabetBasicsDoneFromMetrics(snapshotRes.value.allMetrics ?? [], language),
     ...(topWeakness ? { topWeakness: { skillId: topWeakness.id, name: topWeakness.name } } : {}),
+    ...(textbookFocus ? { textbookFocus } : {}),
   };
 
   // P5-E3：练习计划 run 进度信号（活跃 run 或当日完成 run 才存在）

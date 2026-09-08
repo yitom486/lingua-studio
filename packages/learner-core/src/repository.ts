@@ -54,6 +54,19 @@ export interface LearnerRepository {
     userId: string,
     language: string
   ): Promise<Result<StudyGateSnapshot, BusinessError>>;
+  /**
+   * 教材焦点（可选能力：最近读到的教材课次，无记录返回 null）。
+   * DrizzleLearnerRepository 已实现；缺实现时计划保持通用精读。
+   */
+  getTextbookFocus?(
+    userId: string,
+    language: string
+  ): Promise<
+    Result<
+      { documentId: string; bookTitle: string; lessonId: string; lessonTitle: string; lessonNumber: number } | null,
+      BusinessError
+    >
+  >;
 
   // 每日任务打卡与足迹
   getDailyTaskProgress(userId: string, date?: string): Promise<Result<DailyTaskProgress, BusinessError>>;
