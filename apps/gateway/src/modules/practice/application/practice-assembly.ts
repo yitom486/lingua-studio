@@ -224,9 +224,29 @@ async function collectBlueprintItems(
     seenIds.has(q.id) ||
     seenContent.has(questionContentKey(q)) ||
     localContent.has(questionContentKey(q));
+  // 重考轮换：按该目标档已完成场次偏移候选顺序（题池有余量时换题面；
+  // 无余量时同一套，不伪装成平行卷，distinct 可见）。
+  let rotation = 0;
+  try {
+    const row = repo
+      .getRawDb()
+      .query(
+        `SELECT COUNT(*) AS n FROM placement_exams
+         WHERE user_id = ? AND target_level = ? AND status IN ('passed', 'failed')`
+      )
+      .get(userId, blueprint.targetLevel) as { n: number } | null;
+    rotation = row?.n ?? 0;
+  } catch {
+    rotation = 0;
+  }
+  const rotateBy = <T>(arr: T[]): T[] => {
+    if (arr.length === 0 || rotation === 0) return arr;
+    const k = rotation % arr.length;
+    return [...arr.slice(k), ...arr.slice(0, k)];
+  };
   for (const group of blueprint.groups) {
     if (out.length >= need) break;
-    const groupPicks: GeneratedQuestion[] = [];
+    const groupPool: GeneratedQuestion[] = [];
     // 池：按组技能精选
     try {
       const poolRes = await repo.getQuestions(userId, group.items * 4 + 8, language, {
@@ -234,53 +254,51 @@ async function collectBlueprintItems(
       });
       if (isOk(poolRes)) {
         for (const q of (poolRes.value ?? []).map(mapPoolQuestion)) {
-          if (dup(q)) continue;
-          if (groupPicks.some((g) => questionContentKey(g) === questionContentKey(q))) continue;
-          groupPicks.push(q);
-          if (groupPicks.length >= group.items) break;
+          groupPool.push(q);
         }
       }
     } catch {
       // 池失败走模板，不挡整组
     }
     // 模板：逐技能取 generate_quiz 行（审校现货）
-    if (groupPicks.length < group.items) {
-      for (const skill of group.skillIds) {
-        if (groupPicks.length >= group.items) break;
-        try {
-          const tpls = await repo.listContentTemplates({
-            action: 'generate_quiz',
-            language,
-            skillId: skill,
-          });
-          if (!isOk(tpls)) continue;
-          for (const row of tpls.value ?? []) {
-            const raw = (row.payload ?? {}) as { question?: Record<string, unknown> };
-            const base = raw.question;
-            if (!base || typeof base !== 'object') continue;
-            const q = {
-              ...(base as Record<string, unknown>),
-              id: generateId('q_bp'),
-              testedSkillId:
-                typeof base.testedSkillId === 'string' && base.testedSkillId
-                  ? base.testedSkillId
-                  : skill,
-              difficultyTier:
-                typeof base.difficultyTier === 'number'
-                  ? base.difficultyTier
-                  : typeof row.difficulty === 'number'
-                    ? row.difficulty
-                    : 3,
-            } as GeneratedQuestion;
-            if (dup(q)) continue;
-            if (groupPicks.some((g) => questionContentKey(g) === questionContentKey(q))) continue;
-            groupPicks.push(q);
-            if (groupPicks.length >= group.items) break;
-          }
-        } catch {
-          // 单技能模板失败不挡整组
+    for (const skill of group.skillIds) {
+      try {
+        const tpls = await repo.listContentTemplates({
+          action: 'generate_quiz',
+          language,
+          skillId: skill,
+        });
+        if (!isOk(tpls)) continue;
+        for (const row of tpls.value ?? []) {
+          const raw = (row.payload ?? {}) as { question?: Record<string, unknown> };
+          const base = raw.question;
+          if (!base || typeof base !== 'object') continue;
+          groupPool.push({
+            ...(base as Record<string, unknown>),
+            id: generateId('q_bp'),
+            testedSkillId:
+              typeof base.testedSkillId === 'string' && base.testedSkillId
+                ? base.testedSkillId
+                : skill,
+            difficultyTier:
+              typeof base.difficultyTier === 'number'
+                ? base.difficultyTier
+                : typeof row.difficulty === 'number'
+                  ? row.difficulty
+                  : 3,
+          } as GeneratedQuestion);
         }
+      } catch {
+        // 单技能模板失败不挡整组
       }
+    }
+    // 轮换 + 去重后取本组份
+    const groupPicks: GeneratedQuestion[] = [];
+    for (const q of rotateBy(groupPool)) {
+      if (groupPicks.length >= group.items) break;
+      if (dup(q)) continue;
+      if (groupPicks.some((g) => questionContentKey(g) === questionContentKey(q))) continue;
+      groupPicks.push(q);
     }
     for (const q of groupPicks) {
       out.push(q);
