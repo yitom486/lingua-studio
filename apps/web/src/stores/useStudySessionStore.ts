@@ -59,6 +59,10 @@ export interface StudySessionState {
   toggleCommandOpen: () => void;
   setCardFilter: (filter: 'ALL' | 'VOCAB' | 'GRAMMAR' | 'CONFUSION') => void;
   setQuestionIndex: (index: number) => void;
+  /** 复习卡游标（切轨道时由 App 重置；与并行会话的卡面改造同语义） */
+  reviewCardIndex: number;
+  reviewCardFlipped: boolean;
+  resetReviewCardState: () => void;
   openTutor: (ctx?: AiTutorContext | null) => void;
   closeTutor: () => void;
   presentQuiz: (pkg: Omit<PresentedQuizPackage, 'presentedAt'> & { presentedAt?: string }) => void;
@@ -110,6 +114,9 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
   toggleCommandOpen: () => set((state) => ({ isCommandOpen: !state.isCommandOpen })),
   setCardFilter: (cardFilter) => set({ cardFilter }),
   setQuestionIndex: (questionIndex) => set({ questionIndex }),
+  reviewCardIndex: 0,
+  reviewCardFlipped: false,
+  resetReviewCardState: () => set({ reviewCardIndex: 0, reviewCardFlipped: false }),
   openTutor: (tutorContext = null) => {
     const prefs = usePreferencesStore.getState();
     const ctx = tutorContext ?? null;
