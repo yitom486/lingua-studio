@@ -254,6 +254,9 @@ export function initSchema(sqlite: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_local_dictionary_language_headword
       ON local_dictionary_entries(language, headword);
+    -- 课程路线按固定 id 前缀取词组；与 GLOB 前缀查询配套，避免扫描整包词典。
+    CREATE INDEX IF NOT EXISTS idx_local_dictionary_language_id
+      ON local_dictionary_entries(language, id);
 
     CREATE TABLE IF NOT EXISTS dictionary_sources (
       id TEXT PRIMARY KEY,

@@ -46,24 +46,38 @@
   animation: reply-char-bounce 0.9s ease-in-out infinite;
 }
 
-.perspective-1000 {
-  perspective: 1000px;
-}
-
-.transform-style-3d {
-  transform-style: preserve-3d;
-}
-
-.backface-hidden {
-  backface-visibility: hidden;
-}
-
-.rotate-y-180 {
-  transform: rotateY(180deg);
-}
 
 @layer base {
+  html {
+    scrollbar-gutter: stable;
+  }
+
   body {
     font-family: 'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
+}
+
+/* Isolate the 3D rotor inside a fixed, clipped viewport. */
+.fsrs-card-stage {
+  contain: layout;
+  isolation: isolate;
+  overflow-anchor: none;
+}
+
+.fsrs-card-viewport {
+  perspective: 1000px;
+}
+
+.fsrs-card-rotor {
+  transform-style: preserve-3d;
+}
+
+.fsrs-card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.fsrs-card-back {
+  transform: rotateY(180deg);
+  scrollbar-gutter: stable;
 }

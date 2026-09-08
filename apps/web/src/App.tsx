@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react';
 import { motion } from 'framer-motion';
-import { Toaster } from 'sonner';
+import { toast, Toaster } from 'sonner';
 import { DotPattern } from './components/magicui/index.js';
 import { CommandPalette } from './components/CommandPalette.js';
 import { AiTutorDrawer } from './components/AiTutorDrawer.js';
@@ -65,6 +65,7 @@ import {
 } from './queries/useLearnerQueries.js';
 import { sound } from './utils/audio.js';
 import { cn } from './lib/utils.js';
+import { checkForAppUpdate, logUpdaterFailure } from './platform/app-updater.js';
 
 const COACH_WIDTH_MIN = 320;
 const COACH_WIDTH_MAX = 960;
@@ -142,6 +143,30 @@ export function App() {
     }
     return useUserProfileStore.persist.onFinishHydration(run);
   }, [fetchProfile]);
+
+  // 桌面端启动时静默检查 GitHub Releases；仅提示用户确认，不自动打断学习。
+  // updater 只替换应用包，不会覆盖学习库与 Zustand 本地配置。
+  useEffect(() => {
+    let active = true;
+    void checkForAppUpdate()
+      .then((update) => {
+        if (!active || !update) return;
+        toast(`Lingua Studio ${update.version} 已可用`, {
+          description: update.notes || '包含稳定性改进与学习体验优化。',
+          duration: 12_000,
+          action: {
+            label: '立即更新',
+            onClick: () => {
+              void update.install().catch(logUpdaterFailure);
+            },
+          },
+        });
+      })
+      .catch(logUpdaterFailure);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const onCoachResizePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -226,9 +251,9 @@ export function App() {
 
   return (
     <div
-      className={`min-h-screen ${
+      className={`h-[100dvh] ${
         theme === 'dark' ? 'dark bg-[#141312] text-stone-100' : 'bg-[#fbfaf8] text-stone-800'
-      } transition-colors duration-200 flex font-sans relative overflow-x-hidden`}
+      } transition-colors duration-200 flex font-sans relative overflow-hidden`}
     >
       <Toaster position="top-center" richColors />
       <SelectionLookupPopup />
@@ -300,10 +325,11 @@ export function App() {
         onMobileOpenChange={setMobileNavOpen}
       />
 
-      <div className="flex-1 min-w-0 flex flex-col relative z-10">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col relative z-10">
         <AppHeader onOpenMobileNav={() => setMobileNavOpen(true)} />
 
-        <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
+        <main className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col gap-6">
           {shell.copy.interimBanner && (
             <div
               role="status"
@@ -480,6 +506,7 @@ export function App() {
             )}
             </Suspense>
           </ErrorBoundary>
+          </div>
         </main>
         <OnboardingDialog />
         <LessonDialog />

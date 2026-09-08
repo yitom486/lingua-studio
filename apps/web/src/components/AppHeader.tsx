@@ -30,7 +30,7 @@ export function AppHeader({ onOpenMobileNav }: AppHeaderProps) {
   const latencyMs = useGatewayStore((s) => s.latencyMs);
 
   return (
-    <header className="border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
+    <header className="shrink-0 border-b border-stone-200/80 dark:border-stone-800/80 bg-white/85 dark:bg-[#1a1917]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
       <div className="px-4 sm:px-6 h-14 sm:h-15 flex items-center justify-between gap-3">
         {/* 左侧：移动端汉堡菜单 + 品牌标志 + 网关微指示灯 */}
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">

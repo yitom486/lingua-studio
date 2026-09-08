@@ -69,7 +69,12 @@ export function buildAzureSsml(
   const rate = options?.rate;
   // 注意：Azure 对无属性的 <prosody> 空壳直接回 400；无 rate 时不包 prosody。
   // 相对值换算：本系统 1.0=常速 → "+0%"（等价自然语速，直接省略）。
-  let inner = escapeXmlText(text);
+  // 孤立的「わ」在部分日语神经音色中会被错误判读；进入上下文（如「わを」）则正常。
+  // 只对这个已复现的单假名加音素提示，避免改写正常词语的自然发音。
+  let inner =
+    track === 'ja' && text === 'わ'
+      ? `<phoneme alphabet="ipa" ph="w a">${escapeXmlText(text)}</phoneme>`
+      : escapeXmlText(text);
   if (rate !== undefined && Number.isFinite(rate)) {
     const relative = Math.min(400, Math.max(-90, Math.round((rate - 1) * 100)));
     if (relative !== 0) {

@@ -25,7 +25,8 @@
     "withGlobalTauri": true
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,7 +34,19 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/study-studio-gateway"]
+    "externalBin": [
+      "binaries/study-studio-gateway"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3MzZFRDUxQzhFNTU3RDkKUldUWlYrWElVZTAyWjNtMmliS3c0akkvVnhaQ2lXWXJvN0pXOXVJMFFCb1VKS2ZsUGxwTm5wclQK",
+      "endpoints": [
+        "https://github.com/yitom486/lingua-studio/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
-

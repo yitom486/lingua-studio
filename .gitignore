@@ -25,6 +25,9 @@ out/
 # Tauri sidecar 二进制（bun build --compile 产物，体积大，不入库）
 apps/desktop/src-tauri/binaries/
 
+# Tauri updater signing key (private key must never enter the repository)
+.release-secrets/
+
 # Environment and secrets
 .env
 .env.local

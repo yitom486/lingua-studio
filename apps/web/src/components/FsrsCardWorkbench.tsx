@@ -1,5 +1,4 @@
-import React, { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 import type { CardReviewRating } from '@study-studio/protocol';
 import { buildCardContext, renderCard } from '@study-studio/learner-core';
@@ -12,6 +11,7 @@ import { useCardsQuery, useUpdateCardMutation } from '../queries/useLearnerQueri
 import { useCardFormatsQuery } from '../queries/useLearnerQueries.js';
 import { studyCardToSourceEntry, buildReviewCardDoc } from '../lib/review-card.js';
 import { useExportApkgMutation } from '../queries/useLearnerQueries.js';
+import { cn } from '../lib/utils.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
 import { trackToSpeechLang } from '../config/tts-voice-personas.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
@@ -33,8 +33,6 @@ import type { StudyCardItem } from '../models/learning.js';
 export function FsrsCardWorkbench() {
   const { data: cards = [] } = useCardsQuery();
   const updateCard = useUpdateCardMutation();
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
-  const [cardFlipped, setCardFlipped] = useState(false);
   const [apkgOpen, setApkgOpen] = useState(false);
   const exportApkg = useExportApkgMutation();
   const cardFormats = useCardFormatsQuery(true);
@@ -83,9 +81,25 @@ export function FsrsCardWorkbench() {
 
   const cardFilter = useStudySessionStore((s) => s.cardFilter);
   const setCardFilter = useStudySessionStore((s) => s.setCardFilter);
+  const currentCardIndex = useStudySessionStore((s) => s.reviewCardIndex);
+  const setCurrentCardIndex = useStudySessionStore((s) => s.setReviewCardIndex);
+  const cardFlipped = useStudySessionStore((s) => s.reviewCardFlipped);
+  const setCardFlipped = useStudySessionStore((s) => s.setReviewCardFlipped);
 
   const filteredCards = cards.filter((c) => cardFilter === 'ALL' || c.type === cardFilter);
   const activeCard: StudyCardItem | undefined = filteredCards[currentCardIndex] || filteredCards[0];
+
+  useEffect(() => {
+    if (filteredCards.length === 0) {
+      if (currentCardIndex !== 0) setCurrentCardIndex(0);
+      if (cardFlipped) setCardFlipped(false);
+      return;
+    }
+    if (currentCardIndex >= filteredCards.length) {
+      setCurrentCardIndex(0);
+      setCardFlipped(false);
+    }
+  }, [cardFlipped, currentCardIndex, filteredCards.length, setCardFlipped, setCurrentCardIndex]);
 
   // 复习内容区经模板渲染（与工作台预览/导出同链路）；外层徽标/TTS/评分 chrome 不动。
   const renderedReview = useMemo(() => {
@@ -98,16 +112,6 @@ export function FsrsCardWorkbench() {
     };
   }, [activeCard, reviewFormat]);
 
-  const autosizeFrame = (frame: HTMLIFrameElement | null) => {
-    if (!frame) return;
-    try {
-      const doc = frame.contentDocument;
-      if (!doc) return;
-      frame.style.height = `${Math.max(120, doc.documentElement.scrollHeight)}px`;
-    } catch {
-      // 跨源异常不抛（srcDoc 同源，正常走不到这里）
-    }
-  };
 
   const handleCardReview = (rating: CardReviewRating) => {
     sound.playClick();
@@ -133,7 +137,7 @@ export function FsrsCardWorkbench() {
           }
 
           if (currentCardIndex < filteredCards.length - 1) {
-            setCurrentCardIndex((prev) => prev + 1);
+            setCurrentCardIndex(currentCardIndex + 1);
           } else {
             setCurrentCardIndex(0);
           }
@@ -147,11 +151,7 @@ export function FsrsCardWorkbench() {
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex flex-col gap-5 max-w-2xl"
-    >
+    <div className="flex max-w-2xl flex-col gap-5">
       <PlanIntentBanner />
       <PracticeQueueToCardsPanel />
 
@@ -246,17 +246,28 @@ export function FsrsCardWorkbench() {
         <div
           onClick={() => {
             sound.playClick();
-            setCardFlipped((prev) => !prev);
+            setCardFlipped(!cardFlipped);
           }}
-          className="perspective-1000 min-h-[340px] cursor-pointer"
+          className="fsrs-card-stage h-115 cursor-pointer"
         >
-          <motion.div
-            animate={{ rotateY: cardFlipped ? 180 : 0 }}
-            transition={{ duration: 0.45, ease: 'easeOut' }}
-            className="relative w-full h-full min-h-[340px] rounded-3xl p-8 bg-[#faf9f6] dark:bg-[#1a1816] border border-amber-900/10 dark:border-amber-500/15 shadow-sm transform-style-3d flex flex-col justify-between"
-          >
-            {!cardFlipped ? (
-              <div className="flex flex-col justify-between h-full space-y-6">
+          <div className="fsrs-card-viewport relative h-full w-full overflow-hidden rounded-3xl border border-amber-900/10 bg-[#faf9f6] shadow-sm dark:border-amber-500/15 dark:bg-[#1a1816]">
+            <div
+              className="fsrs-card-rotor relative h-full w-full transform-style-3d"
+              style={{
+                transform: `rotateY(${cardFlipped ? 180 : 0}deg)`,
+                transition: 'transform 450ms ease-out',
+                transformOrigin: 'center center',
+                willChange: 'transform',
+              }}
+            >
+              <div
+                aria-hidden={cardFlipped}
+                className={cn(
+                  'fsrs-card-face absolute inset-0 overflow-hidden rounded-3xl p-8',
+                  cardFlipped ? 'pointer-events-none' : 'pointer-events-auto'
+                )}
+              >
+              <div className="flex h-full flex-col justify-between space-y-6">
                 <div className="flex items-center justify-between">
                   <Badge variant="amber">
                     {activeCard.tag} · {activeCard.pos}
@@ -272,9 +283,7 @@ export function FsrsCardWorkbench() {
                       title="卡片正面"
                       sandbox=""
                       srcDoc={renderedReview.frontDoc}
-                      onLoad={(e) => autosizeFrame(e.currentTarget)}
-                      className="w-full rounded-2xl bg-white dark:bg-stone-950"
-                      style={{ height: 180 }}
+                      className="block h-55 w-full shrink-0 rounded-2xl border-0 bg-white dark:bg-stone-950"
                     />
                   ) : (
                     <>
@@ -305,8 +314,15 @@ export function FsrsCardWorkbench() {
                   翻转查看释义
                 </div>
               </div>
-            ) : (
-              <div className="flex flex-col justify-between h-full space-y-4 [transform:rotateY(180deg)]">
+            </div>
+              <div
+                aria-hidden={!cardFlipped}
+                className={cn(
+                  'fsrs-card-face fsrs-card-back absolute inset-0 overflow-y-auto rounded-3xl p-8',
+                  cardFlipped ? 'pointer-events-auto' : 'pointer-events-none'
+                )}
+              >
+              <div className="flex min-h-full flex-col justify-between space-y-4">
                 <div className="space-y-3">
                   <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
                     中文释义与核心考点
@@ -317,9 +333,7 @@ export function FsrsCardWorkbench() {
                       title="卡片背面"
                       sandbox=""
                       srcDoc={renderedReview.backDoc}
-                      onLoad={(e) => autosizeFrame(e.currentTarget)}
-                      className="w-full rounded-2xl bg-white dark:bg-stone-950"
-                      style={{ height: 220 }}
+                      className="block h-55 w-full shrink-0 rounded-2xl border-0 bg-white dark:bg-stone-950"
                     />
                   ) : (
                     <>
@@ -382,10 +396,11 @@ export function FsrsCardWorkbench() {
                   </Button>
                 </div>
               </div>
-            )}
-          </motion.div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
-    </motion.div>
+    </div>
   );
 }

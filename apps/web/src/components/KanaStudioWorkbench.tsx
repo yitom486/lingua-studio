@@ -30,6 +30,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from './ui/dialog.js';
+import { KanaMemoryGuideDialog } from './ja/kana/KanaMemoryGuideDialog.js';
+import { KanaRowGuideDialog } from './ja/kana/KanaRowGuideDialog.js';
+import { getKanaCardHighlight, KanaRowLabel } from './ja/kana/KanaRowLabel.js';
 import {
   useCurriculumKanaQuery,
   useAdaptiveKanaQueueQuery,
@@ -39,7 +42,7 @@ import {
   type KanaWordItem,
 } from '../queries/useLearnerQueries.js';
 import { romajiToKana, toHiragana } from '../lib/kana-input.js';
-import { confusionDistractors } from '../lib/kana-confusion.js';
+import { confusionDistractorItems, confusionDistractors } from '../lib/kana-confusion.js';
 import { buildKanaTutorContext } from '../lib/kana-tutor.js';
 import type { KanaItem } from '@study-studio/protocol';
 import type { AiTutorContext } from './AiTutorDrawer.js';
@@ -53,6 +56,16 @@ type ScriptDisplayMode = 'HIRAGANA' | 'KATAKANA' | 'BOTH';
 type DrillMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA' | 'WORD_DICTATION' | 'WORD_MEANING' | 'MIXED';
 type RecognitionMode = 'AUDIO_TO_KANA' | 'KANA_TO_ROMAJI' | 'HIRA_TO_KATA';
 const RECOGNITION_MODES: RecognitionMode[] = ['AUDIO_TO_KANA', 'KANA_TO_ROMAJI', 'HIRA_TO_KATA'];
+
+/** 五十音矩阵的列不是“有几个就排几个”，而是固定对应五个元音段位。 */
+const KANA_COLUMN_CLASSES: Record<string, string> = {
+  あ段: 'col-start-1',
+  い段: 'col-start-2',
+  う段: 'col-start-3',
+  え段: 'col-start-4',
+  お段: 'col-start-5',
+};
+
 /** 题量档（0 = 全部）。 */
 
 /** 按读音猜书写体（回写画像用；混合书写回退 HIRAGANA）。 */
@@ -72,6 +85,11 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const [showRomaji, setShowRomaji] = useState(true);
   const [activeKana, setActiveKana] = useState<KanaItem | null>(null);
   const [isKanaGuideOpen, setIsKanaGuideOpen] = useState(false);
+  const [isMemoryGuideOpen, setIsMemoryGuideOpen] = useState(false);
+  const [activeRowGuide, setActiveRowGuide] = useState<{
+    rowName: string;
+    items: readonly KanaItem[];
+  } | null>(null);
 
   // 自测考核模式状态
   const [isDrillActive, setIsDrillActive] = useState(false);
@@ -169,6 +187,11 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     setIsKanaGuideOpen(true);
   };
 
+  const handleOpenRowGuide = (rowName: string, items: readonly KanaItem[]) => {
+    sound.playClick();
+    setActiveRowGuide({ rowName, items });
+  };
+
   // 自适应题池跟随矩阵范围；每轮由 Gateway 按逐项 FSRS 状态冻结，0 = 范围内全部。
   const adaptiveKanaTypes = useMemo<readonly string[]>(() => {
     if (matrixTab === 'SEION') return ['SEION', 'SPECIAL'];
@@ -198,7 +221,7 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
   const activeMode: DrillMode =
     drillMode === 'MIXED' ? (mixedPlan[drillIndex] ?? 'AUDIO_TO_KANA') : drillMode;
 
-  // 生成选项（混淆优先：同行/同首字/浊音/同段，不足再随机补齐）
+  // 生成选项：保留一个有价值的近邻，其余跨行/跨段随机补齐。
   const drillOptions = useMemo(() => {
     if (!currentDrillKana || drillItems.length === 0) return [];
 
@@ -212,12 +235,29 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
     }
 
     const pool = filteredKanaList.length >= 4 ? filteredKanaList : allKana.length > 0 ? allKana : drillItems;
-    const distractors = confusionDistractors(
+    const distractorScript = activeMode === 'HIRA_TO_KATA' || scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA';
+    const distractorItems = confusionDistractorItems(
       currentDrillKana,
       pool,
-      scriptMode === 'KATAKANA' ? 'KATAKANA' : 'HIRAGANA',
-      3
+      distractorScript,
+      activeMode === 'KANA_TO_ROMAJI' ? 6 : 3
     );
+    const distractors =
+      activeMode === 'KANA_TO_ROMAJI'
+        ? (() => {
+            const seen = new Set([correctAnswer]);
+            const values: string[] = [];
+            for (const item of distractorItems) {
+              if (seen.has(item.romaji)) continue;
+              seen.add(item.romaji);
+              values.push(item.romaji);
+              if (values.length === 3) break;
+            }
+            return values;
+          })()
+        : distractorItems.map((item) =>
+            distractorScript === 'KATAKANA' ? item.katakana : item.hiragana
+          );
 
     return [correctAnswer, ...distractors].sort(() => 0.5 - Math.random());
   }, [currentDrillKana, drillItems, allKana, filteredKanaList, activeMode, scriptMode]);
@@ -500,6 +540,20 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
               className="text-xs gap-1.5"
             >
               <span>罗马字: {showRomaji ? '开' : '关'}</span>
+            </Button>
+
+            <Button
+              variant="amber"
+              size="sm"
+              onClick={() => {
+                sound.playClick();
+                setIsMemoryGuideOpen(true);
+              }}
+              className="gap-1.5 text-xs shadow-sm"
+              aria-label="打开五十音记忆法"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              <span>五十音记忆法</span>
             </Button>
 
             {/* 自测模式切换 */}
@@ -1008,20 +1062,24 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                 {groupedByRow.map(({ rowName, items }) => (
                 <div
                   key={rowName}
-                  className="bg-[#faf9f6] dark:bg-[#1a1816] rounded-2xl p-3.5 sm:p-4 border border-amber-900/10 dark:border-amber-500/10 flex flex-col sm:flex-row sm:items-center gap-3"
+                  className="grid grid-cols-1 gap-3 rounded-2xl border border-amber-900/10 bg-[#faf9f6] p-3.5 dark:border-amber-500/10 dark:bg-[#1a1816] sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:items-stretch sm:p-4"
                 >
-                  <div className="w-16 shrink-0 font-serif font-bold text-xs sm:text-sm text-stone-500 dark:text-stone-400 border-b sm:border-b-0 sm:border-r border-stone-200 dark:border-stone-800 pb-1 sm:pb-0 sm:pr-3">
-                    {rowName}
-                  </div>
+                  <KanaRowLabel
+                    rowName={rowName}
+                    items={items}
+                    scriptMode={scriptMode}
+                    onOpen={() => handleOpenRowGuide(rowName, items)}
+                  />
 
-                  <div className="flex-1 grid grid-cols-5 gap-2 sm:gap-3">
+                  <div className="grid min-w-0 grid-cols-5 gap-2 sm:gap-3">
                     {items.map((kana) => {
                       const isActive = activeKana?.id === kana.id;
+                      const cardHighlight = getKanaCardHighlight(kana);
                       return (
                         <div
                           key={kana.id}
                           onClick={() => handleSelectKana(kana)}
-                          className={`group relative p-2.5 sm:p-3.5 rounded-xl border transition-all cursor-pointer select-none flex flex-col items-center justify-center gap-1 ${
+                          className={`group relative ${KANA_COLUMN_CLASSES[kana.col] ?? ''} flex flex-col items-center justify-center gap-1 rounded-xl border p-2.5 transition-all cursor-pointer select-none sm:p-3.5 ${
                             isActive
                               ? 'bg-amber-500/15 border-amber-500 shadow-sm'
                               : 'bg-white dark:bg-stone-800/80 border-stone-200/80 dark:border-stone-700/80 hover:border-amber-500/50 hover:shadow-sm'
@@ -1046,6 +1104,15 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
                             <div className="text-[11px] font-mono text-stone-400 group-hover:text-amber-600 dark:group-hover:text-amber-400">
                               {kana.romaji}
                             </div>
+                          )}
+
+                          {cardHighlight && (
+                            <Badge
+                              variant="amber"
+                              className="max-w-full truncate px-1.5 py-0 text-[9px] leading-4"
+                            >
+                              {cardHighlight}
+                            </Badge>
                           )}
 
                           <Button
@@ -1109,6 +1176,23 @@ export function KanaStudioWorkbench({ onOpenTutor }: KanaStudioWorkbenchProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <KanaMemoryGuideDialog
+        open={isMemoryGuideOpen}
+        onOpenChange={setIsMemoryGuideOpen}
+      />
+
+      {activeRowGuide && (
+        <KanaRowGuideDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setActiveRowGuide(null);
+          }}
+          rowName={activeRowGuide.rowName}
+          items={activeRowGuide.items}
+          scriptMode={scriptMode}
+        />
+      )}
 
       <Dialog
         open={isKanaGuideOpen && Boolean(activeKana)}

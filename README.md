@@ -43,7 +43,20 @@ bun run dev:desktop   # Tauri 桌面壳（自动拉起 Gateway sidecar）
 bun run typecheck   # 全仓严格类型检查（tsc -b），提交前必须零报错
 bun test            # 全量单测（bunfig.toml 已忽略 dist 编译产物，只跑源码）
 bun --filter @study-studio/web build   # Web 生产构建
+bun run build:sidecar                  # 编译 Tauri Gateway sidecar
+bun run release:sync -- 0.1.0          # 同步所有包、Tauri、Cargo 与 Changelog 版本
+bun run release -- 0.1.0               # 校验、提交、打 tag 并推送，触发 GitHub 多平台发布
 ```
+
+## 发布与自动更新
+
+发布版本使用统一的 SemVer。`bun run release -- 0.1.0` 会先运行 `typecheck` 与 `test`，再同步根包、工作区包、Tauri 配置、Cargo manifest/lock 和 `CHANGELOG.md`，最后创建 `v0.1.0` 标签并推送到 `origin`。标签会触发 `.github/workflows/release.yml`，并为 Windows x64、Linux x64、macOS Intel 和 Apple Silicon 构建安装包及 Tauri updater artifact。
+
+自动更新使用 GitHub Releases 的签名 updater。首次配置时生成 Tauri signing key，将公钥内容写入
+`apps/desktop/src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`，并把私钥配置为 GitHub Actions secret：
+`TAURI_SIGNING_PRIVATE_KEY`（如有密码，再配置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`）。私钥只保存在本机的 `.release-secrets/` 或 GitHub secret 中，绝不提交到仓库。
+
+桌面端启动时会静默检查更新并提示用户确认安装，设置页也提供手动检查入口。更新只替换应用包；Gateway SQLite 数据库位于系统应用数据目录，Zustand 偏好位于浏览器/Tauri 本地存储，均不会因升级被覆盖。数据库迁移遵循加法兼容策略，发布前仍建议使用设置页备份学习数据库。
 
 ## 环境变量
 

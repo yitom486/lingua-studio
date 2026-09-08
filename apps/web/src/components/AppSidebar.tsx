@@ -222,7 +222,7 @@ function SidebarBody({
   return (
     <aside
       className={cn(
-        'flex flex-col border-r border-stone-200/80 dark:border-stone-800 bg-white/90 dark:bg-[#1a1917]/95 backdrop-blur-md h-full',
+        'flex flex-col min-h-0 border-r border-stone-200/80 dark:border-stone-800 bg-white/90 dark:bg-[#1a1917]/95 backdrop-blur-md h-full',
         collapsed ? 'w-[4.25rem]' : 'w-[16.5rem]',
         'transition-[width] duration-200'
       )}
@@ -422,7 +422,7 @@ export function AppSidebar({
 
   return (
     <>
-      <div className="hidden md:flex h-[100dvh] sticky top-0 z-30 shrink-0">
+      <div className="hidden md:flex h-full sticky top-0 z-30 shrink-0">
         <SidebarBody
           collapsed={collapsed}
           quizProgress={quizProgress}

@@ -205,6 +205,21 @@ describe('azure speech helpers', () => {
     expect(custom).not.toContain('prosody');
   });
 
+  it('adds an IPA hint for isolated hiragana わ', () => {
+    const isolated = buildAzureSsml('わ', { trackLanguage: 'ja' });
+    expect(isolated).toContain('<phoneme alphabet="ipa" ph="w a">わ</phoneme>');
+
+    const contextual = buildAzureSsml('わを', { trackLanguage: 'ja' });
+    expect(contextual).toContain('<voice name="ja-JP-NanamiNeural">わを</voice>');
+    expect(contextual).not.toContain('phoneme');
+  });
+
+  it('keeps ordinary Japanese text unchanged', () => {
+    const ssml = buildAzureSsml('こんにちは', { trackLanguage: 'ja' });
+    expect(ssml).toContain('<voice name="ja-JP-NanamiNeural">こんにちは</voice>');
+    expect(ssml).not.toContain('phoneme');
+  });
+
   it('matches byte-for-byte the SSML verified against live Azure (japaneast)', () => {
     // 2026-09-06 实测：该 exact 请求经网关代理返回 10800 字节 audio/mpeg；
     // 无属性 <prosody> 空壳会被 Azure 回 400 空 body（已修，见下）。

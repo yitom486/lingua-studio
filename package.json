@@ -1,5 +1,6 @@
 {
   "name": "study-studio-monorepo",
+  "version": "0.1.0",
   "private": true,
   "workspaces": [
     "apps/*",
@@ -10,8 +11,12 @@
     "dev:gateway": "bun --filter @study-studio/gateway dev",
     "dev:desktop": "bun --filter @study-studio/desktop dev",
     "build": "bun --filter \"*\" build",
+    "build:sidecar": "bun run --filter @study-studio/gateway sidecar:build",
     "typecheck": "tsc -b --force",
-    "test": "bun test"
+    "test": "bun test",
+    "release:sync": "bun scripts/release.ts sync",
+    "release:notes": "bun scripts/release.ts notes",
+    "release": "bun scripts/release.ts publish"
   },
   "devDependencies": {
     "@types/bun": "^1.4.0",

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { GeneratedQuestion } from '@study-studio/protocol';
 import type { DailyPlanStepKind } from '@study-studio/learner-core';
 import type { AiTutorContext } from './tutor-context.js';
@@ -45,6 +46,8 @@ export interface StudySessionState {
   isCommandOpen: boolean;
   cardFilter: 'ALL' | 'VOCAB' | 'GRAMMAR' | 'CONFUSION';
   questionIndex: number;
+  reviewCardIndex: number;
+  reviewCardFlipped: boolean;
   isTutorOpen: boolean;
   /** free=自由教练；question=题目追问抽屉 */
   tutorSurface: TutorSurface;
@@ -59,9 +62,8 @@ export interface StudySessionState {
   toggleCommandOpen: () => void;
   setCardFilter: (filter: 'ALL' | 'VOCAB' | 'GRAMMAR' | 'CONFUSION') => void;
   setQuestionIndex: (index: number) => void;
-  /** 复习卡游标（切轨道时由 App 重置；与并行会话的卡面改造同语义） */
-  reviewCardIndex: number;
-  reviewCardFlipped: boolean;
+  setReviewCardIndex: (index: number) => void;
+  setReviewCardFlipped: (flipped: boolean) => void;
   resetReviewCardState: () => void;
   openTutor: (ctx?: AiTutorContext | null) => void;
   closeTutor: () => void;
@@ -98,11 +100,15 @@ function snapshotTutorContext(ctx: AiTutorContext) {
   };
 }
 
-export const useStudySessionStore = create<StudySessionState>((set, get) => ({
+export const useStudySessionStore = create<StudySessionState>()(
+  persist(
+    (set, get) => ({
   activeTab: 'TODAY',
   isCommandOpen: false,
   cardFilter: 'ALL',
   questionIndex: 0,
+  reviewCardIndex: 0,
+  reviewCardFlipped: false,
   isTutorOpen: false,
   tutorSurface: 'free',
   tutorContext: null,
@@ -114,8 +120,8 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
   toggleCommandOpen: () => set((state) => ({ isCommandOpen: !state.isCommandOpen })),
   setCardFilter: (cardFilter) => set({ cardFilter }),
   setQuestionIndex: (questionIndex) => set({ questionIndex }),
-  reviewCardIndex: 0,
-  reviewCardFlipped: false,
+  setReviewCardIndex: (reviewCardIndex) => set({ reviewCardIndex }),
+  setReviewCardFlipped: (reviewCardFlipped) => set({ reviewCardFlipped }),
   resetReviewCardState: () => set({ reviewCardIndex: 0, reviewCardFlipped: false }),
   openTutor: (tutorContext = null) => {
     const prefs = usePreferencesStore.getState();
@@ -176,4 +182,17 @@ export const useStudySessionStore = create<StudySessionState>((set, get) => ({
       set({ activeTab: target as NavigationTab });
     }
   },
-}));
+    }),
+    {
+      name: 'lingua_studio_session',
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (state) => ({
+        activeTab: state.activeTab,
+        cardFilter: state.cardFilter,
+        questionIndex: state.questionIndex,
+        reviewCardIndex: state.reviewCardIndex,
+        reviewCardFlipped: state.reviewCardFlipped,
+      }),
+    }
+  )
+);

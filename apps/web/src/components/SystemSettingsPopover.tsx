@@ -15,6 +15,7 @@ import {
   LoaderCircle,
   DatabaseBackup,
   Plug,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { GATEWAY_BASE_URL } from '../lib/api-client.js';
@@ -54,6 +55,7 @@ import { useGatewayStore } from '../stores/useGatewayStore.js';
 import { AnkiTemplateWorkbench } from './AnkiTemplateWorkbench.js';
 import { getPlatform } from '../platform/capabilities.js';
 import { backupDesktopDatabase } from '../platform/tauri-capabilities.js';
+import { checkForAppUpdate } from '../platform/app-updater.js';
 
 export function SystemSettingsPopover() {
   const [open, setOpen] = useState(false);
@@ -127,6 +129,7 @@ export function SystemSettingsPopover() {
   // P4-B：桌面端专属（Web 端不渲染）。getPlatform 在 Tauri WebView 内返回桌面实现。
   const [isDesktop, setIsDesktop] = useState(false);
   const [backupPending, setBackupPending] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
   useEffect(() => {
     try {
       setIsDesktop(getPlatform().isDesktop());
@@ -448,6 +451,35 @@ export function SystemSettingsPopover() {
     }
   };
 
+  const handleCheckForUpdate = async () => {
+    if (updateChecking) return;
+    sound.playClick();
+    setUpdateChecking(true);
+    try {
+      const update = await checkForAppUpdate();
+      if (!update) {
+        toast.success('当前已是最新版本');
+        return;
+      }
+      toast(`Lingua Studio ${update.version} 已可用`, {
+        description: update.notes || '包含稳定性改进与学习体验优化。',
+        duration: 12_000,
+        action: {
+          label: '立即更新',
+          onClick: () => {
+            void update.install().catch(() => {
+              toast.error('更新安装失败，当前版本仍可继续使用。');
+            });
+          },
+        },
+      });
+    } catch {
+      toast.error('暂时无法检查更新，请稍后再试。');
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -470,10 +502,10 @@ export function SystemSettingsPopover() {
 
       <PopoverContent
         align="end"
-        className="w-80 p-0 border border-stone-200/90 dark:border-stone-800/90 shadow-xl rounded-2xl bg-white/95 dark:bg-[#1a1917]/95 backdrop-blur-md overflow-hidden z-50"
+        className="w-80 max-h-[calc(100dvh-2rem)] p-0 flex flex-col border border-stone-200/90 dark:border-stone-800/90 shadow-xl rounded-2xl bg-white/95 dark:bg-[#1a1917]/95 backdrop-blur-md overflow-hidden z-50"
       >
         {/* Header */}
-        <div className="px-4 py-3 border-b border-stone-100 dark:border-stone-800/80 flex items-center justify-between">
+        <div className="shrink-0 px-4 py-3 border-b border-stone-100 dark:border-stone-800/80 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-amber-500" />
             <h4 className="font-semibold text-xs text-stone-800 dark:text-stone-200">
@@ -496,7 +528,7 @@ export function SystemSettingsPopover() {
           </div>
         </div>
 
-        <div className="p-4 space-y-4 text-xs">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-4 text-xs">
           {/* 1. TTS 语音设置 */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
@@ -1133,6 +1165,17 @@ export function SystemSettingsPopover() {
                       <Download className="h-3 w-3" />
                     )}
                     备份学习数据库
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="mt-2 ml-1 h-7 gap-1 px-2 text-[11px]"
+                    disabled={updateChecking}
+                    onClick={() => void handleCheckForUpdate()}
+                  >
+                    <RefreshCw className={updateChecking ? 'h-3 w-3 animate-spin' : 'h-3 w-3'} />
+                    检查更新
                   </Button>
                 </div>
               </div>

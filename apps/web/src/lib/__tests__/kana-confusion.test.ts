@@ -27,11 +27,12 @@ const POOL: KanaItem[] = [
 ];
 
 describe('voicingVariants', () => {
-  it('produces dakuten/handakuten counterparts within kana blocks', () => {
-    expect(voicingVariants('は')).toContain('ば');
-    expect(voicingVariants('は')).toContain('ぱ');
+  it('produces real dakuten/handakuten counterparts only', () => {
+    expect(voicingVariants('は')).toEqual(expect.arrayContaining(['ば', 'ぱ']));
     expect(voicingVariants('し')).toContain('じ');
-    expect(voicingVariants('ア')).toContain('ァ');
+    expect(voicingVariants('シ')).toContain('ジ');
+    expect(voicingVariants('い')).toEqual([]);
+    expect(voicingVariants('ア')).toEqual([]);
   });
 
   it('returns empty for non-kana', () => {
@@ -41,12 +42,18 @@ describe('voicingVariants', () => {
 });
 
 describe('confusionDistractors', () => {
-  it('prefers same-row items (しゅ → しゃ/しょ)', () => {
+  it('keeps one useful neighbor while mixing same-column and cross-row options', () => {
     const target = POOL.find((k) => k.id === 'k_shu')!;
-    const got = confusionDistractors(target, POOL, 'HIRAGANA', 3);
-    expect(got).not.toContain('しゅ');
-    expect(got.slice(0, 2)).toEqual(expect.arrayContaining(['しゃ', 'しょ']));
-    expect(got.length).toBe(3);
+    const usefulNeighbors = new Set(['しゃ', 'しょ', 'し']);
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const got = confusionDistractors(target, POOL, 'HIRAGANA', 3);
+      expect(got).not.toContain('しゅ');
+      expect(got.length).toBe(3);
+      expect(got.filter((face) => usefulNeighbors.has(face))).toHaveLength(1);
+      expect(got).toContain('す');
+      expect(got.some((face) => ['じ', 'で', 'ぱ', 'は', 'ば'].includes(face))).toBe(true);
+    }
   });
 
   it('includes voicing counterparts (は → ば/ぱ)', () => {
@@ -56,10 +63,12 @@ describe('confusionDistractors', () => {
     expect(got).toContain('ぱ');
   });
 
-  it('respects katakana script', () => {
+  it('respects katakana script while preserving option diversity', () => {
     const target = POOL.find((k) => k.id === 'k_shu')!;
     const got = confusionDistractors(target, POOL, 'KATAKANA', 2);
-    expect(got).toEqual(expect.arrayContaining(['シャ', 'ショ']));
+    expect(got.length).toBe(2);
+    expect(got.some((face) => ['シャ', 'ショ', 'シ'].includes(face))).toBe(true);
+    expect(got).toContain('ス');
     expect(got.every((g) => /[\u30A0-\u30FF]/.test(g[0] ?? ''))).toBe(true);
   });
 

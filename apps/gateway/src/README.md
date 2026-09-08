@@ -10,24 +10,34 @@
 
 Lingua Studio 采用**模块化单体（Modular Monolith）**，不是把每个学习功能拆成独立服务。Gateway 在一个进程内组合以下能力：
 
-```text
-Web / Tauri 客户端
-        │
-        │ HTTP + WebSocket
-        ▼
-┌──────────────────────────────────────────────┐
-│                 Agent Gateway                │
-│                                              │
-│  Transport → Session → Context → Agent/Tool  │
-│                    │                         │
-│              Domain Modules                  │
-│                    │                         │
-│       Repository Facade → SQLite             │
-└──────────────────────────────────────────────┘
-        │                    │
-        ▼                    ▼
-  agent-codex /          learner-core
-  agent-responses        （学习资产 SSOT）
+```mermaid
+flowchart TD
+    Client["Web / Tauri 客户端"]
+    Adapters["agent-codex / agent-responses"]
+    Learner["learner-core 学习资产 SSOT"]
+
+    subgraph Gateway["Agent Gateway 模块化单体"]
+        Transport["Transport"]
+        Runtime["Runtime"]
+        Session["Session"]
+        Context["ContextSnapshot"]
+        Router["AgentRouter + ToolRouter"]
+        Modules["Domain Modules"]
+        Repository["Repository Facade"]
+        SQLite["SQLite"]
+
+        Transport --> Runtime
+        Runtime --> Session
+        Runtime --> Context
+        Context --> Router
+        Router --> Modules
+        Modules --> Repository
+        Repository --> SQLite
+    end
+
+    Client -->|"HTTP + WebSocket"| Transport
+    Router --> Adapters
+    Repository --> Learner
 ```
 
 Gateway 的四个核心职责是：
@@ -54,11 +64,11 @@ Gateway 的四个核心职责是：
 
 ### 第一步：看启动装配
 
-```text
-index.ts
-  → bootstrap/config.ts
-  → bootstrap/create-gateway.ts
-  → bootstrap/start-gateway.ts
+```mermaid
+flowchart LR
+    Index["index.ts"] --> Config["bootstrap/config.ts"]
+    Config --> Create["bootstrap/create-gateway.ts"]
+    Create --> Start["bootstrap/start-gateway.ts"]
 ```
 
 这里可以回答“系统如何启动、依赖从哪里来”。
@@ -146,12 +156,29 @@ infrastructure/drizzle-learner-repository.ts
 
 WebSocket 主要用于实时场景：
 
-```text
-client.turn.send
-  → agent.turn.start
-  → agent.text.delta（可多次）
-  → agent.tool.call / agent.approval.request（按需）
-  → agent.turn.completed 或 agent.error
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant WS as websocket-handler
+    participant Runtime as GatewayRuntime
+
+    Client->>WS: client.turn.send
+    WS->>Runtime: 转发 Turn
+    Runtime-->>WS: agent.turn.start
+    WS-->>Client: agent.turn.start
+
+    loop 流式输出
+        Runtime-->>WS: agent.text.delta
+        WS-->>Client: agent.text.delta
+    end
+
+    opt 按需调用
+        Runtime-->>WS: agent.tool.call / agent.approval.request
+        WS-->>Client: 转发事件
+    end
+
+    Runtime-->>WS: agent.turn.completed 或 agent.error
+    WS-->>Client: 终态事件
 ```
 
 客户端发来的数据属于不可信边界，必须先通过协议 Schema 校验，再进入运行时或领域模块。
@@ -234,14 +261,14 @@ getActiveTab()
 
 推荐的数据流是：
 
-```text
-Agent 原生 tool_call
-  → ToolRouter
-  → Tool Registry 中的 Tool
-  → application 用例
-  → persistence / 外部 IO
-  → ToolResult
-  → AgentSession.submitToolResult()
+```mermaid
+flowchart LR
+    Call["Agent 原生 tool_call"] --> Router["ToolRouter"]
+    Router --> Registry["Tool Registry 中的 Tool"]
+    Registry --> Application["application 用例"]
+    Application --> IO["persistence / 外部 IO"]
+    IO --> Result["ToolResult"]
+    Result --> Submit["AgentSession.submitToolResult()"]
 ```
 
 学习域工具优先走进程内的原生 Tool 调度；MCP 只用于 Anki、Notion 等外部异构系统，不作为默认学习工具总线。
@@ -404,17 +431,11 @@ FSRS 算法由 `packages/learner-core` 掌握，本模块只调用领域契约�
 
 可以把它理解为：
 
-```text
-learner-core Repository 契约
-             ▲
-             │ implements
-infrastructure/drizzle-learner-repository.ts
-             │ delegates
-             ▼
-modules/*/persistence/
-             │
-             ▼
-       SQLite / Drizzle
+```mermaid
+flowchart TD
+    Contract["learner-core Repository 契约"] -->|"implemented by"| Facade["infrastructure/drizzle-learner-repository.ts"]
+    Facade -->|"delegates to"| Persistence["modules/*/persistence/"]
+    Persistence --> Database["SQLite / Drizzle"]
 ```
 
 `infrastructure/sqlite-learner-repository.ts` 是旧的兼容门面，已经 deprecated。新代码不应优先使用它。
@@ -486,41 +507,66 @@ transport/tools/                        # 跨域 Tool 和注册装配
 
 ### 10.1 Agent 请求生成练习
 
-```text
-client.turn.send
-  → websocket-handler
-  → GatewayRuntime
-  → ContextBuilder
-      → Repository 查询用户弱项/学习摘要
-  → AgentRouter
-  → AgentAdapter（默认 Codex）
-  → Agent 原生 tool_call
-  → ToolRouter
-  → modules/practice/tools/
-  → practice application
-  → practice persistence
-  → Zod/领域结果校验
-  → AgentSession.submitToolResult()
-  → agent.text.delta / agent.turn.completed
-  → WebSocket 返回客户端
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant WS as websocket-handler
+    participant Runtime as GatewayRuntime
+    participant Context as ContextBuilder
+    participant Repo as Repository
+    participant Router as AgentRouter
+    participant Adapter as AgentAdapter
+    participant Tools as ToolRouter
+    participant Practice as practice module
+    participant Session as AgentSession
+
+    Client->>WS: client.turn.send
+    WS->>Runtime: 转发 Turn
+    Runtime->>Context: 构建 ContextSnapshot
+    Context->>Repo: 查询用户弱项和学习摘要
+    Repo-->>Context: 返回学习摘要
+    Context-->>Runtime: ContextSnapshot
+    Runtime->>Router: 路由 Turn
+    Router->>Adapter: 启动 Turn（默认 Codex）
+    Adapter-->>Runtime: Agent 原生 tool_call
+    Runtime->>Tools: 执行 Tool
+    Tools->>Practice: 调用 modules/practice/tools/
+    Practice-->>Tools: 返回 Zod / 领域结果
+    Tools-->>Runtime: ToolResult
+    Runtime->>Session: submitToolResult()
+    Session-->>Adapter: 继续 Agent Turn
+    Adapter-->>Runtime: agent.text.delta / agent.turn.completed
+    Runtime-->>WS: 转发 AgentEvent
+    WS-->>Client: WebSocket 返回客户端
 ```
 
 要点：题目等结构化数据必须经过校验后再交给 UI；文本流用于解释，不应该代替可交互题包。
 
 ### 10.2 用户提交答案并沉淀错题
 
-```text
-client.quiz.submit
-  → transport / runtime handler
-  → practice application
-      → 客观题可先本地确定性判定
-  → ContextBuilder 组装作答快照
-  → AgentAdapter 做主观诊断或错因分析
-  → learning-progress Tool
-  → learning-progress application
-  → mistakes / learning-records persistence
-  → 更新 skill metrics 和错题状态
-  → agent.turn.completed + learner.* 事件
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant Transport as transport / runtime handler
+    participant Practice as practice application
+    participant Context as ContextBuilder
+    participant Adapter as AgentAdapter
+    participant Progress as learning-progress Tool
+    participant Repo as learning-progress persistence
+
+    Client->>Transport: client.quiz.submit
+    Transport->>Practice: 提交作答
+    Practice->>Practice: 客观题先做确定性判定
+    Practice-->>Transport: 作答结果和诊断输入
+    Transport->>Context: 组装作答快照
+    Context-->>Transport: ContextSnapshot
+    Transport->>Adapter: 主观诊断或错因分析
+    Adapter-->>Transport: learning-progress tool_call
+    Transport->>Progress: 执行学习进度 Tool
+    Progress->>Repo: 写入 mistakes / learning-records
+    Repo-->>Progress: 更新 skill metrics 和错题状态
+    Progress-->>Transport: ToolResult
+    Transport-->>Client: agent.turn.completed + learner.* 事件
 ```
 
 Agent 负责解释和诊断；`learner-core` 与数据库负责长期事实记录。
@@ -544,12 +590,14 @@ Agent 负责解释和诊断；`learner-core` 与数据库负责长期事实记�
 
 新增功能时优先遵循：
 
-```text
-领域命令先定义
-  → HTTP / WS / Agent Tool 作为多个入口
-  → 统一调用 application
-  → persistence 负责落库
-  → 通过 protocol 返回稳定结构
+```mermaid
+flowchart TD
+    HTTP["HTTP 入口"] --> Command["领域命令"]
+    WS["WebSocket 入口"] --> Command
+    AgentTool["Agent Tool 入口"] --> Command
+    Command --> Application["application 用例"]
+    Application --> Persistence["persistence"]
+    Persistence --> Protocol["protocol 稳定结构"]
 ```
 
 不要把完整业务流程藏在 React 按钮回调、单个 HTTP 路由或 Agent Prompt 中。
