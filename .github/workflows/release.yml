@@ -22,9 +22,9 @@ jobs:
           - name: Linux x64
             os: ubuntu-22.04
           - name: macOS Intel
-            os: macos-13
+            os: macos-15-intel
           - name: macOS Apple Silicon
-            os: macos-14
+            os: macos-15
 
     steps:
       - name: Checkout
@@ -34,7 +34,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libfuse2
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -72,6 +72,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         with:
           projectPath: apps/desktop
           tagName: v__VERSION__
