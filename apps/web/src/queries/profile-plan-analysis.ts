@@ -106,6 +106,7 @@ export interface CourseRouteUnit {
   };
   status: 'locked' | 'available' | 'mastered';
   progress: string;
+  needsReview?: boolean;
 }
 
 export interface CourseRoute {
