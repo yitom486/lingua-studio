@@ -390,7 +390,10 @@ describe('DrizzleLearnerRepository', () => {
     expect(isOk(first)).toBe(true);
     if (!isOk(first)) return;
     expect(first.value.planDate).toBe('2026-09-05');
+    // 路线单元置顶（en starter 单词单元，kind 仍是 NEW_WORDS；通用查词步让路）
+    expect(first.value.steps[0]?.id).toBe('step_unit_en-u-starter');
     expect(first.value.steps[0]?.kind).toBe('NEW_WORDS');
+    expect(first.value.steps.some((s) => s.id === 'step_new_words')).toBe(false);
     expect(first.value.steps.some((s) => s.kind === 'READING')).toBe(true);
     expect(first.value.steps.some((s) => s.kind === 'QUIZ')).toBe(true);
 
@@ -404,7 +407,15 @@ describe('DrizzleLearnerRepository', () => {
     const afterCards = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
     expect(isOk(afterCards)).toBe(true);
     if (!isOk(afterCards)) return;
-    expect(afterCards.value.steps.find((s) => s.kind === 'NEW_WORDS')?.done).toBe(true);
+    // 单元步目标 3 张：1 张后计数推进但未完成（overlay live 生效）
+    const unitStep = afterCards.value.steps.find((s) => s.id === 'step_unit_en-u-starter');
+    expect(unitStep?.currentCount).toBe(1);
+    expect(unitStep?.done).toBe(false);
+    await repo.recordDailyActivity(userId, { cards: 2, date: '2026-09-05' });
+    const afterMore = await repo.getOrCreateDailyStudyPlan(userId, '2026-09-05');
+    expect(isOk(afterMore)).toBe(true);
+    if (!isOk(afterMore)) return;
+    expect(afterMore.value.steps.find((s) => s.id === 'step_unit_en-u-starter')?.done).toBe(true);
 
     const marked = await repo.completeDailyPlanStep(userId, 'step_quiz', '2026-09-05');
     expect(isOk(marked)).toBe(true);

@@ -73,6 +73,67 @@ describe('daily plan sequencing', () => {
     expect(reading2?.navigateTo).toBe('READING');
   });
 
+  it('路线单元置顶：单元步在前，路线覆盖的通用步让路', () => {
+    const unit = (id: string, kind: 'ALPHABET' | 'NEW_WORDS' | 'GRAMMAR', skillId?: string) => ({
+      id,
+      kind,
+      title: `单元${id}`,
+      summary: '单元',
+      navigateTo: 'KANA' as const,
+      ...(skillId ? { skillId } : {}),
+    });
+    // NOVICE + 字母单元：通用五十音跟读让路（路线 own 住字母线）
+    const steps = buildDailyPlanStepTemplates({
+      track: 'ja',
+      learnerLevel: 'NOVICE',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+      alphabetReady: false,
+      unitSteps: [unit('step_unit_a', 'ALPHABET'), unit('step_unit_b', 'NEW_WORDS')],
+    });
+    expect(steps[0]?.id).toBe('step_unit_a');
+    expect(steps[1]?.id).toBe('step_unit_b');
+    expect(steps.some((s) => s.id === 'step_alphabet')).toBe(false);
+    expect(steps.some((s) => s.id === 'step_new_words')).toBe(false);
+    // 到期卡仍保留（复习欠账与路线无关）
+    const withDue = buildDailyPlanStepTemplates({
+      track: 'ja',
+      learnerLevel: 'NOVICE',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 4,
+      unresolvedMistakesCount: 0,
+      alphabetReady: false,
+      unitSteps: [unit('step_unit_a', 'ALPHABET')],
+    });
+    expect(withDue.map((s) => s.id)).toEqual(['step_unit_a', 'step_cards']);
+    // 同技能薄弱项不重复排
+    const dedup = buildDailyPlanStepTemplates({
+      track: 'ja',
+      learnerLevel: 'BEGINNER',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+      alphabetReady: true,
+      topWeakness: { skillId: 'jp.grammar.conditional_tara', name: 'たら' },
+      unitSteps: [unit('step_unit_t', 'GRAMMAR', 'jp.grammar.conditional_tara')],
+    });
+    expect(dedup.filter((s) => s.kind === 'GRAMMAR').length).toBe(1);
+    // 无单元步时行为不变（旧快照兼容）
+    const legacy = buildDailyPlanStepTemplates({
+      track: 'ja',
+      dailyGoalQuizzes: 5,
+      dailyGoalCards: 10,
+      dueCardsCount: 0,
+      unresolvedMistakesCount: 0,
+      alphabetReady: true,
+    });
+    expect(legacy.map((s) => s.kind)).toEqual(['NEW_WORDS', 'READING', 'QUIZ']);
+  });
+
   it('overlays live stats without changing stored order', () => {
     const templates = buildDailyPlanStepTemplates({
       track: 'ja',

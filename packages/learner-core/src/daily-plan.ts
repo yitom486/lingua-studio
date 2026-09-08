@@ -67,6 +67,11 @@ export interface DailyPlanSignals {
   unresolvedMistakesCount: number;
   topWeakness?: { skillId: string; name: string } | undefined;
   /**
+   * 路线单元步（网关课程路线求值出的可学单元转模板，至多取 3 个置顶；
+   * 通用步中路线已覆盖的种类自动让路）。
+   */
+  unitSteps?: DailyPlanStepTemplate[] | undefined;
+  /**
    * 教材焦点（投影仪装配，由网关 reading_positions 推导“学到哪课”）：
    * 有焦点时 READING 步直接点名“精读《X》第 Y 课”，计划跟着教材走；
    * 无焦点保持通用精读（零教材用户不受影响）。
@@ -107,9 +112,10 @@ export function isDailyPlanStepKind(value: unknown): value is DailyPlanStepKind 
 
 /**
  * 按教学顺序组当日步骤（最多 5 项）：
+ * 路线单元优先（课程路线求值出的可学单元，最多 3 个）；
  * 到期闪卡优先复习；无到期则改学新词 → 薄弱语法 → 阅读 → 自适应做题 → 未消错题。
- * 字母门：ja/ko 且 alphabetReady=false 时，只排字母跟读（+到期卡/错题），
- * 不推精读与自适应难题；字母薄弱项由 ALPHABET 步覆盖，不再单开 GRAMMAR 步。
+ * 路线覆盖的通用步自动让路（字母跟读/查词学新词/同技能薄弱项不重复排）。
+ * 字母门：ja/ko 且 alphabetReady=false 时，不推精读与自适应难题。
  */
 export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPlanStepTemplate[] {
   const steps: DailyPlanStepTemplate[] = [];
@@ -117,8 +123,15 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
   const cardGoal = Math.max(1, signals.dailyGoalCards);
   const novice = signals.learnerLevel === 'NOVICE';
   const alphabetGate = (novice || !signals.alphabetReady) && (signals.track === 'ja' || signals.track === 'ko');
+  // 路线单元优先：取前 3 个可学单元，标题/入口由单元自带。
+  const unitSteps = (signals.unitSteps ?? []).slice(0, 3);
+  const unitKinds = new Set(unitSteps.map((s) => s.kind));
+  const unitSkills = new Set(
+    unitSteps.map((s) => s.skillId).filter((s): s is string => typeof s === 'string')
+  );
+  for (const u of unitSteps) steps.push(u);
 
-  if (alphabetGate) {
+  if (alphabetGate && !unitKinds.has('ALPHABET')) {
     steps.push({
       id: 'step_alphabet',
       kind: 'ALPHABET',
@@ -139,7 +152,7 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
       navigateTo: 'CARDS',
       targetCount,
     });
-  } else {
+  } else if (!unitKinds.has('NEW_WORDS')) {
     steps.push({
       id: 'step_new_words',
       kind: 'NEW_WORDS',
@@ -150,7 +163,12 @@ export function buildDailyPlanStepTemplates(signals: DailyPlanSignals): DailyPla
     });
   }
 
-  if (signals.topWeakness && !alphabetGate && !novice) {
+  if (
+    signals.topWeakness &&
+    !alphabetGate &&
+    !novice &&
+    !unitSkills.has(signals.topWeakness.skillId)
+  ) {
     steps.push({
       id: 'step_grammar',
       kind: 'GRAMMAR',

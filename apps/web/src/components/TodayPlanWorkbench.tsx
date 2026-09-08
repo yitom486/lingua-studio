@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import type { DailyPlanStep, DailyPlanStepKind } from '@study-studio/learner-core';
 import { NumberTicker } from './magicui/index.js';
+import { CourseRouteBanner } from './CourseRouteBanner.js';
 import { Badge } from './ui/badge.js';
 import { Button } from './ui/button.js';
 import { Progress } from './ui/progress.js';
@@ -119,6 +120,7 @@ export function TodayPlanWorkbench() {
       {isLoading && (
         <p className="text-xs text-stone-500">正在生成今日计划…</p>
       )}
+      <CourseRouteBanner />
       {isError && (
         <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-4 text-xs text-rose-800 dark:text-rose-200">
           暂时无法读取今日计划。

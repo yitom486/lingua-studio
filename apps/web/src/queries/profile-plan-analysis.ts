@@ -83,7 +83,67 @@ export function useDailyPlanQuery(userId = DEFAULT_USER_ID, date?: string, langO
       }
       return null;
     },
-    staleTime: 1000 * 20,
+    staleTime: 1000 * 30,
+  });
+}
+
+export interface CourseRouteUnit {
+  unit: {
+    id: string;
+    track: string;
+    stage: number;
+    order: number;
+    kind: string;
+    title: string;
+    summary: string;
+    activity: {
+      planKind: string;
+      navigateTo: string;
+      skillId?: string;
+      skillName?: string;
+      targetCount?: number;
+    };
+  };
+  status: 'locked' | 'available' | 'mastered';
+  progress: string;
+}
+
+export interface CourseRoute {
+  units: CourseRouteUnit[];
+  nextUpId: string | null;
+}
+
+const STAGE_NAMES: Record<number, string> = { 0: '零基础', 1: '初学者', 2: '中级', 3: '高级' };
+
+export function courseStageName(stage: number): string {
+  return STAGE_NAMES[stage] ?? `阶段${stage}`;
+}
+
+/** 课程路线（长期路线 + 解锁态；失败返回 null，调用方隐藏横幅）。 */
+export function useCourseRouteQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
+  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+  const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
+  return useQuery<CourseRoute | null>({
+    queryKey: [...QUERY_KEYS.PROFILE, userId, targetLanguage, 'course-route'],
+    queryFn: async () => {
+      try {
+        const res = await fetch(
+          `${GATEWAY_BASE_URL}/api/course-route/${encodeURIComponent(userId)}?lang=${targetLanguage}`
+        );
+        if (!res.ok) return null;
+        const data: unknown = await res.json().catch(() => null);
+        const rec = (typeof data === 'object' && data !== null ? data : {}) as Record<string, unknown>;
+        if (!Array.isArray(rec.units)) return null;
+        return {
+          units: rec.units as CourseRouteUnit[],
+          nextUpId: typeof rec.nextUpId === 'string' ? rec.nextUpId : null,
+        };
+      } catch (e) {
+        logger.debug('[useCourseRouteQuery] Failed to load course route', e);
+      }
+      return null;
+    },
+    staleTime: 1000 * 60,
   });
 }
 
@@ -241,8 +301,7 @@ export type LevelInfo = {
 };
 
 /** 档位信息（当前档 + 升级提示语；做题/字母落盘后网关自动升降级）。 */
-export function useLevelInfoQuery(userId = DEFAULT_USER_ID, langOverride?: string) {
-  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
+export function useLevelInfoQuery(userId = DEFAULT_USER_ID, langOverride?: string) {  const profileLang = useUserProfileStore((s) => s.profile.targetLanguage);
   const targetLanguage = normalizeTrackLanguage(langOverride || profileLang);
   return useQuery<LevelInfo | null>({
     queryKey: [...QUERY_KEYS.PROFILE, userId, targetLanguage, 'level'],

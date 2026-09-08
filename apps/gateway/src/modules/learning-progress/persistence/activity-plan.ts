@@ -577,6 +577,31 @@ export async function hydrateDailyStudyPlan(
   } catch {
     textbookFocus = undefined;
   }
+  // 课程路线：取前 3 个可学单元置顶为计划步（长期路线不随每日重置；
+  // 路由失败/无可用单元时回退纯通用计划，不挡主路径）。
+  let unitSteps: DailyPlanStepTemplate[] | undefined;
+  try {
+    const routeRes = await deps.repo.getCourseRoute?.(userId, language);
+    if (routeRes && isOk(routeRes)) {
+      const avail = routeRes.value.units.filter((u) => u.status === 'available').slice(0, 3);
+      if (avail.length > 0) {
+        unitSteps = avail.map((u) => ({
+          id: `step_unit_${u.unit.id}`,
+          kind: u.unit.activity.planKind,
+          title: u.unit.title,
+          summary: `${u.unit.summary}（进度 ${u.progress}）`,
+          navigateTo: u.unit.activity.navigateTo,
+          ...(u.unit.activity.skillId ? { skillId: u.unit.activity.skillId } : {}),
+          ...(u.unit.activity.skillName ? { skillName: u.unit.activity.skillName } : {}),
+          ...(typeof u.unit.activity.targetCount === 'number'
+            ? { targetCount: u.unit.activity.targetCount }
+            : {}),
+        }));
+      }
+    }
+  } catch {
+    unitSteps = undefined;
+  }
   const signals = {
     track: language,
     learnerLevel: profile.learnerLevel,
@@ -588,6 +613,7 @@ export async function hydrateDailyStudyPlan(
     alphabetReady: profile.learnerLevel !== 'NOVICE',
     ...(topWeakness ? { topWeakness: { skillId: topWeakness.id, name: topWeakness.name } } : {}),
     ...(textbookFocus ? { textbookFocus } : {}),
+    ...(unitSteps ? { unitSteps } : {}),
   };
 
   // P5-E3：练习计划 run 进度信号（活跃 run 或当日完成 run 才存在）

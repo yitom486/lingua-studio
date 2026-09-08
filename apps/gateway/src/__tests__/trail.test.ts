@@ -155,10 +155,11 @@ describe('Beginner Trail (learning-progress domain)', () => {
     expect(isOk(planRes)).toBe(true);
     if (!isOk(planRes)) return;
     const ids = planRes.value.steps.map((s) => s.id);
-    expect(ids[0]).toBe('step_alphabet');
+    // 路线单元置顶：首步仍是字母跟读（元音单元→假名工作室），不是体验路线
+    expect(ids[0]).toBe('step_unit_ja-u-vowels');
     expect(ids.some((id) => id.startsWith('step_trail_'))).toBe(false);
     expect(planRes.value.steps.some(s => s.kind === 'READING' || s.kind === 'QUIZ')).toBe(false);
-    expect(planRes.value.steps[0]?.title).toContain('五十音');
+    expect(planRes.value.steps[0]?.title).toContain('あいうえお');
   });
 
   it('M1：带路走完后计划回到标准步骤', async () => {
