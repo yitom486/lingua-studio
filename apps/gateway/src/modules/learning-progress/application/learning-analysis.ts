@@ -1,5 +1,5 @@
 import type { AgentAdapter } from '@study-studio/agent-core';
-import type { LearnerRepository, LearnerProfileSnapshot } from '@study-studio/learner-core';
+import { summarizeLearningEvidence, type LearnerRepository, type LearnerProfileSnapshot } from '@study-studio/learner-core';
 import type {
   LearningAnalysisReport,
   LearningSuggestion,
@@ -54,7 +54,8 @@ export async function buildAnalysisSnapshot(
     return ok({
       userId,
       targetLanguage: profile.targetLanguage,
-      overallLevel: profile.overallLevel,
+      overallLevel: '未进行标准化能力评测',
+      practiceEvidence: summarizeLearningEvidence(profile.allMetrics, profile.targetLanguage),
       learnerLevel: profile.profile?.learnerLevel,
       studyGoal: profile.profile?.studyGoal,
       streakDays: profile.profile?.streakDays,
@@ -87,6 +88,7 @@ export async function buildAnalysisSnapshot(
 }
 
 export interface AnalysisSnapshot {
+  practiceEvidence?: ReturnType<typeof summarizeLearningEvidence>;
   userId: string;
   targetLanguage: string;
   overallLevel: string;

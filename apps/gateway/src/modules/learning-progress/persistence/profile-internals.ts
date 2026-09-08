@@ -62,7 +62,7 @@ export async function ensureLanguageProfile(
     studyGoal: seed?.studyGoal ?? defaults.studyGoal,
     learnerLevel: seed?.learnerLevel ?? defaults.learnerLevel,
     overallLevel: seed?.overallLevel ?? defaults.overallLevel,
-    overallProficiency: seed?.overallProficiency ?? 0.55,
+    overallProficiency: seed?.overallProficiency ?? 0,
     streakDays: seed?.streakDays ?? 0,
     maxStreakDays: seed?.maxStreakDays ?? 0,
     lastActiveDate: seed?.lastActiveDate ?? null,

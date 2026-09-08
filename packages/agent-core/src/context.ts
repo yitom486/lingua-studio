@@ -16,6 +16,15 @@ export interface ContextFocusItem {
 }
 
 export interface LearnerDigest {
+  /** 记录阶段不是外部语言认证；证据缺失保持未知。 */
+  recordedStage?: string;
+  studyGoal?: string;
+  practiceEvidence?: {
+    status: 'observed' | 'unassessed'; attempts: number; correct: number;
+    accuracy: number | null; observedSkillCount: number;
+    skills: Array<{ skillId: string; name: string; attempts: number; correct: number; accuracy: number; lastPracticedAt?: string }>;
+    limitation: string;
+  };
   topWeaknesses: LearnerWeaknessDigest[];
   dueCardsCount?: number | undefined;
   unresolvedMistakesCount?: number | undefined;

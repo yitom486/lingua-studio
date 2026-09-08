@@ -1,10 +1,9 @@
 import type { ContextSnapshot, ContextFocusItem } from '@study-studio/agent-core';
-import type { LearnerProfileSnapshot, LearnerRepository } from '@study-studio/learner-core';
+import { summarizeLearningEvidence, type LearnerProfileSnapshot, type LearnerRepository } from '@study-studio/learner-core';
 import type { GeneratedQuestion, Flashcard } from '@study-studio/protocol';
 import { isOk } from '@study-studio/shared';
 import {
   buildTrackCoachMetadata,
-  defaultLearnerLevelLabel,
   normalizeTrackLanguage,
   skillMatchesTrack,
   type TrackLanguage,
@@ -21,32 +20,6 @@ export interface BuildTurnContextParams {
 
 function countDueCards(cards: Flashcard[], nowIso: string): number {
   return cards.filter((c) => !c.fsrs.dueAt || c.fsrs.dueAt <= nowIso).length;
-}
-
-function extractKanaMastery(
-  metrics: Array<{ id: string; proficiency: number }>
-): { hiragana: number; katakana: number } | undefined {
-  const hira = metrics.find((m) => m.id === 'jp.kana.hiragana');
-  const kata = metrics.find((m) => m.id === 'jp.kana.katakana');
-  if (!hira && !kata) return undefined;
-  return {
-    hiragana: hira?.proficiency ?? 0,
-    katakana: kata?.proficiency ?? 0,
-  };
-}
-
-function extractHangulMastery(
-  metrics: Array<{ id: string; proficiency: number }>
-): { consonant: number; vowel: number; compound: number } | undefined {
-  const consonant = metrics.find((m) => m.id === 'ko.hangul.consonant');
-  const vowel = metrics.find((m) => m.id === 'ko.hangul.vowel');
-  const compound = metrics.find((m) => m.id === 'ko.hangul.compound');
-  if (!consonant && !vowel && !compound) return undefined;
-  return {
-    consonant: consonant?.proficiency ?? 0,
-    vowel: vowel?.proficiency ?? 0,
-    compound: compound?.proficiency ?? 0,
-  };
 }
 
 /** 从错题与薄弱项压缩近期错因标签（限长） */
@@ -91,18 +64,14 @@ export class ContextBuilder {
     const track = normalizeTrackLanguage(profile.targetLanguage);
 
     const topWeaknesses = profile.weaknesses
-      .filter((w) => skillMatchesTrack(w.id, track))
+      .filter((w) => skillMatchesTrack(w.id, track) && w.totalAttempts > 0)
       .slice(0, 5)
       .map((w) => ({ skillId: w.id, name: w.name, proficiency: w.proficiency }));
 
-    const kanaMastery =
-      track === 'ja' ? extractKanaMastery(profile.allMetrics ?? []) : undefined;
-    const hangulMastery =
-      track === 'ko' ? extractHangulMastery(profile.allMetrics ?? []) : undefined;
 
     return {
       targetLanguage: track,
-      learnerLevel: profile.overallLevel,
+      learnerLevel: profile.profile?.learnerLevel ?? 'UNKNOWN',
       locale: 'zh-CN',
       ui: ui || { activeTab: 'TUTOR' },
       focus: focus || (currentQuestion ? {
@@ -116,8 +85,8 @@ export class ContextBuilder {
       } : undefined),
       learnerDigest: {
         topWeaknesses,
-        ...(kanaMastery ? { kanaMastery } : {}),
-        ...(hangulMastery ? { hangulMastery } : {}),
+        ...(profile.profile ? { recordedStage: profile.profile.learnerLevel, studyGoal: profile.profile.studyGoal } : {}),
+        practiceEvidence: summarizeLearningEvidence(profile.allMetrics ?? [], track),
       },
       topWeaknesses: topWeaknesses.map((w) => `${w.skillId} (${w.name})`),
       currentQuestion: currentQuestion
@@ -142,18 +111,19 @@ export class ContextBuilder {
     learnerRepo: LearnerRepository,
     clientSnapshot?: Partial<ContextSnapshot>
   ): Promise<ContextSnapshot> {
-    const [profileRes, snapshotRes, dueCardsRes, mistakesRes, planRes] = await Promise.all([
-      learnerRepo.getLearnerProfile(userId),
-      learnerRepo.getProfileSnapshot(userId),
-      learnerRepo.getDueCards(userId, 100),
-      learnerRepo.getMistakes(userId, { resolved: false }),
+    const profileRes = await learnerRepo.getLearnerProfile(userId);
+    const activeProfile = isOk(profileRes) ? profileRes.value : null;
+    const track = resolveTrack(clientSnapshot, activeProfile?.targetLanguage);
+    const [snapshotRes, dueCardsRes, mistakesRes, planRes] = await Promise.all([
+      learnerRepo.getProfileSnapshot(userId, track),
+      learnerRepo.getDueCards(userId, 100, { language: track }),
+      learnerRepo.getMistakes(userId, { resolved: false, language: track }),
       learnerRepo.getOrCreateDailyStudyPlan(userId),
     ]);
-
-    const profile = isOk(profileRes) ? profileRes.value : null;
     const snapshot = isOk(snapshotRes) ? snapshotRes.value : null;
+    const profile = snapshot?.profile?.targetLanguage === track ? snapshot.profile
+      : activeProfile?.targetLanguage === track ? activeProfile : null;
     const nowIso = new Date().toISOString();
-    const track = resolveTrack(clientSnapshot, profile?.targetLanguage);
 
     const dueCardsCount = isOk(dueCardsRes)
       ? countDueCards(dueCardsRes.value, nowIso)
@@ -163,7 +133,7 @@ export class ContextBuilder {
     const unresolvedMistakesCount = unresolvedMistakes.length;
 
     const weaknesses = (snapshot?.weaknesses || [])
-      .filter((w) => skillMatchesTrack(w.id, track))
+      .filter((w) => skillMatchesTrack(w.id, track) && w.totalAttempts > 0)
       .slice(0, 5)
       .map((w) => ({
         skillId: w.id,
@@ -172,10 +142,6 @@ export class ContextBuilder {
       }));
 
     const allMetrics = snapshot?.allMetrics ?? [];
-    const kanaMastery =
-      track === 'ja' ? extractKanaMastery(allMetrics) : undefined;
-    const hangulMastery =
-      track === 'ko' ? extractHangulMastery(allMetrics) : undefined;
     const recentErrorTags = deriveRecentErrorTags(
       unresolvedMistakes
         .filter((m) => skillMatchesTrack(String(m.question?.testedSkillId || ''), track))
@@ -192,22 +158,19 @@ export class ContextBuilder {
 
     return {
       targetLanguage: track,
-      learnerLevel:
-        clientSnapshot?.learnerLevel ||
-        profile?.overallLevel ||
-        defaultLearnerLevelLabel(track),
+      learnerLevel: profile?.learnerLevel ?? 'UNKNOWN',
       locale: clientSnapshot?.locale || 'zh-CN',
       ui: clientSnapshot?.ui || { activeTab: 'TUTOR' },
       focus: clientSnapshot?.focus,
       learnerDigest: {
         topWeaknesses: weaknesses,
-        dueCardsCount,
-        unresolvedMistakesCount,
-        streakDays: profile?.streakDays || 0,
+        ...(profile ? { recordedStage: profile.learnerLevel, studyGoal: profile.studyGoal } : {}),
+        ...(snapshot ? { practiceEvidence: summarizeLearningEvidence(allMetrics, track) } : {}),
+        ...(isOk(dueCardsRes) ? { dueCardsCount } : {}),
+        ...(isOk(mistakesRes) ? { unresolvedMistakesCount } : {}),
+        ...(profile ? { streakDays: profile.streakDays } : {}),
         recentErrorTags,
-        ...(kanaMastery ? { kanaMastery } : {}),
-        ...(hangulMastery ? { hangulMastery } : {}),
-        ...(isOk(planRes)
+        ...(isOk(planRes) && planRes.value.language === track
           ? {
               dailyPlanRemaining: planRes.value.steps
                 .filter((step) => !step.done)

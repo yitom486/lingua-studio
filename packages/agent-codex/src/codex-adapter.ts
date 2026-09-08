@@ -734,6 +734,10 @@ export function buildLearnerContextEntry(
     `targetLanguage: ${snapshot.targetLanguage}`,
     `learnerLevel: ${snapshot.learnerLevel}`,
   ];
+  if (snapshot.learnerDigest) {
+    lines.push('learnerEvidence: ' + JSON.stringify(snapshot.learnerDigest));
+    lines.push('interpretation: Recorded stage is not language certification. Study goal is a target, not achieved ability. Practice accuracy only describes observed exercises; untested skills are unknown. Collection counts and activity completion are not mastery. For NOVICE, teach small foundational units before testing; do not prescribe intensive reading by default.');
+  }
   if (snapshot.focus?.surface) lines.push(`focus: ${snapshot.focus.surface}`);
   if (snapshot.focus?.skillTag) lines.push(`skill: ${snapshot.focus.skillTag}`);
   if (snapshot.learnerDigest?.topWeaknesses?.length) {

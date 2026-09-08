@@ -194,3 +194,10 @@ describe('Agent Codex - Mapper & Adapter', () => {
     }
   });
 });
+
+it('传给模型的上下文保留证据与不确定性', () => {
+  const ctx = buildLearnerContextEntry({ targetLanguage: 'ja', learnerLevel: 'NOVICE', learnerDigest: { topWeaknesses: [], recordedStage: 'NOVICE', studyGoal: 'JLPT_N5', practiceEvidence: { status: 'unassessed', attempts: 0, correct: 0, accuracy: null, observedSkillCount: 0, skills: [], limitation: '未测能力未知' } } });
+  expect(ctx?.value).toContain('"accuracy":null');
+  expect(ctx?.value).toContain('Study goal is a target');
+  expect(ctx?.value).toContain('NOVICE');
+});

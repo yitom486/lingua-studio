@@ -9,7 +9,7 @@ import { sound } from '../utils/audio.js';
 import { useStudySessionStore } from '../stores/useStudySessionStore.js';
 import { useUserProfileStore } from '../stores/useUserProfileStore.js';
 import { useLearningShell } from '../hooks/useLearningShell.js';
-import type { SkillMetric } from '@study-studio/learner-core';
+import { summarizeLearningEvidence, type SkillMetric } from '@study-studio/learner-core';
 import { useEncounteredTermsQuery, useBackfillEncounteredTermsMutation } from '../queries/useLearnerQueries.js';
 import { Tabs, TabsList, TabsTrigger, TabsIndicator } from './ui/tabs.js';
 import { Button } from './ui/button.js';
@@ -129,9 +129,9 @@ export function LearnerRadarDashboard({
     });
   }, [metrics, shell.track]);
 
-  const overallPercent = Math.round((profile.overallProficiency || 0) * 100);
+  const evidence = summarizeLearningEvidence(displayMetrics, shell.track);
+  const practicePercent = evidence.accuracy === null ? null : Math.round(evidence.accuracy * 100);
   const retentionPercent = Math.round((profile.retentionRate || 0) * 100);
-  const levelLabel = overallPercent === 0 ? '待评测' : (profile.overallLevel || '稳步上升');
 
   const visibleMetrics = displayMetrics.filter(
     (m: SkillMetric) => metricDimension === 'ALL' || m.dimension === metricDimension
@@ -149,16 +149,16 @@ export function LearnerRadarDashboard({
       {/* Magic UI BentoGrid 核心概览指标 */}
       <BentoGrid className="auto-rows-[9.5rem] md:grid-cols-3">
         <BentoCard
-          name="综合语言掌握度"
+          name="已练内容正确率"
           Icon={Award}
-          description={`${shell.trackName}能力评估 · ${shell.copy.levelSchemeLabel}`}
+          description={evidence.attempts > 0 ? `${evidence.correct}/${evidence.attempts} 次答对 · ${evidence.observedSkillCount} 个已练技能；不代表整体水平` : '尚无有效练习记录，未测能力保持未知'}
         >
           <div className="flex items-baseline gap-1 pt-1">
             <span className="text-3xl font-bold font-mono text-amber-600 dark:text-amber-400">
-              <NumberTicker value={overallPercent} />%
+              {practicePercent === null ? '待评测' : <><NumberTicker value={practicePercent} />%</>}
             </span>
             <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-              （{levelLabel}）
+              累计记录
             </span>
           </div>
         </BentoCard>

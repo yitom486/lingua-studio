@@ -10,3 +10,5 @@ export * from './fsrs.js';
 export * from './kana-adaptive.js';
 export * from './mistake.js';
 export * from './repository.js';
+
+export * from './learning-evidence.js';

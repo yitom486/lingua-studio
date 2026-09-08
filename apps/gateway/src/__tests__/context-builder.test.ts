@@ -198,8 +198,9 @@ describe('ContextBuilder.buildTurnSnapshot', () => {
     expect(snapshot.learnerDigest?.dueCardsCount).toBe(1);
     expect(snapshot.learnerDigest?.unresolvedMistakesCount).toBe(2);
     expect(snapshot.learnerDigest?.streakDays).toBe(7);
-    expect(snapshot.learnerDigest?.kanaMastery?.hiragana).toBe(0.72);
-    expect(snapshot.learnerDigest?.kanaMastery?.katakana).toBe(0.55);
+    expect(snapshot.learnerDigest?.practiceEvidence?.attempts).toBe(30);
+    expect(snapshot.learnerDigest?.practiceEvidence?.accuracy).toBe(0.5);
+    expect(snapshot.learnerDigest?.kanaMastery).toBeUndefined();
     expect(snapshot.learnerDigest?.recentErrorTags?.length).toBeGreaterThan(0);
     expect(snapshot.learnerDigest?.topWeaknesses.some((w) => w.skillId.includes('particle'))).toBe(
       true
@@ -231,9 +232,8 @@ describe('ContextBuilder.buildTurnSnapshot', () => {
     );
 
     expect(snapshot.targetLanguage).toBe('ko');
-    expect(snapshot.learnerDigest?.hangulMastery?.consonant).toBe(0.8);
-    expect(snapshot.learnerDigest?.hangulMastery?.vowel).toBe(0.6);
-    expect(snapshot.learnerDigest?.hangulMastery?.compound).toBe(0.4);
+    expect(snapshot.learnerDigest?.practiceEvidence?.observedSkillCount).toBe(3);
+    expect(snapshot.learnerDigest?.hangulMastery).toBeUndefined();
     expect(snapshot.learnerDigest?.kanaMastery).toBeUndefined();
   });
 
@@ -290,4 +290,16 @@ describe('deriveRecentErrorTags', () => {
     expect(tags).toContain('助词');
     expect(tags).toContain('LISTENING');
   });
+});
+
+it('服务端记录阶段优先于客户端及旧 N3 标签，目标单独传递', async () => {
+  const snapshot = await new ContextBuilder().buildTurnSnapshot('u1', mockRepo({ overallLevel: 'N3-' }), { learnerLevel: 'C2' });
+  expect(snapshot.learnerLevel).toBe('BEGINNER');
+  expect(snapshot.learnerDigest?.studyGoal).toBe('JLPT_N5');
+  expect(snapshot.learnerDigest?.practiceEvidence?.accuracy).toBeNull();
+});
+it('异语种画像不可作为当前语种等级或计划', async () => {
+  const snapshot = await new ContextBuilder().buildTurnSnapshot('u1', mockRepo({ targetLanguage: 'ja' }), { targetLanguage: 'en', learnerLevel: 'B2' });
+  expect(snapshot.learnerLevel).toBe('UNKNOWN');
+  expect(snapshot.learnerDigest?.dailyPlanRemaining).toBeUndefined();
 });
