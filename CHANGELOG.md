@@ -2,6 +2,15 @@
 
 All notable changes to Lingua Studio are documented here. Release notes are reused by the GitHub Release workflow.
 
+## [0.1.1] - 2026-09-08
+
+### Changed
+
+- fix(desktop): use dynamic gateway ports and expose updater
+- feat(db): v14教材shred表结构
+- ci(release): publish stable Linux bundles
+- ci(release): refresh platform runners and AppImage setup
+
 ## [0.1.0] - 2026-09-08
 
 The first public desktop release of Lingua Studio.
@@ -22,4 +31,3 @@ The first public desktop release of Lingua Studio.
 - Learning data is stored in the application data directory, separate from the installed application bundle.
 - Updates replace the application bundle only; user profiles, study records, cards, mistakes, preferences, and databases are retained.
 - Database migrations are additive and the desktop settings panel provides a database backup action.
-

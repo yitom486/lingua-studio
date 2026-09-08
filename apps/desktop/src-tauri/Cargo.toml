@@ -1,6 +1,6 @@
 [package]
 name = "study-studio-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lingua Studio Desktop Shell"
 edition = "2021"
 
